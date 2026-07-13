@@ -1,0 +1,18 @@
+# Godot editor and import cache
+.godot/
+
+# Local exports and release archives are published through GitHub Releases
+build/
+release/
+*.zip
+*.pck
+
+# Large local-only visual research files
+design/font-candidates/downloads/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.log
