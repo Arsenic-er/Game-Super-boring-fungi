@@ -34,11 +34,22 @@ func _run() -> void:
 	game.scout_upgrade_levels["speed"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	for i in range(game.MAX_EXPEDITION_SPORES):
 		game._spawn_expedition_spore(barracks_id, "scout" if i % 8 == 0 else "forager")
+	game.ecology_events = [{
+		"id": 1,
+		"type": "toxin",
+		"pos": Vector2(300.0, -120.0),
+		"radius": game.ECOLOGY_TOXIN_ZONE_RADIUS,
+		"phase": "active",
+		"remaining": 9999.0,
+		"anchor_core_id": barracks_id,
+		"spawned": 0
+	}]
 	var started := Time.get_ticks_usec()
 	# 120次批量更新相当于约2秒的60×压力负载。
 	for i in range(120):
 		game._update_bacteria(1.0)
 		game._update_expedition_units(1.0)
+		game._update_ecology_events(1.0)
 		game._update_core_hazards(1.0)
 		if i % 12 == 0:
 			game._discover_feeders()
@@ -58,6 +69,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)

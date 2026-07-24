@@ -102,6 +102,18 @@ const CORE_PASSIVE_RECOVERY_RATE := 0.005
 const CORE_REPAIR_RECOVERY_RATE := 0.080
 const BACTERIA_TOXIN_RADIUS := 48.0
 const BACTERIA_TOXIN_DAMAGE_RATE := 0.004
+const ECOLOGY_FIRST_EVENT_MIN := 180.0
+const ECOLOGY_FIRST_EVENT_MAX := 240.0
+const ECOLOGY_EVENT_INTERVAL_MIN := 360.0
+const ECOLOGY_EVENT_INTERVAL_MAX := 600.0
+const ECOLOGY_EVENT_WARNING_SECONDS := 45.0
+const ECOLOGY_BLOOM_ACTIVE_SECONDS := 120.0
+const ECOLOGY_TOXIN_ACTIVE_SECONDS := 75.0
+const ECOLOGY_BLOOM_RADIUS := 120.0
+const ECOLOGY_TOXIN_ZONE_RADIUS := 105.0
+const ECOLOGY_BLOOM_SPAWN_COUNT := 16
+const ECOLOGY_TOXIN_DAMAGE_RATE := 0.045
+const ECOLOGY_BLOOM_TOXIN_MULTIPLIER := 1.15
 const CORE_MAX_TOXIN_DAMAGE_RATE := 0.35
 const ORPHAN_HYPHA_DECAY_SECONDS := 180.0
 const ORPHAN_RESCUE_DISTANCE := 18.0
@@ -256,6 +268,15 @@ var discovery_banner_detail := ""
 var discovery_banner_time := 0.0
 var offline_report_open := false
 var offline_report: Dictionary = {}
+var offline_simulating := false
+var ecology_events: Array = []
+var next_ecology_event_id := 1
+var ecology_event_countdown := ECOLOGY_FIRST_EVENT_MAX
+var lifetime_ecology_events_seen := 0
+var lifetime_ecology_events_contained := 0
+var ecology_banner_title := ""
+var ecology_banner_detail := ""
+var ecology_banner_time := 0.0
 
 var fallback_font: Font
 var splash_logo: Texture2D
@@ -410,6 +431,8 @@ func _make_bacterium(pos: Vector2) -> Dictionary:
 		"suppressed": false,
 		"colony_distance": INF,
 		"contact_point": Vector2.ZERO,
+		"event_id": -1,
+		"strain": "normal",
 		"phase": rng.randf_range(0.0, TAU)
 	}
 
@@ -459,6 +482,7 @@ func _process(delta: float) -> void:
 	_update_dna_jobs(sim_delta)
 	_update_barracks_jobs(sim_delta)
 	_update_feeders(sim_delta)
+	_update_ecology_events(sim_delta)
 	expedition_update_clock += sim_delta
 	if expedition_update_clock >= 0.10:
 		var expedition_step := expedition_update_clock
@@ -484,6 +508,8 @@ func _process(delta: float) -> void:
 		toast_time -= delta
 	if discovery_banner_time > 0.0:
 		discovery_banner_time -= delta
+	if ecology_banner_time > 0.0:
+		ecology_banner_time -= delta
 	queue_redraw()
 
 
@@ -716,6 +742,9 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 		return
 	var bacterium: Dictionary = bacteria[index]
+	if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
+		unit["state"] = "idle"
+		return
 	var attack_rate := 0.150 if String(unit.get("unit_type", "forager")) == "lytic" else EXPEDITION_ATTACK_RATE
 	var attack := minf(float(bacterium.get("biomass", 1.0)), attack_rate * _diet_efficiency("bacteria") * sim_delta)
 	bacterium["biomass"] = float(bacterium.get("biomass", 1.0)) - attack
@@ -785,6 +814,8 @@ func _nearest_bacterium_index(pos: Vector2, radius: float) -> int:
 	var best_index := -1
 	var best_distance := radius * radius
 	for i in range(bacteria.size()):
+		if offline_simulating and int(bacteria[i].get("event_id", -1)) >= 0:
+			continue
 		var distance := pos.distance_squared_to(bacteria[i]["pos"])
 		if distance <= best_distance and _is_world_explored(bacteria[i]["pos"]):
 			best_distance = distance
@@ -1167,6 +1198,147 @@ func _update_feeders(sim_delta: float) -> void:
 	feeders = surviving
 
 
+func _current_ecology_event() -> Dictionary:
+	if ecology_events.is_empty():
+		return {}
+	return ecology_events[0]
+
+
+func _ecology_events_enabled() -> bool:
+	return not game_over and _living_core_count() > 0 and _diet_efficiency("bacteria") > 0.0
+
+
+func _ecology_event_name(event_type: String) -> String:
+	return "局部细菌暴发" if event_type == "bloom" else "代谢毒素区"
+
+
+func _show_ecology_banner(title: String, detail: String, seconds: float = 6.0) -> void:
+	ecology_banner_title = title
+	ecology_banner_detail = detail
+	ecology_banner_time = seconds
+
+
+func _begin_ecology_event() -> void:
+	if not ecology_events.is_empty() or not _ecology_events_enabled():
+		return
+	var living_core_ids: Array = []
+	for core_id in range(cores.size()):
+		if _is_core_alive(core_id):
+			living_core_ids.append(core_id)
+	if living_core_ids.is_empty():
+		return
+	var event_type := "bloom" if lifetime_ecology_events_seen % 2 == 0 else "toxin"
+	var anchor_id := int(living_core_ids[lifetime_ecology_events_seen % living_core_ids.size()])
+	var anchor: Vector2 = cores[anchor_id]["pos"]
+	var distance := rng.randf_range(180.0, 195.0) if event_type == "bloom" else rng.randf_range(60.0, 85.0)
+	var center := anchor + Vector2.from_angle(rng.randf_range(0.0, TAU)) * distance
+	var maximum_radius := WORLD_HALF - ECOLOGY_BLOOM_RADIUS - 20.0
+	if center.length() > maximum_radius:
+		center = center.normalized() * maximum_radius
+	var event := {
+		"id": next_ecology_event_id,
+		"type": event_type,
+		"pos": center,
+		"radius": ECOLOGY_BLOOM_RADIUS if event_type == "bloom" else ECOLOGY_TOXIN_ZONE_RADIUS,
+		"phase": "warning",
+		"remaining": ECOLOGY_EVENT_WARNING_SECONDS,
+		"anchor_core_id": anchor_id,
+		"spawned": 0
+	}
+	next_ecology_event_id += 1
+	lifetime_ecology_events_seen += 1
+	ecology_events = [event]
+	_reveal_exploration(center, float(event["radius"]) + 48.0)
+	_update_exploration(false)
+	_show_ecology_banner("生态预警：%s" % _ecology_event_name(event_type), "点击右侧事件卡定位；准备裂菌孢子、抗生素或修复储备。", 7.0)
+
+
+func _spawn_bloom_bacteria(event: Dictionary) -> int:
+	var available := maxi(0, MAX_BACTERIA - bacteria.size())
+	var spawn_count := mini(ECOLOGY_BLOOM_SPAWN_COUNT, available)
+	for i in range(spawn_count):
+		var angle := rng.randf_range(0.0, TAU)
+		var distance := sqrt(rng.randf()) * float(event["radius"]) * 0.65
+		var bacterium := _make_bacterium((event["pos"] as Vector2) + Vector2.from_angle(angle) * distance)
+		bacterium["event_id"] = int(event["id"])
+		bacterium["strain"] = "bloom"
+		bacterium["stored"] = rng.randf_range(0.060, 0.080)
+		bacterium["cooldown"] = rng.randf_range(4.0, 8.0)
+		bacteria.append(bacterium)
+	event["spawned"] = spawn_count
+	return spawn_count
+
+
+func _count_event_bacteria(event_id: int) -> int:
+	var count := 0
+	for bacterium in bacteria:
+		if int(bacterium.get("event_id", -1)) == event_id:
+			count += 1
+	return count
+
+
+func _release_event_bacteria(event_id: int) -> void:
+	for bacterium in bacteria:
+		if int(bacterium.get("event_id", -1)) == event_id:
+			bacterium["event_id"] = -1
+			bacterium["strain"] = "normal"
+
+
+func _activate_ecology_event(event: Dictionary) -> bool:
+	if String(event.get("type", "bloom")) == "bloom":
+		if MAX_BACTERIA - bacteria.size() < ECOLOGY_BLOOM_SPAWN_COUNT:
+			event["remaining"] = 30.0
+			_show_ecology_banner("暴发延后", "培养皿细菌数量接近上限，事件将在 30 秒后重新评估。", 4.0)
+			return false
+		event["phase"] = "active"
+		event["remaining"] = ECOLOGY_BLOOM_ACTIVE_SECONDS
+		var spawned := _spawn_bloom_bacteria(event)
+		_show_ecology_banner("局部细菌暴发", "%d 个高活性细菌出现；将数量压至 3 个以下可提前控制。" % spawned, 7.0)
+	else:
+		event["phase"] = "active"
+		event["remaining"] = ECOLOGY_TOXIN_ACTIVE_SECONDS
+		_show_ecology_banner("代谢毒素区形成", "抗生素分泌与解毒代谢会降低伤害，坚持 75 秒即可消散。", 7.0)
+	return true
+
+
+func _finish_ecology_event(event: Dictionary, contained: bool) -> void:
+	var event_id := int(event.get("id", -1))
+	_release_event_bacteria(event_id)
+	if contained:
+		lifetime_ecology_events_contained += 1
+		_show_ecology_banner("生态事件已应对", "%s 已平息；长期目标进度已更新。" % _ecology_event_name(String(event.get("type", "bloom"))), 7.0)
+	else:
+		_show_ecology_banner("暴发期结束", "高活性阶段已经结束，但残余细菌仍留在培养皿中。", 6.0)
+	ecology_events.clear()
+	ecology_event_countdown = rng.randf_range(ECOLOGY_EVENT_INTERVAL_MIN, ECOLOGY_EVENT_INTERVAL_MAX)
+
+
+func _update_ecology_events(sim_delta: float) -> void:
+	if sim_delta <= 0.0:
+		return
+	if ecology_events.is_empty():
+		if not _ecology_events_enabled():
+			return
+		ecology_event_countdown = maxf(0.0, ecology_event_countdown - sim_delta)
+		if ecology_event_countdown <= 0.0:
+			_begin_ecology_event()
+		return
+	var event: Dictionary = ecology_events[0]
+	event["remaining"] = maxf(0.0, float(event.get("remaining", 0.0)) - sim_delta)
+	if String(event.get("phase", "warning")) == "warning":
+		if float(event["remaining"]) <= 0.0:
+			_activate_ecology_event(event)
+		return
+	if String(event.get("type", "bloom")) == "bloom":
+		var population := _count_event_bacteria(int(event.get("id", -1)))
+		if int(event.get("spawned", 0)) > 0 and population <= 3:
+			_finish_ecology_event(event, true)
+		elif float(event["remaining"]) <= 0.0:
+			_finish_ecology_event(event, false)
+	elif float(event["remaining"]) <= 0.0:
+		_finish_ecology_event(event, _living_core_count() > 0)
+
+
 func _update_bacteria(sim_delta: float) -> void:
 	if bacteria.is_empty():
 		return
@@ -1178,6 +1350,9 @@ func _update_bacteria(sim_delta: float) -> void:
 	for bacterium in bacteria:
 		var pos: Vector2 = bacterium["pos"]
 		var biomass := float(bacterium.get("biomass", 1.0))
+		if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
+			surviving.append(bacterium)
+			continue
 		# 捕食器和抗生素共用一次菌落距离查询，并缓存结果。
 		if bacteria_efficiency > 0.0 or antibiotic_radius > 0.0:
 			bacterium["contact_cooldown"] = maxf(0.0, float(bacterium.get("contact_cooldown", 0.0)) - sim_delta)
@@ -1229,12 +1404,27 @@ func _update_bacteria(sim_delta: float) -> void:
 			var child := _make_bacterium(child_pos)
 			child["stored"] = 0.0
 			child["cooldown"] = BACTERIA_DIVISION_COOLDOWN
+			child["event_id"] = int(bacterium.get("event_id", -1))
+			child["strain"] = String(bacterium.get("strain", "normal"))
 			children.append(child)
 			lifetime_bacteria_births += 1
 	if surviving.size() + children.size() > MAX_BACTERIA:
 		children.resize(maxi(0, MAX_BACTERIA - surviving.size()))
 	bacteria = surviving
 	bacteria.append_array(children)
+
+
+func _ecology_toxin_damage_rate_at(pos: Vector2) -> float:
+	if offline_simulating:
+		return 0.0
+	var event := _current_ecology_event()
+	if event.is_empty() or String(event.get("phase", "warning")) != "active" or String(event.get("type", "")) != "toxin":
+		return 0.0
+	if pos.distance_squared_to(event["pos"]) > float(event.get("radius", ECOLOGY_TOXIN_ZONE_RADIUS)) * float(event.get("radius", ECOLOGY_TOXIN_ZONE_RADIUS)):
+		return 0.0
+	var antibiotic_level := clampi(int(bacteria_components.get("antibiotic", 0)), 0, 3)
+	var antibiotic_multipliers := [1.0, 0.75, 0.50, 0.25]
+	return ECOLOGY_TOXIN_DAMAGE_RATE * float(antibiotic_multipliers[antibiotic_level]) * _toxin_damage_multiplier()
 
 
 func _update_core_hazards(sim_delta: float) -> void:
@@ -1246,11 +1436,19 @@ func _update_core_hazards(sim_delta: float) -> void:
 		var core_pos: Vector2 = core["pos"]
 		var toxin_units := 0.0
 		for bacterium in bacteria:
-			if core_pos.distance_squared_to(bacterium["pos"]) > BACTERIA_TOXIN_RADIUS * BACTERIA_TOXIN_RADIUS:
+			if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
+				continue
+			var strain := String(bacterium.get("strain", "normal"))
+			var toxin_radius := BACTERIA_TOXIN_RADIUS
+			if strain == "bloom":
+				toxin_radius = 56.0
+			if core_pos.distance_squared_to(bacterium["pos"]) > toxin_radius * toxin_radius:
 				continue
 			var suppression := 0.25 if bool(bacterium.get("suppressed", false)) else 1.0
-			toxin_units += float(bacterium.get("biomass", 1.0)) * suppression
-		var damage_rate := minf(CORE_MAX_TOXIN_DAMAGE_RATE, toxin_units * BACTERIA_TOXIN_DAMAGE_RATE) * _toxin_damage_multiplier()
+			var strain_multiplier := ECOLOGY_BLOOM_TOXIN_MULTIPLIER if strain == "bloom" else 1.0
+			toxin_units += float(bacterium.get("biomass", 1.0)) * suppression * strain_multiplier
+		var bacteria_damage_rate := minf(CORE_MAX_TOXIN_DAMAGE_RATE, toxin_units * BACTERIA_TOXIN_DAMAGE_RATE) * _toxin_damage_multiplier()
+		var damage_rate := minf(CORE_MAX_TOXIN_DAMAGE_RATE, bacteria_damage_rate + _ecology_toxin_damage_rate_at(core_pos))
 		core["toxin_pressure"] = damage_rate
 		if damage_rate > 0.0:
 			_damage_core(core_id, damage_rate * sim_delta, "细菌毒素")
@@ -1636,6 +1834,11 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	if goals_open:
 		_handle_goals_click(pos)
+		return
+	if not _current_ecology_event().is_empty() and _ecology_event_hud_rect().has_point(pos):
+		camera_center = _current_ecology_event()["pos"]
+		_clamp_camera()
+		toast("镜头已定位到生态事件区域", 2.0)
 		return
 	if _upgrade_hud_rect().has_point(pos):
 		upgrade_open = true
@@ -2189,6 +2392,7 @@ func _draw() -> void:
 	_draw_dish_overview(viewport)
 	_draw_substrate(viewport)
 	_draw_resources(viewport)
+	_draw_ecology_zones(viewport)
 	_draw_bacteria(viewport)
 	_draw_colony(viewport)
 	_draw_expedition_units(viewport)
@@ -2211,6 +2415,8 @@ func _draw() -> void:
 		_draw_game_over(viewport)
 	if discovery_banner_time > 0.0 and discovery_banner_title != "":
 		_draw_discovery_banner(viewport)
+	if ecology_banner_time > 0.0 and ecology_banner_title != "":
+		_draw_ecology_banner(viewport)
 	if toast_time > 0.0 and toast_text != "":
 		_draw_toast(viewport)
 	if offline_report_open:
@@ -2384,6 +2590,14 @@ func _start_new_culture() -> void:
 	goals_claimed = {}
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = 0
+	ecology_events.clear()
+	next_ecology_event_id = 1
+	ecology_event_countdown = rng.randf_range(ECOLOGY_FIRST_EVENT_MIN, ECOLOGY_FIRST_EVENT_MAX)
+	lifetime_ecology_events_seen = 0
+	lifetime_ecology_events_contained = 0
+	ecology_banner_title = ""
+	ecology_banner_detail = ""
+	ecology_banner_time = 0.0
 	discovery_banner_title = ""
 	discovery_banner_detail = ""
 	discovery_banner_time = 0.0
@@ -2473,6 +2687,36 @@ func _draw_resources(viewport: Vector2) -> void:
 			draw_rect(Rect2(p - Vector2(arm, 1), Vector2(arm * 2.0 + 1.0, 2)), color)
 
 
+func _draw_ecology_zones(viewport: Vector2) -> void:
+	var event := _current_ecology_event()
+	if event.is_empty() or not _is_world_explored(event["pos"]):
+		return
+	var center := _pixel_snap(world_to_screen(event["pos"]))
+	var radius_pixels := float(event.get("radius", ECOLOGY_BLOOM_RADIUS)) * camera_zoom
+	if center.x + radius_pixels < -20.0 or center.y + radius_pixels < -20.0 or center.x - radius_pixels > viewport.x + 20.0 or center.y - radius_pixels > viewport.y + 20.0:
+		return
+	var warning := String(event.get("phase", "warning")) == "warning"
+	var event_type := String(event.get("type", "bloom"))
+	var color := Color("f4ca83") if warning else (Color("ff789f") if event_type == "bloom" else Color("b884ec"))
+	var pulse := 0.58 + sin(sim_time * 4.0) * 0.18
+	if radius_pixels < 4.0:
+		draw_rect(Rect2(center - Vector2.ONE, Vector2(3, 3)), Color(color, pulse))
+		return
+	for i in range(40):
+		var angle := TAU * float(i) / 40.0
+		var point := _pixel_snap(center + Vector2.from_angle(angle) * radius_pixels)
+		var pixel_size := 3.0 if i % 4 == 0 else 2.0
+		draw_rect(Rect2(point - Vector2.ONE * pixel_size * 0.5, Vector2.ONE * pixel_size), Color(color, pulse if warning else 0.70))
+	if not warning:
+		for i in range(28):
+			var angle := TAU * float((i * 13) % 28) / 28.0
+			var distance := radius_pixels * (0.18 + float((i * 7) % 10) / 12.0)
+			var point := _pixel_snap(center + Vector2.from_angle(angle) * distance)
+			draw_rect(Rect2(point, Vector2(2, 2)), Color(color, 0.16 if event_type == "bloom" else 0.22))
+	var label := "预警" if warning else _ecology_event_name(event_type)
+	_draw_label_box(center + Vector2(12, -radius_pixels - 8), label, color)
+
+
 func _draw_bacteria(viewport: Vector2) -> void:
 	for bacterium in bacteria:
 		if not _is_world_explored(bacterium["pos"]):
@@ -2481,7 +2725,9 @@ func _draw_bacteria(viewport: Vector2) -> void:
 		if p.x < -10.0 or p.y < -10.0 or p.x > viewport.x + 10.0 or p.y > viewport.y + 10.0:
 			continue
 		var biomass := clampf(float(bacterium.get("biomass", 1.0)), 0.0, 1.0)
-		var color := COLOR_BACTERIA.darkened((1.0 - biomass) * 0.62)
+		var strain := String(bacterium.get("strain", "normal"))
+		var base_color := Color("ff9d66") if strain == "bloom" else COLOR_BACTERIA
+		var color := base_color.darkened((1.0 - biomass) * 0.62)
 		color.a = 0.22 + biomass * 0.78
 		if int(bacteria_components.get("trap", 0)) > 0 and bool(bacterium.get("in_contact", false)) and float(bacterium.get("colony_distance", 0.0)) > BACTERIA_PREDATION_RADIUS:
 			var trap_start := _pixel_snap(world_to_screen(bacterium.get("contact_point", bacterium["pos"])))
@@ -2499,7 +2745,7 @@ func _draw_bacteria(viewport: Vector2) -> void:
 			draw_rect(Rect2(p + Vector2(-5, -4), Vector2(2, 2)), Color(0.55, 0.80, 1.0, 0.72))
 			draw_rect(Rect2(p + Vector2(4, 3), Vector2(1, 1)), Color(0.55, 0.80, 1.0, 0.52))
 		if int(sim_time * 2.0 + float(bacterium.get("phase", 0.0))) % 4 == 0:
-			draw_rect(Rect2(p + Vector2(3, -2), Vector2(1, 1)), Color(COLOR_BACTERIA, 0.42))
+			draw_rect(Rect2(p + Vector2(3, -2), Vector2(1, 1)), Color(base_color, 0.42))
 
 
 func _draw_expedition_units(viewport: Vector2) -> void:
@@ -2769,6 +3015,7 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_speed_controls(viewport)
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
+	_draw_ecology_event_hud(viewport)
 	_draw_help(viewport)
 
 
@@ -2818,6 +3065,13 @@ func _draw_minimap(_viewport: Vector2) -> void:
 		draw_rect(Rect2(hp - Vector2(1, 1), Vector2(3, 3)), Color(hc.r, hc.g, hc.b, 0.72))
 		draw_line(hp + Vector2(-5, 0), hp + Vector2(5, 0), Color(hc, 0.72), 1.0, false)
 		draw_line(hp + Vector2(0, -5), hp + Vector2(0, 5), Color(hc, 0.72), 1.0, false)
+	var ecology_event := _current_ecology_event()
+	if not ecology_event.is_empty() and _is_world_explored(ecology_event["pos"]):
+		var ep := _pixel_snap(_world_to_minimap(ecology_event["pos"], inner))
+		var event_color := Color("f4ca83") if String(ecology_event.get("phase", "warning")) == "warning" else (Color("ff789f") if String(ecology_event.get("type", "bloom")) == "bloom" else Color("b884ec"))
+		draw_rect(Rect2(ep - Vector2(4, 4), Vector2(9, 9)), Color(event_color, 0.18))
+		draw_line(ep + Vector2(-5, -5), ep + Vector2(5, 5), Color(event_color, 0.92), 1.0, false)
+		draw_line(ep + Vector2(5, -5), ep + Vector2(-5, 5), Color(event_color, 0.92), 1.0, false)
 	for i in range(0, resources.size(), 3):
 		var resource = resources[i]
 		if not bool(resource["alive"]):
@@ -2933,6 +3187,30 @@ func _draw_goals_hud(_viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(13, 21), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MINERAL)
 
 
+func _ecology_event_hud_rect() -> Rect2:
+	var viewport := get_viewport_rect().size
+	return Rect2(viewport.x - 230.0, 202.0, 208.0, 66.0)
+
+
+func _draw_ecology_event_hud(_viewport: Vector2) -> void:
+	var event := _current_ecology_event()
+	if event.is_empty():
+		return
+	var rect := _ecology_event_hud_rect()
+	var event_type := String(event.get("type", "bloom"))
+	var warning := String(event.get("phase", "warning")) == "warning"
+	var accent := Color("f4ca83") if warning else (Color("ff789f") if event_type == "bloom" else Color("b884ec"))
+	var hovered := rect.has_point(last_mouse)
+	draw_style_box(_rounded_style(Color(0.08, 0.08, 0.12, 0.97) if hovered else Color(0.035, 0.075, 0.11, 0.96), Color(accent, 0.92), 8, 2), rect)
+	var phase_text := "预警" if warning else "活跃"
+	var seconds_left := ceili(float(event.get("remaining", 0.0)))
+	draw_string(fallback_font, rect.position + Vector2(12, 23), "%s · %s" % [_ecology_event_name(event_type), phase_text], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	var detail := "点击定位　%02d:%02d" % [seconds_left / 60, seconds_left % 60]
+	if not warning and event_type == "bloom":
+		detail = "局部细菌 %d　%02d:%02d" % [_count_event_bacteria(int(event.get("id", -1))), seconds_left / 60, seconds_left % 60]
+	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
 func _goal_definitions() -> Array:
 	return [
 		{"id": "first_hypha", "title": "初次萌发", "desc": "形成第一段主菌丝", "reward": {"organic": 25.0}, "reward_text": "有机营养 +25.000"},
@@ -2947,7 +3225,8 @@ func _goal_definitions() -> Array:
 		{"id": "bacteria_specialist", "title": "细菌专家", "desc": "将任一细菌专属组件升至3级", "reward": {"dna": 4, "mineral": 2.0}, "reward_text": "DNA +4　矿物 +2.000"},
 		{"id": "culture_survey", "title": "培养环境勘探", "desc": "永久记录3处异常资源区", "reward": {"dna": 2}, "reward_text": "DNA +2"},
 		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
-		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"}
+		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"},
+		{"id": "ecology_response", "title": "生态应答", "desc": "成功应对1次细菌生态事件", "reward": {"dna": 2, "mineral": 2.0}, "reward_text": "DNA +2　矿物 +2.000"}
 	]
 
 
@@ -2986,6 +3265,8 @@ func _goal_complete(goal_id: String) -> bool:
 			return lifetime_expedition_organic_returned >= 10.0 and lifetime_expedition_mineral_returned >= 0.5
 		"expedition_control":
 			return lifetime_expedition_bacteria_killed >= 10
+		"ecology_response":
+			return lifetime_ecology_events_contained >= 1
 	return false
 
 
@@ -3017,6 +3298,8 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "有机 %.3f/10.000　矿物 %.3f/0.500" % [minf(lifetime_expedition_organic_returned, 10.0), minf(lifetime_expedition_mineral_returned, 0.5)]
 		"expedition_control":
 			return "%d / 10" % mini(lifetime_expedition_bacteria_killed, 10)
+		"ecology_response":
+			return "%d / 1" % mini(lifetime_ecology_events_contained, 1)
 	return ""
 
 
@@ -3536,9 +3819,12 @@ func _draw_bacteria_tooltip() -> void:
 	if bacterium.is_empty():
 		return
 	var stored := float(bacterium.get("stored", 0.0))
+	var strain := String(bacterium.get("strain", "normal"))
+	var bacteria_name := "暴发型细菌" if strain == "bloom" else "静止细菌"
+	var behavior_text := "生态事件中的高活性局部菌群" if strain == "bloom" else "原地吸收并分裂扩张"
 	var lines := [
-		"静止细菌",
-		"原地吸收并分裂扩张",
+		bacteria_name,
+		behavior_text,
 		"吸收 %.3f/秒　真菌初始速率的 1/20" % BACTERIA_ABSORB_RATE,
 		"分裂营养 %.3f / %.3f" % [stored, BACTERIA_DIVISION_NUTRIENT],
 		"自身基因组复制　不消耗真菌 DNA"
@@ -3714,6 +4000,17 @@ func _draw_discovery_banner(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(36, 55), discovery_banner_detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
+func _draw_ecology_banner(viewport: Vector2) -> void:
+	var width := minf(620.0, viewport.x - 80.0)
+	var rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - width * 0.5, 206.0)), Vector2(width, 74.0))
+	var pulse := 0.70 + sin(sim_time * 4.0) * 0.16
+	draw_style_box(_rounded_style(Color(0.095, 0.035, 0.075, 0.98), Color(0.94, 0.45, 0.62, pulse), 10, 2), rect)
+	draw_rect(Rect2(rect.position + Vector2(17, 15), Vector2(8, 8)), Color("ff789f"))
+	draw_rect(Rect2(rect.position + Vector2(20, 12), Vector2(2, 14)), Color("ffd2dc"))
+	draw_string(fallback_font, rect.position + Vector2(38, 29), ecology_banner_title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffd2dc"))
+	draw_string(fallback_font, rect.position + Vector2(38, 55), ecology_banner_detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
 func _draw_toast(viewport: Vector2) -> void:
 	var width := fallback_font.get_string_size(toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 34.0
 	var rect := Rect2(viewport.x * 0.5 - width * 0.5, 78, width, 38)
@@ -3771,7 +4068,7 @@ func _draw_offline_report(viewport: Vector2) -> void:
 	var living_before := int(offline_report.get("living_cores_before", 0))
 	var living_after := int(offline_report.get("living_cores_after", 0))
 	draw_string(fallback_font, panel.position + Vector2(30, 304), "核心生物量变化　%+.3f　·　存活核心 %d → %d" % [biomass_delta, living_before, living_after], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f") if biomass_delta < 0.0 else COLOR_TEXT)
-	draw_string(fallback_font, panel.position + Vector2(30, 338), "结算仅消耗地图中的真实资源；离线敌害最多推进 1 分钟，细菌生态最多推进 10 分钟。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(30, 338), "结算仅消耗真实资源；生态事件离线冻结，普通敌害最多推进 1 分钟。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 	if bool(offline_report.get("capped", false)):
 		draw_string(fallback_font, panel.position + Vector2(30, 366), "超过两小时的休眠时间不会产生额外收益或伤害。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("f4ca83"))
 	var button := _offline_report_button_rect(viewport)
@@ -3861,6 +4158,8 @@ func _save_game() -> void:
 			"seek_cooldown": float(bacterium.get("seek_cooldown", 0.0)),
 			"contact_cooldown": float(bacterium.get("contact_cooldown", 0.0)),
 			"in_contact": bool(bacterium.get("in_contact", false)),
+			"event_id": int(bacterium.get("event_id", -1)),
+			"strain": String(bacterium.get("strain", "normal")),
 			"phase": float(bacterium.get("phase", 0.0))
 		})
 	var expedition_data: Array = []
@@ -3886,6 +4185,20 @@ func _save_game() -> void:
 	exploration_data.sort()
 	var discovery_data: Array = discovered_hotspots.keys()
 	discovery_data.sort()
+	var ecology_data: Array = []
+	for event in ecology_events:
+		var event_pos: Vector2 = event.get("pos", Vector2.ZERO)
+		ecology_data.append({
+			"id": int(event.get("id", -1)),
+			"type": String(event.get("type", "bloom")),
+			"x": event_pos.x,
+			"y": event_pos.y,
+			"radius": float(event.get("radius", ECOLOGY_BLOOM_RADIUS)),
+			"phase": String(event.get("phase", "warning")),
+			"remaining": float(event.get("remaining", 0.0)),
+			"anchor_core_id": int(event.get("anchor_core_id", 0)),
+			"spawned": int(event.get("spawned", 0))
+		})
 	var data := {
 		"version": 1,
 		"world_generation": 5,
@@ -3909,6 +4222,10 @@ func _save_game() -> void:
 		"lifetime_expedition_organic_returned": lifetime_expedition_organic_returned,
 		"lifetime_expedition_mineral_returned": lifetime_expedition_mineral_returned,
 		"lifetime_expedition_bacteria_killed": lifetime_expedition_bacteria_killed,
+		"lifetime_ecology_events_seen": lifetime_ecology_events_seen,
+		"lifetime_ecology_events_contained": lifetime_ecology_events_contained,
+		"ecology_event_countdown": ecology_event_countdown,
+		"next_ecology_event_id": next_ecology_event_id,
 		"goals_claimed": goals_claimed,
 		"scout_upgrade_levels": scout_upgrade_levels,
 		"camera_x": camera_center.x,
@@ -3921,7 +4238,8 @@ func _save_game() -> void:
 		"bacteria": bacteria_data,
 		"expedition_units": expedition_data,
 		"explored_cells": exploration_data,
-		"discovered_hotspots": discovery_data
+		"discovered_hotspots": discovery_data,
+		"ecology_events": ecology_data
 	}
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
@@ -3972,6 +4290,10 @@ func _load_game() -> bool:
 	lifetime_expedition_organic_returned = float(parsed.get("lifetime_expedition_organic_returned", 0.0))
 	lifetime_expedition_mineral_returned = float(parsed.get("lifetime_expedition_mineral_returned", 0.0))
 	lifetime_expedition_bacteria_killed = int(parsed.get("lifetime_expedition_bacteria_killed", 0))
+	lifetime_ecology_events_seen = maxi(0, int(parsed.get("lifetime_ecology_events_seen", 0)))
+	lifetime_ecology_events_contained = maxi(0, int(parsed.get("lifetime_ecology_events_contained", 0)))
+	ecology_event_countdown = clampf(float(parsed.get("ecology_event_countdown", ECOLOGY_FIRST_EVENT_MAX)), 0.0, ECOLOGY_EVENT_INTERVAL_MAX)
+	next_ecology_event_id = maxi(1, int(parsed.get("next_ecology_event_id", 1)))
 	goals_claimed = parsed.get("goals_claimed", {})
 	camera_center = Vector2(float(parsed.get("camera_x", 0.0)), float(parsed.get("camera_y", 0.0)))
 	camera_zoom = clampf(float(parsed.get("camera_zoom", 0.65)), 0.018, 2.4)
@@ -4055,8 +4377,37 @@ func _load_game() -> bool:
 			bacterium["seek_cooldown"] = maxf(0.0, float(item.get("seek_cooldown", 0.0)))
 			bacterium["contact_cooldown"] = maxf(0.0, float(item.get("contact_cooldown", 0.0)))
 			bacterium["in_contact"] = bool(item.get("in_contact", false))
+			bacterium["event_id"] = int(item.get("event_id", -1))
+			var saved_strain := String(item.get("strain", "normal"))
+			bacterium["strain"] = saved_strain if saved_strain == "bloom" else "normal"
 			bacterium["phase"] = float(item.get("phase", 0.0))
 			bacteria.append(bacterium)
+	ecology_events.clear()
+	for item in parsed.get("ecology_events", []):
+		if not ecology_events.is_empty():
+			break
+		var event_type := String(item.get("type", "bloom"))
+		var event_phase := String(item.get("phase", "warning"))
+		if event_type != "bloom" and event_type != "toxin":
+			continue
+		if event_phase != "warning" and event_phase != "active":
+			continue
+		var event_pos := Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+		if not event_pos.is_finite() or event_pos.length() > WORLD_HALF:
+			continue
+		var default_radius := ECOLOGY_BLOOM_RADIUS if event_type == "bloom" else ECOLOGY_TOXIN_ZONE_RADIUS
+		var event_id := maxi(1, int(item.get("id", next_ecology_event_id)))
+		ecology_events.append({
+			"id": event_id,
+			"type": event_type,
+			"pos": event_pos,
+			"radius": clampf(float(item.get("radius", default_radius)), 40.0, 240.0),
+			"phase": event_phase,
+			"remaining": clampf(float(item.get("remaining", 0.0)), 0.0, ECOLOGY_BLOOM_ACTIVE_SECONDS),
+			"anchor_core_id": clampi(int(item.get("anchor_core_id", 0)), 0, maxi(0, cores.size() - 1)),
+			"spawned": clampi(int(item.get("spawned", 0)), 0, ECOLOGY_BLOOM_SPAWN_COUNT)
+		})
+		next_ecology_event_id = maxi(next_ecology_event_id, event_id + 1)
 	expedition_units.clear()
 	next_expedition_id = 1
 	for item in parsed.get("expedition_units", []):
@@ -4136,6 +4487,7 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 	var bacteria_remaining := minf(seconds, OFFLINE_BACTERIA_CAP_SECONDS)
 	var hazard_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
 	var orphan_remaining := minf(seconds, OFFLINE_ORPHAN_CAP_SECONDS)
+	offline_simulating = true
 	while remaining > 0.0005:
 		var step := minf(OFFLINE_STEP_SECONDS, remaining)
 		sim_time += step
@@ -4160,6 +4512,7 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		remaining -= step
 		if game_over:
 			break
+	offline_simulating = false
 	_sync_hotspot_discoveries(false)
 	last_discovery_scan_cell_count = explored_cells.size()
 	offline_report = {

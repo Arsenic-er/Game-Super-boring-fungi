@@ -114,6 +114,34 @@ func _run() -> void:
 	game.queue_redraw()
 	await process_frame
 	await process_frame
+	game.ecology_events = [{
+		"id": 1,
+		"type": "bloom",
+		"pos": Vector2(220.0, -80.0),
+		"radius": game.ECOLOGY_BLOOM_RADIUS,
+		"phase": "warning",
+		"remaining": 31.0,
+		"anchor_core_id": 0,
+		"spawned": 0
+	}]
+	game.ecology_banner_title = "生态预警：局部细菌暴发"
+	game.ecology_banner_detail = "准备裂菌孢子、抗生素或修复储备。"
+	game.ecology_banner_time = 5.0
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var ecology_hud: Rect2 = game._ecology_event_hud_rect()
+	if ecology_hud.position.y <= game._minimap_rect().end.y:
+		push_error("UPGRADE_UI_FAIL: ecology event card must remain below the minimap")
+		quit(1)
+		return
+	game._handle_left_click(ecology_hud.get_center())
+	if not game.camera_center.is_equal_approx(Vector2(220.0, -80.0)):
+		push_error("UPGRADE_UI_FAIL: clicking the ecology event card should focus its world position")
+		quit(1)
+		return
+	game.ecology_events.clear()
+	game.ecology_banner_time = 0.0
 	game.offline_report = {
 		"actual_seconds": 10800.0,
 		"settled_seconds": 7200.0,
@@ -151,6 +179,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

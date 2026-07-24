@@ -261,7 +261,7 @@ func _run() -> void:
 	game.lifetime_bacteria_births = 25
 	game.lifetime_bacteria_consumed = 25
 	game.bacteria_components["trap"] = 3
-	if not _check(game._goal_definitions().size() == 13 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist"), "Long-term goals should include bacteria ecology, evolution, exploration, supply, and suppression goals"):
+	if not _check(game._goal_definitions().size() == 14 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist"), "Long-term goals should include bacteria ecology, evolution, exploration, supply, suppression, and event-response goals"):
 		return
 	var before_specialist_mineral: float = game.mineral
 	game._claim_goal("bacteria_specialist")
