@@ -98,6 +98,34 @@ func _run() -> void:
 	await process_frame
 	game.left_selecting = false
 	game.left_dragged = false
+	game.organic = 1000.0
+	game.mineral = 100.0
+	game.cores[barracks_id]["production_unit"] = "scout"
+	game._queue_expedition_spore(barracks_id)
+	game.cores[barracks_id]["auto_replenish"] = true
+	game.cores[barracks_id]["auto_replenish_unit"] = "scout"
+	game.cores[barracks_id]["rally_enabled"] = true
+	game.cores[barracks_id]["rally_point"] = Vector2(220.0, 70.0)
+	game.selected_core = barracks_id
+	game.show_status = true
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var status_panel: Rect2 = game._status_panel_rect()
+	if status_panel.size.y < 400.0 or not status_panel.encloses(game._barracks_auto_button_rect()) or not status_panel.encloses(game._barracks_rally_button_rect()):
+		push_error("UPGRADE_UI_FAIL: expanded barracks panel must contain queue and command buttons")
+		quit(1)
+		return
+	if status_panel.intersects(game._upgrade_hud_rect()) or status_panel.intersects(game._goals_hud_rect()):
+		push_error("UPGRADE_UI_FAIL: barracks status panel must not cover global upgrade or goals buttons")
+		quit(1)
+		return
+	var filter_rects: Array = game._unit_filter_rects()
+	if filter_rects.size() != 6 or (filter_rects.back()["rect"] as Rect2).end.x >= game._minimap_rect().position.x:
+		push_error("UPGRADE_UI_FAIL: six unit filters should fit between the resource bar and minimap")
+		quit(1)
+		return
+	game.show_status = false
 	game.selected_core = 0
 	game.mode = "place_barracks"
 	game.queue_redraw()
@@ -179,6 +207,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=6 discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

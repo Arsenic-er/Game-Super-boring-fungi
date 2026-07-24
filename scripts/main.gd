@@ -120,6 +120,10 @@ const ORPHAN_RESCUE_DISTANCE := 18.0
 const BARRACKS_ORGANIC_COST := 95.0
 const BARRACKS_MINERAL_COST := 8.0
 const BARRACKS_DNA_COST := 2
+const BARRACKS_QUEUE_CAPACITY := 10
+const BARRACKS_RALLY_RADIUS := 260.0
+const BARRACKS_AUTO_TARGETS := [4, 8, 12]
+const BARRACKS_AUTO_CHECK_SECONDS := 2.0
 const EXPEDITION_SPORE_ORGANIC_COST := 8.0
 const EXPEDITION_SPORE_MINERAL_COST := 0.250
 const EXPEDITION_SPORE_BUILD_SECONDS := 30.0
@@ -207,6 +211,7 @@ var sim_time := 0.0
 var absorb_clock := 0.0
 var bacteria_update_clock := 0.0
 var expedition_update_clock := 0.0
+var barracks_auto_clock := 0.0
 var save_clock := 0.0
 var game_over := false
 
@@ -233,6 +238,7 @@ var selection_current := Vector2.ZERO
 var right_press_pos := Vector2.ZERO
 var right_dragged := false
 var selected_expedition_ids: Array = []
+var unit_selection_filter := "all"
 var toast_text := ""
 var toast_time := 0.0
 var last_mouse := Vector2.ZERO
@@ -445,6 +451,11 @@ func _make_core(pos: Vector2, kind: String = "normal") -> Dictionary:
 		"jobs": [],
 		"spore_jobs": [],
 		"production_unit": "forager",
+		"rally_enabled": false,
+		"rally_point": pos,
+		"auto_replenish": false,
+		"auto_replenish_unit": "forager",
+		"auto_replenish_target": 4,
 		"kind": kind,
 		"feeder_range_level": 0,
 		"biomass": maximum,
@@ -481,6 +492,10 @@ func _process(delta: float) -> void:
 	_update_growth(sim_delta)
 	_update_dna_jobs(sim_delta)
 	_update_barracks_jobs(sim_delta)
+	barracks_auto_clock += sim_delta
+	if barracks_auto_clock >= BARRACKS_AUTO_CHECK_SECONDS:
+		barracks_auto_clock = fmod(barracks_auto_clock, BARRACKS_AUTO_CHECK_SECONDS)
+		_update_auto_replenishment()
 	_update_feeders(sim_delta)
 	_update_ecology_events(sim_delta)
 	expedition_update_clock += sim_delta
@@ -552,31 +567,47 @@ func _update_dna_jobs(sim_delta: float) -> void:
 				remaining = 0.0
 
 
-func _queue_expedition_spore(core_id: int) -> void:
+func _total_queued_expedition_units() -> int:
+	var total := 0
+	for core in cores:
+		if String(core.get("kind", "normal")) == "barracks" and bool(core.get("alive", true)):
+			total += (core.get("spore_jobs", []) as Array).size()
+	return total
+
+
+func _queue_expedition_spore(core_id: int, automatic: bool = false) -> bool:
 	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
-		return
-	if expedition_units.size() >= MAX_EXPEDITION_SPORES:
-		toast("体外部队数量已达到 %d" % MAX_EXPEDITION_SPORES, 3.0)
-		return
+		return false
+	if expedition_units.size() + _total_queued_expedition_units() >= MAX_EXPEDITION_SPORES:
+		if not automatic:
+			toast("现役与排队部队总数已达到 %d" % MAX_EXPEDITION_SPORES, 3.0)
+		return false
 	var jobs: Array = cores[core_id].get("spore_jobs", [])
-	if jobs.size() >= 10:
-		toast("兵营生产队列已满", 3.0)
-		return
-	var unit_type := String(cores[core_id].get("production_unit", "forager"))
+	if jobs.size() >= BARRACKS_QUEUE_CAPACITY:
+		if not automatic:
+			toast("兵营生产队列已满", 3.0)
+		return false
+	var unit_type := String(cores[core_id].get("auto_replenish_unit", "forager")) if automatic else String(cores[core_id].get("production_unit", "forager"))
 	if not _available_barracks_units().has(unit_type):
 		unit_type = "forager"
-		cores[core_id]["production_unit"] = unit_type
+		if automatic:
+			cores[core_id]["auto_replenish_unit"] = unit_type
+		else:
+			cores[core_id]["production_unit"] = unit_type
 	var organic_cost := float(UNIT_ORGANIC_COSTS.get(unit_type, EXPEDITION_SPORE_ORGANIC_COST))
 	var mineral_cost := float(UNIT_MINERAL_COSTS.get(unit_type, EXPEDITION_SPORE_MINERAL_COST))
 	var build_seconds := float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS))
 	if organic < organic_cost or mineral < mineral_cost:
-		toast("生产%s需要 %.3f 有机营养与 %.3f 矿物" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), organic_cost, mineral_cost], 3.0)
-		return
+		if not automatic:
+			toast("生产%s需要 %.3f 有机营养与 %.3f 矿物" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), organic_cost, mineral_cost], 3.0)
+		return false
 	organic -= organic_cost
 	mineral -= mineral_cost
-	jobs.append({"remaining": build_seconds, "total": build_seconds, "unit_type": unit_type})
+	jobs.append({"remaining": build_seconds, "total": build_seconds, "unit_type": unit_type, "automatic": automatic})
 	cores[core_id]["spore_jobs"] = jobs
-	toast("%s已进入生产队列（%d / 10）" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), jobs.size()], 3.0)
+	if not automatic:
+		toast("%s已进入生产队列（%d / %d）" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), jobs.size(), BARRACKS_QUEUE_CAPACITY], 3.0)
+	return true
 
 
 func _available_barracks_units() -> Array:
@@ -599,6 +630,63 @@ func _cycle_barracks_unit(core_id: int) -> void:
 	var index := available.find(current)
 	cores[core_id]["production_unit"] = available[(index + 1) % available.size()]
 	toast("兵营生产切换为：%s" % BARRACK_UNIT_NAMES.get(cores[core_id]["production_unit"], "未知单位"), 2.5)
+
+
+func _barracks_unit_count(core_id: int, unit_type: String, include_queue: bool = true) -> int:
+	var count := 0
+	for unit in expedition_units:
+		if int(unit.get("home_core_id", -1)) == core_id and String(unit.get("unit_type", "forager")) == unit_type:
+			count += 1
+	if include_queue and core_id >= 0 and core_id < cores.size():
+		for job in cores[core_id].get("spore_jobs", []):
+			if String(job.get("unit_type", "forager")) == unit_type:
+				count += 1
+	return count
+
+
+func _update_auto_replenishment() -> void:
+	for core_id in range(cores.size()):
+		if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks" or not bool(cores[core_id].get("auto_replenish", false)):
+			continue
+		var unit_type := String(cores[core_id].get("auto_replenish_unit", "forager"))
+		var target := clampi(int(cores[core_id].get("auto_replenish_target", 4)), 1, 12)
+		if _barracks_unit_count(core_id, unit_type, true) < target:
+			_queue_expedition_spore(core_id, true)
+
+
+func _normalized_auto_target(value: int) -> int:
+	var best := int(BARRACKS_AUTO_TARGETS[0])
+	var best_distance := absi(value - best)
+	for candidate in BARRACKS_AUTO_TARGETS:
+		var distance := absi(value - int(candidate))
+		if distance < best_distance:
+			best = int(candidate)
+			best_distance = distance
+	return best
+
+
+func _sanitized_barracks_jobs(raw_jobs: Variant) -> Array:
+	var sanitized: Array = []
+	if not raw_jobs is Array:
+		return sanitized
+	for raw_job in raw_jobs:
+		if sanitized.size() >= BARRACKS_QUEUE_CAPACITY:
+			break
+		if not raw_job is Dictionary:
+			continue
+		var unit_type := String(raw_job.get("unit_type", "forager"))
+		if not _available_barracks_units().has(unit_type):
+			continue
+		var default_total := float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS))
+		var total := clampf(float(raw_job.get("total", default_total)), 0.1, default_total * 4.0)
+		var remaining := clampf(float(raw_job.get("remaining", total)), 0.0, total)
+		sanitized.append({
+			"remaining": remaining,
+			"total": total,
+			"unit_type": unit_type,
+			"automatic": bool(raw_job.get("automatic", false))
+		})
+	return sanitized
 
 
 func _update_barracks_jobs(sim_delta: float) -> void:
@@ -624,7 +712,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		return
 	var core_pos: Vector2 = cores[core_id]["pos"]
 	var spawn_pos := core_pos + Vector2.from_angle(rng.randf_range(0.0, TAU)) * rng.randf_range(22.0, 34.0)
-	expedition_units.append({
+	var unit := {
 		"id": next_expedition_id,
 		"unit_type": unit_type,
 		"home_core_id": core_id,
@@ -640,9 +728,59 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"command_until": 0.0,
 		"reveal_cell": _exploration_key(_exploration_coords(spawn_pos)),
 		"phase": rng.randf_range(0.0, TAU)
-	})
+	}
+	if bool(cores[core_id].get("rally_enabled", false)):
+		unit["state"] = "moving"
+		unit["target_kind"] = "ground"
+		unit["target_pos"] = cores[core_id].get("rally_point", core_pos)
+		unit["manual"] = true
+		unit["command_until"] = sim_time + 3.0
+	expedition_units.append(unit)
 	_reveal_exploration(spawn_pos, _scout_reveal_radius() if unit_type == "scout" else UNIT_REVEAL_RADIUS)
 	next_expedition_id += 1
+
+
+func _set_barracks_rally(core_id: int, requested: Vector2) -> void:
+	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return
+	var core_pos: Vector2 = cores[core_id]["pos"]
+	var offset := requested - core_pos
+	if offset.length() > BARRACKS_RALLY_RADIUS:
+		offset = offset.normalized() * BARRACKS_RALLY_RADIUS
+	cores[core_id]["rally_point"] = core_pos + offset
+	cores[core_id]["rally_enabled"] = true
+	mode = "normal"
+	toast("集结点已设置；新单位会先前往该位置", 2.5)
+
+
+func _clear_barracks_rally(core_id: int) -> void:
+	if not _is_core_alive(core_id):
+		return
+	cores[core_id]["rally_enabled"] = false
+	cores[core_id]["rally_point"] = cores[core_id]["pos"]
+	if mode == "set_rally":
+		mode = "normal"
+	toast("集结点已清除", 2.0)
+
+
+func _toggle_barracks_auto(core_id: int) -> void:
+	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return
+	var enabled := not bool(cores[core_id].get("auto_replenish", false))
+	cores[core_id]["auto_replenish"] = enabled
+	if enabled:
+		cores[core_id]["auto_replenish_unit"] = String(cores[core_id].get("production_unit", "forager"))
+		_update_auto_replenishment()
+	toast("自动补员：%s" % ("开启" if enabled else "关闭"), 2.0)
+
+
+func _cycle_barracks_auto_target(core_id: int) -> void:
+	if not _is_core_alive(core_id):
+		return
+	var current := int(cores[core_id].get("auto_replenish_target", 4))
+	var index := BARRACKS_AUTO_TARGETS.find(current)
+	cores[core_id]["auto_replenish_target"] = BARRACKS_AUTO_TARGETS[(index + 1) % BARRACKS_AUTO_TARGETS.size()]
+	toast("自动补员目标：%d" % int(cores[core_id]["auto_replenish_target"]), 2.0)
 
 
 func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = true) -> void:
@@ -1039,7 +1177,7 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 	var selection_rect := _selection_rect(start_screen, end_screen)
 	selected_expedition_ids.clear()
 	for unit in expedition_units:
-		if selection_rect.has_point(world_to_screen(unit["pos"])):
+		if (unit_selection_filter == "all" or String(unit.get("unit_type", "forager")) == unit_selection_filter) and selection_rect.has_point(world_to_screen(unit["pos"])):
 			selected_expedition_ids.append(int(unit.get("id", -1)))
 	selected_core = -1
 	selected_tip_valid = false
@@ -1047,6 +1185,46 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 	mode = "normal"
 	if not selected_expedition_ids.is_empty():
 		toast("已选中 %d 个体外单位" % selected_expedition_ids.size(), 1.8)
+
+
+func _unit_filter_ids() -> Array:
+	return ["all", "forager", "carrier", "chelator", "scout", "lytic"]
+
+
+func _unit_filter_rects() -> Array:
+	var viewport := get_viewport_rect().size
+	var ids := _unit_filter_ids()
+	var width := 44.0
+	var gap := 5.0
+	var total_width := ids.size() * width + (ids.size() - 1) * gap
+	var start_x := clampf(viewport.x - 540.0, 390.0, viewport.x - total_width - 242.0)
+	var rects: Array = []
+	for i in range(ids.size()):
+		rects.append({"id": ids[i], "rect": Rect2(start_x + i * (width + gap), 16.0, width, 48.0)})
+	return rects
+
+
+func _unit_filter_at(screen_pos: Vector2) -> String:
+	for item in _unit_filter_rects():
+		if (item["rect"] as Rect2).has_point(screen_pos):
+			return String(item["id"])
+	return ""
+
+
+func _select_units_by_filter(filter_id: String) -> void:
+	if not _unit_filter_ids().has(filter_id):
+		return
+	unit_selection_filter = filter_id
+	selected_expedition_ids.clear()
+	for unit in expedition_units:
+		if filter_id == "all" or String(unit.get("unit_type", "forager")) == filter_id:
+			selected_expedition_ids.append(int(unit.get("id", -1)))
+	selected_core = -1
+	selected_tip_valid = false
+	show_status = false
+	mode = "normal"
+	var label := "全部" if filter_id == "all" else String(BARRACK_UNIT_NAMES.get(filter_id, filter_id))
+	toast("%s筛选：已选 %d 个单位" % [label, selected_expedition_ids.size()], 1.8)
 
 
 func _resource_at_world(world_pos: Vector2, radius: float) -> Dictionary:
@@ -1770,7 +1948,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				dragging = false
 				drag_button = 0
 				if not right_dragged:
-					_issue_expedition_command(event.position)
+					if mode == "set_rally":
+						mode = "normal"
+						toast("已取消设置集结点", 1.8)
+					else:
+						_issue_expedition_command(event.position)
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
@@ -1835,6 +2017,12 @@ func _handle_left_click(pos: Vector2) -> void:
 	if goals_open:
 		_handle_goals_click(pos)
 		return
+	var filter_hit := _unit_filter_at(pos)
+	if filter_hit != "":
+		_select_units_by_filter(filter_hit)
+		return
+	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
+		return
 	if not _current_ecology_event().is_empty() and _ecology_event_hud_rect().has_point(pos):
 		camera_center = _current_ecology_event()["pos"]
 		_clamp_camera()
@@ -1864,6 +2052,9 @@ func _handle_left_click(pos: Vector2) -> void:
 		var uv := (pos - mini.position) / mini.size
 		camera_center = Vector2(lerp(-WORLD_HALF, WORLD_HALF, uv.x), lerp(-WORLD_HALF, WORLD_HALF, uv.y))
 		_clamp_camera()
+		return
+	if mode == "set_rally":
+		_set_barracks_rally(selected_core, screen_to_world(pos))
 		return
 	var action := _menu_action_at(pos)
 	if action != "":
@@ -2395,6 +2586,7 @@ func _draw() -> void:
 	_draw_ecology_zones(viewport)
 	_draw_bacteria(viewport)
 	_draw_colony(viewport)
+	_draw_barracks_rally_points()
 	_draw_expedition_units(viewport)
 	_draw_world_fog(viewport)
 	_draw_barracks_placement_preview()
@@ -2560,10 +2752,13 @@ func _start_new_culture() -> void:
 	absorb_clock = 0.0
 	bacteria_update_clock = 0.0
 	expedition_update_clock = 0.0
+	barracks_auto_clock = 0.0
 	save_clock = 0.0
 	game_over = false
 	selected_core = -1
 	selected_tip_valid = false
+	selected_expedition_ids.clear()
+	unit_selection_filter = "all"
 	mode = "normal"
 	upgrade_open = false
 	goals_open = false
@@ -2763,16 +2958,12 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 		if p.x < -14.0 or p.y < -14.0 or p.x > viewport.x + 14.0 or p.y > viewport.y + 14.0:
 			continue
 		if camera_zoom < 0.09:
-			var overview_color := COLOR_MINERAL if unit_type == "chelator" else (COLOR_BACTERIA if unit_type == "lytic" else (Color("5edcf5") if unit_type == "scout" else Color("76f5ca")))
+			var overview_color := _unit_color(unit_type)
 			draw_rect(Rect2(p, Vector2.ONE), overview_color)
 			continue
 		var phase := float(unit.get("phase", 0.0)) + sim_time * 4.0
 		var tail_offset := Vector2(-4.0, sin(phase) * 2.0)
-		var body_color := Color("76f5ca")
-		if unit_type == "carrier": body_color = COLOR_ORGANIC
-		elif unit_type == "chelator": body_color = COLOR_MINERAL
-		elif unit_type == "scout": body_color = Color("5edcf5")
-		elif unit_type == "lytic": body_color = COLOR_BACTERIA
+		var body_color := _unit_color(unit_type)
 		draw_rect(Rect2(p + tail_offset - Vector2(2, 1), Vector2(4, 2)), body_color.darkened(0.35))
 		var body_size := 8.0 if unit_type == "carrier" else 6.0
 		draw_rect(Rect2(p - Vector2.ONE * body_size * 0.5, Vector2.ONE * body_size), body_color)
@@ -2784,6 +2975,47 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 			draw_rect(Rect2(p + Vector2(4, 2), Vector2(3, 3)), COLOR_MINERAL)
 		if selected:
 			draw_arc(p, 9.0, 0.0, TAU, 16, command_color, 1.0, false)
+
+
+func _unit_color(unit_type: String) -> Color:
+	if unit_type == "carrier":
+		return COLOR_ORGANIC
+	if unit_type == "chelator":
+		return COLOR_MINERAL
+	if unit_type == "scout":
+		return Color("5edcf5")
+	if unit_type == "lytic":
+		return COLOR_BACTERIA
+	return Color("76f5ca")
+
+
+func _draw_barracks_rally_points() -> void:
+	for core_id in range(cores.size()):
+		var core: Dictionary = cores[core_id]
+		if not _is_core_alive(core_id) or String(core.get("kind", "normal")) != "barracks" or not bool(core.get("rally_enabled", false)):
+			continue
+		if core_id != selected_core:
+			continue
+		var start := _pixel_snap(world_to_screen(core["pos"]))
+		var target := _pixel_snap(world_to_screen(core.get("rally_point", core["pos"])))
+		var color := Color(0.38, 1.0, 0.56, 0.76)
+		draw_dashed_line(start, target, color, 1.5, 7.0, false)
+		draw_rect(Rect2(target - Vector2(5, 5), Vector2(10, 10)), Color(color, 0.10))
+		draw_line(target + Vector2(-7, 0), target + Vector2(7, 0), color, 1.5, false)
+		draw_line(target + Vector2(0, -7), target + Vector2(0, 7), color, 1.5, false)
+	if mode == "set_rally" and _is_core_alive(selected_core) and String(cores[selected_core].get("kind", "normal")) == "barracks":
+		var core_pos: Vector2 = cores[selected_core]["pos"]
+		var requested := screen_to_world(last_mouse)
+		var offset := requested - core_pos
+		if offset.length() > BARRACKS_RALLY_RADIUS:
+			offset = offset.normalized() * BARRACKS_RALLY_RADIUS
+		var preview := _pixel_snap(world_to_screen(core_pos + offset))
+		var source := _pixel_snap(world_to_screen(core_pos))
+		var preview_color := Color(0.42, 1.0, 0.62, 0.92)
+		draw_dashed_line(source, preview, preview_color, 1.5, 7.0, false)
+		draw_arc(source, BARRACKS_RALLY_RADIUS * camera_zoom, 0.0, TAU, 48, Color(preview_color, 0.20), 1.0, false)
+		draw_line(preview + Vector2(-8, 0), preview + Vector2(8, 0), preview_color, 2.0, false)
+		draw_line(preview + Vector2(0, -8), preview + Vector2(0, 8), preview_color, 2.0, false)
 
 
 func _draw_world_fog(viewport: Vector2) -> void:
@@ -3010,6 +3242,7 @@ func _draw_extension_preview() -> void:
 
 func _draw_hud(viewport: Vector2) -> void:
 	_draw_top_resources()
+	_draw_unit_filter_bar()
 	_draw_minimap(viewport)
 	_draw_scale(viewport)
 	_draw_speed_controls(viewport)
@@ -3017,6 +3250,28 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_goals_hud(viewport)
 	_draw_ecology_event_hud(viewport)
 	_draw_help(viewport)
+
+
+func _draw_unit_filter_bar() -> void:
+	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂"}
+	for item in _unit_filter_rects():
+		var filter_id := String(item["id"])
+		var rect: Rect2 = item["rect"]
+		var available := filter_id == "all" or _available_barracks_units().has(filter_id)
+		var active := unit_selection_filter == filter_id
+		var count := 0
+		for unit in expedition_units:
+			if filter_id == "all" or String(unit.get("unit_type", "forager")) == filter_id:
+				count += 1
+		var border := _unit_color(filter_id) if filter_id != "all" else Color("76f5ca")
+		var background := Color(0.055, 0.22, 0.18, 0.98) if active else Color(0.018, 0.065, 0.095, 0.94)
+		if not available and count == 0:
+			background = Color(0.025, 0.035, 0.045, 0.92)
+			border = COLOR_MUTED.darkened(0.45)
+		draw_style_box(_rounded_style(background, Color(border, 0.92 if active else 0.50), 7, 2 if active else 1), rect)
+		var text_color := COLOR_TEXT if available or count > 0 else COLOR_MUTED.darkened(0.35)
+		draw_string(fallback_font, rect.position + Vector2(9, 21), String(short_names[filter_id]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, text_color)
+		draw_string(fallback_font, rect.position + Vector2(7, 39), "%02d" % count, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(text_color, 0.82))
 
 
 func _draw_top_resources() -> void:
@@ -3808,8 +4063,9 @@ func _draw_help(viewport: Vector2) -> void:
 	var text_value := "左键点击/拖框选兵　右键指令/拖动地图　滚轮缩放　F5 保存"
 	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 220.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
-		var selected_text := "体外部队　已选 %d / %d" % [selected_expedition_ids.size(), expedition_units.size()]
-		var rect := Rect2(22, viewport.y - 86, 198, 34)
+		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
+		var selected_text := "%s筛选　已选 %d / %d" % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
+		var rect := Rect2(22, viewport.y - 86, 238, 34)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
 
@@ -3957,10 +4213,50 @@ func _draw_menu_tooltip(button: Dictionary) -> void:
 		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, color)
 
 
+func _status_panel_rect() -> Rect2:
+	if selected_core >= 0 and selected_core < cores.size() and String(cores[selected_core].get("kind", "normal")) == "barracks":
+		return Rect2(22, 156, 390, 414)
+	return Rect2(22, 156, 350, 282)
+
+
+func _barracks_auto_button_rect() -> Rect2:
+	var panel := _status_panel_rect()
+	return Rect2(panel.position + Vector2(16, 366), Vector2(154, 32))
+
+
+func _barracks_target_button_rect() -> Rect2:
+	var panel := _status_panel_rect()
+	return Rect2(panel.position + Vector2(178, 366), Vector2(88, 32))
+
+
+func _barracks_rally_button_rect() -> Rect2:
+	var panel := _status_panel_rect()
+	return Rect2(panel.position + Vector2(274, 366), Vector2(100, 32))
+
+
+func _handle_barracks_status_click(pos: Vector2) -> bool:
+	if selected_core < 0 or selected_core >= cores.size() or String(cores[selected_core].get("kind", "normal")) != "barracks":
+		return false
+	if _barracks_auto_button_rect().has_point(pos):
+		_toggle_barracks_auto(selected_core)
+		return true
+	if _barracks_target_button_rect().has_point(pos):
+		_cycle_barracks_auto_target(selected_core)
+		return true
+	if _barracks_rally_button_rect().has_point(pos):
+		if bool(cores[selected_core].get("rally_enabled", false)):
+			_clear_barracks_rally(selected_core)
+		else:
+			mode = "set_rally"
+			toast("左键点击地图设置集结点；右键或 Esc 取消", 3.0)
+		return true
+	return _status_panel_rect().has_point(pos)
+
+
 func _draw_status_panel(viewport: Vector2) -> void:
 	var core = cores[selected_core]
 	var is_barracks := String(core.get("kind", "normal")) == "barracks"
-	var rect := Rect2(22, 82, 350, 282)
+	var rect := _status_panel_rect()
 	draw_style_box(_panel_style(), rect)
 	draw_string(fallback_font, rect.position + Vector2(16, 28), "%s %d" % ["兵营核心" if is_barracks else "孢子核心", selected_core + 1], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("a7f4d7") if is_barracks else COLOR_TEXT)
 	var biomass_percent := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS))) * 100.0
@@ -3976,6 +4272,46 @@ func _draw_status_panel(viewport: Vector2) -> void:
 	var barracks_radius := SCOUT_OPERATING_RADIUS if String(core.get("production_unit", "forager")) == "scout" else EXPEDITION_OPERATING_RADIUS
 	var final_text := "活动半径　%.0f μm　体外部队 %d / %d" % [barracks_radius / 2.0, expedition_units.size(), MAX_EXPEDITION_SPORES] if is_barracks else "DNA 速度　+%d%%　%.1f 秒/点" % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
 	draw_string(fallback_font, rect.position + Vector2(16, 257), final_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("76f5ca") if is_barracks else COLOR_MINERAL)
+	if is_barracks:
+		var jobs: Array = core.get("spore_jobs", [])
+		var auto_unit := String(core.get("auto_replenish_unit", "forager"))
+		var auto_target := int(core.get("auto_replenish_target", 4))
+		draw_string(fallback_font, rect.position + Vector2(16, 286), "生产队列　%d / %d" % [jobs.size(), BARRACKS_QUEUE_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		for i in range(BARRACKS_QUEUE_CAPACITY):
+			var slot := Rect2(rect.position + Vector2(16 + i * 35, 300), Vector2(28, 28))
+			var slot_border := COLOR_BORDER
+			var slot_background := Color(0.012, 0.045, 0.065, 0.96)
+			var slot_progress := 0.0
+			if i < jobs.size():
+				var job: Dictionary = jobs[i]
+				var unit_type := String(job.get("unit_type", "forager"))
+				slot_border = _unit_color(unit_type)
+				if i == 0:
+					var total := maxf(0.001, float(job.get("total", 1.0)))
+					slot_progress = clampf(1.0 - float(job.get("remaining", total)) / total, 0.0, 1.0)
+			draw_style_box(_rounded_style(slot_background, Color(slot_border, 0.72), 5, 1), slot)
+			if slot_progress > 0.0:
+				draw_rect(Rect2(slot.position + Vector2(2, 2), Vector2((slot.size.x - 4.0) * slot_progress, slot.size.y - 4.0)), Color(slot_border, 0.20))
+			if i < jobs.size():
+				var slot_type := String((jobs[i] as Dictionary).get("unit_type", "forager"))
+				var short_name: String = String({"forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂"}.get(slot_type, "?"))
+				draw_string(fallback_font, slot.position + Vector2(8, 19), short_name, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, _unit_color(slot_type))
+		var auto_text := "自动补员：%s　%s %d / %d" % [
+			"开" if bool(core.get("auto_replenish", false)) else "关",
+			BARRACK_UNIT_NAMES.get(auto_unit, auto_unit),
+			_barracks_unit_count(selected_core, auto_unit, true),
+			auto_target
+		]
+		draw_string(fallback_font, rect.position + Vector2(16, 352), auto_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var auto_button := _barracks_auto_button_rect()
+		var target_button := _barracks_target_button_rect()
+		var rally_button := _barracks_rally_button_rect()
+		draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("76f5ca"), 7, 1), auto_button)
+		draw_style_box(_rounded_style(Color(0.045, 0.12, 0.18, 0.98), Color("5edcf5"), 7, 1), target_button)
+		draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("56f08d"), 7, 1), rally_button)
+		draw_string(fallback_font, auto_button.position + Vector2(12, 21), "自动补员：%s" % ("开" if bool(core.get("auto_replenish", false)) else "关"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, target_button.position + Vector2(10, 21), "目标 %d" % auto_target, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, rally_button.position + Vector2(9, 21), "清除集结" if bool(core.get("rally_enabled", false)) else "设置集结", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 	if viewport.x < 800:
 		return
 
@@ -4119,6 +4455,12 @@ func _save_game() -> void:
 			"spore_jobs": core.get("spore_jobs", []),
 			"kind": String(core.get("kind", "normal")),
 			"production_unit": String(core.get("production_unit", "forager")),
+			"rally_enabled": bool(core.get("rally_enabled", false)),
+			"rally_x": (core.get("rally_point", core["pos"]) as Vector2).x,
+			"rally_y": (core.get("rally_point", core["pos"]) as Vector2).y,
+			"auto_replenish": bool(core.get("auto_replenish", false)),
+			"auto_replenish_unit": String(core.get("auto_replenish_unit", core.get("production_unit", "forager"))),
+			"auto_replenish_target": int(core.get("auto_replenish_target", 4)),
 			"feeder_range_level": int(core.get("feeder_range_level", 0)),
 			"biomass": float(core.get("biomass", CORE_MAX_BIOMASS)),
 			"max_biomass": float(core.get("max_biomass", CORE_MAX_BIOMASS)),
@@ -4310,8 +4652,22 @@ func _load_game() -> bool:
 	for item in parsed.get("cores", []):
 		var core := _make_core(Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0))), String(item.get("kind", "normal")))
 		core["jobs"] = item.get("jobs", [])
-		core["spore_jobs"] = item.get("spore_jobs", [])
-		core["production_unit"] = String(item.get("production_unit", "forager"))
+		core["spore_jobs"] = _sanitized_barracks_jobs(item.get("spore_jobs", []))
+		var production_unit := String(item.get("production_unit", "forager"))
+		core["production_unit"] = production_unit if _available_barracks_units().has(production_unit) else "forager"
+		var rally_point := Vector2(float(item.get("rally_x", core["pos"].x)), float(item.get("rally_y", core["pos"].y)))
+		if not rally_point.is_finite():
+			rally_point = core["pos"]
+		var rally_offset: Vector2 = rally_point - (core["pos"] as Vector2)
+		if rally_offset.length() > BARRACKS_RALLY_RADIUS:
+			rally_point = (core["pos"] as Vector2) + rally_offset.normalized() * BARRACKS_RALLY_RADIUS
+		core["rally_enabled"] = bool(item.get("rally_enabled", false)) and String(core.get("kind", "normal")) == "barracks"
+		core["rally_point"] = rally_point
+		var auto_unit := String(item.get("auto_replenish_unit", core["production_unit"]))
+		var valid_auto_unit := _available_barracks_units().has(auto_unit)
+		core["auto_replenish_unit"] = auto_unit if valid_auto_unit else "forager"
+		core["auto_replenish"] = bool(item.get("auto_replenish", false)) and valid_auto_unit and String(core.get("kind", "normal")) == "barracks"
+		core["auto_replenish_target"] = _normalized_auto_target(int(item.get("auto_replenish_target", 4)))
 		core["feeder_range_level"] = clampi(int(item.get("feeder_range_level", 0)), 0, MAX_FEEDER_RANGE_LEVEL)
 		core["max_biomass"] = maxf(1.0, float(item.get("max_biomass", CORE_MAX_BIOMASS)))
 		core["biomass"] = clampf(float(item.get("biomass", core["max_biomass"])), 0.0, float(core["max_biomass"]))
@@ -4449,6 +4805,9 @@ func _load_game() -> bool:
 		_save_game()
 	selected_core = -1
 	selected_expedition_ids.clear()
+	unit_selection_filter = "all"
+	mode = "normal"
+	barracks_auto_clock = 0.0
 	return true
 
 
