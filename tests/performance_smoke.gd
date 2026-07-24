@@ -31,7 +31,7 @@ func _run() -> void:
 	game.cores.append(game._make_core(Vector2(300.0, -120.0), "barracks"))
 	game.diet_levels["bacteria"] = 1
 	for i in range(game.MAX_EXPEDITION_SPORES):
-		game._spawn_expedition_spore(barracks_id)
+		game._spawn_expedition_spore(barracks_id, "scout" if i % 8 == 0 else "forager")
 	var started := Time.get_ticks_usec()
 	# 120次批量更新相当于约2秒的60×压力负载。
 	for i in range(120):
@@ -45,6 +45,17 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: 420-bacteria accelerated simulation took %.1f ms" % elapsed_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms)
+	game.camera_zoom = 0.018
+	game.camera_center = Vector2.ZERO
+	var render_started := Time.get_ticks_usec()
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var render_ms := float(Time.get_ticks_usec() - render_started) / 1000.0
+	if render_ms > 1000.0:
+		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
+		quit(1)
+		return
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)

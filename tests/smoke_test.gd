@@ -25,6 +25,8 @@ func _run() -> void:
 	game.autosave_enabled = false
 	if not _check(game.cores.size() == 1, "Starting a new culture should create exactly one spore core"):
 		return
+	if not _check(game._is_world_explored(Vector2.ZERO) and not game._is_world_explored(Vector2(8000.0, 8000.0)), "A new culture should reveal its starting area while distant regions remain under fog"):
+		return
 	if not _check(game.WORLD_HALF >= 16000.0 and game.camera_zoom <= 0.65, "Micro world should be enlarged and start with a wider camera"):
 		return
 	for resource in game.resources:
@@ -325,8 +327,9 @@ func _run() -> void:
 		return
 	game._purchase_barracks_unit("carrier")
 	game._purchase_barracks_unit("chelator")
+	game._purchase_barracks_unit("scout")
 	game._purchase_diet_unit("bacteria", "lytic")
-	if not _check(bool(game.barracks_unit_unlocks["carrier"]) and bool(game.barracks_unit_unlocks["chelator"]) and bool(game.diet_unit_unlocks["lytic"]) and game._available_barracks_units().has("lytic"), "Barracks and bacteria diet shops should unlock units into the production list"):
+	if not _check(bool(game.barracks_unit_unlocks["carrier"]) and bool(game.barracks_unit_unlocks["chelator"]) and bool(game.barracks_unit_unlocks["scout"]) and bool(game.diet_unit_unlocks["lytic"]) and game._available_barracks_units().has("scout") and game._available_barracks_units().has("lytic"), "Barracks and bacteria diet shops should unlock scout and specialist units into the production list"):
 		return
 	var detox_test_bacterium: Dictionary = game._make_bacterium(Vector2.ZERO)
 	detox_test_bacterium["suppressed"] = false
@@ -392,6 +395,24 @@ func _run() -> void:
 	chelator["state"] = "gathering"
 	game._update_expedition_gathering(chelator, 10.0)
 	if not _check(is_equal_approx(float(chelator["cargo_mineral"]), 0.18), "Chelator spores should gather mineral ions instead of organic nutrition"):
+		return
+	game._spawn_expedition_spore(barracks_id, "scout")
+	var scout: Dictionary = game.expedition_units[2]
+	scout["pos"] = Vector2(2600.0, 0.0)
+	game.explored_cells.clear()
+	game._reveal_exploration(Vector2.ZERO, game.CORE_REVEAL_RADIUS)
+	if not _check(not game._is_world_explored(scout["pos"]), "A remote scout position should begin hidden in the prepared fog test"):
+		return
+	game._update_exploration()
+	if not _check(game._is_world_explored(scout["pos"]) and game.SCOUT_REVEAL_RADIUS > game.UNIT_REVEAL_RADIUS, "Scout spores should reveal a wider region around their current position"):
+		return
+	game.selected_expedition_ids = [int(scout["id"])]
+	game._issue_expedition_command(game.world_to_screen(Vector2(8000.0, 0.0)))
+	if not _check(game._distance_to_colony(scout["target_pos"]) <= game.SCOUT_OPERATING_RADIUS + 0.01 and game._distance_to_colony(scout["target_pos"]) > game.EXPEDITION_OPERATING_RADIUS, "Scout orders should use the extended exploration operating radius"):
+		return
+	game.selected_expedition_ids = [int(expedition["id"]), int(scout["id"])]
+	game._issue_expedition_command(game.world_to_screen(Vector2(8000.0, 0.0)))
+	if not _check(game._distance_to_colony(expedition["target_pos"]) <= game.EXPEDITION_OPERATING_RADIUS + 0.01 and game._distance_to_colony(scout["target_pos"]) > game.EXPEDITION_OPERATING_RADIUS and game._distance_to_colony(scout["target_pos"]) <= game.SCOUT_OPERATING_RADIUS + 0.01, "Mixed selections must clamp normal and scout units to their own operating radii"):
 		return
 	game.expedition_units.clear()
 	game.selected_expedition_ids.clear()

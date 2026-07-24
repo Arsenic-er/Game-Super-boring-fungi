@@ -78,7 +78,8 @@ func _run() -> void:
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(120.0, 0.0), "barracks"))
 	game._spawn_expedition_spore(barracks_id)
-	game._spawn_expedition_spore(barracks_id)
+	game.barracks_unit_unlocks["scout"] = true
+	game._spawn_expedition_spore(barracks_id, "scout")
 	game.selected_expedition_ids = [int(game.expedition_units[0]["id"]), int(game.expedition_units[1]["id"])]
 	game._issue_expedition_command(game.world_to_screen(Vector2(180.0, 80.0)))
 	game.left_selecting = true
@@ -111,6 +112,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_and_diet_units=rendered goal_pages=2 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_and_diet_units=rendered fog_and_scout=rendered goal_pages=2 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.16.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.17.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -22,6 +22,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - DNA production, reversible evolution choices, structure upgrades, survival upgrades, diet paths, and long-term goals with different rewards.
 - Core biomass, toxin pressure, gradual recovery, dying orphaned hyphae, and network rescue by another living core.
 - Barracks cores and several expedition-spore roles for gathering, transport, mineral collection, and bacteria-focused combat.
+- Persistent fog of war on both the culture view and minimap, plus fast scout spores that automatically reveal hidden resource regions.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, autosave, and up to 48 hours of offline progress.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
 
@@ -58,7 +59,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.16.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.17.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -76,6 +77,7 @@ The source code, visual assets, game design, text, and other repository contents
 - DNA 生产、可逆进化、结构升级、生存升级、食性路线，以及奖励各不相同的长期目标。
 - 核心生物量、毒素压力、缓慢恢复、孤立菌丝死亡，以及其他活核心重新连接后的网络救援。
 - 兵营核心与多种游猎孢子，分别负责采集、运输、矿物收集和针对细菌的战斗。
+- 大地图与小地图使用永久探索黑幕；高速嗅营孢子会自动寻找未探索区域并揭示资源热点。
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速、自动存档与最多 48 小时离线结算。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
 
