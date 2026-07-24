@@ -121,8 +121,8 @@ func _run() -> void:
 		quit(1)
 		return
 	var filter_rects: Array = game._unit_filter_rects()
-	if filter_rects.size() != 6 or (filter_rects.back()["rect"] as Rect2).end.x >= game._minimap_rect().position.x:
-		push_error("UPGRADE_UI_FAIL: six unit filters should fit between the resource bar and minimap")
+	if filter_rects.size() != 7 or (filter_rects.back()["rect"] as Rect2).end.x >= game._minimap_rect().position.x:
+		push_error("UPGRADE_UI_FAIL: seven unit filters should fit between the resource bar and minimap")
 		quit(1)
 		return
 	game.show_status = false
@@ -137,6 +137,19 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	game.game_over = false
+	var enemy_pos: Vector2 = game.enemy_fungi[0]["pos"]
+	game._reveal_exploration(enemy_pos, 320.0)
+	game._sync_enemy_fungi_discovery(false)
+	game.camera_zoom = 0.65
+	game.camera_center = enemy_pos
+	game.last_mouse = game.world_to_screen(enemy_pos)
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	if game._nearest_enemy_fungus_index(enemy_pos, 30.0, true) < 0:
+		push_error("UPGRADE_UI_FAIL: explored rival fungus should render and support its tooltip hit target")
+		quit(1)
+		return
 	game.camera_zoom = 0.018
 	game.camera_center = Vector2.ZERO
 	game.queue_redraw()
@@ -207,6 +220,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=6 discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

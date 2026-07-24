@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.21.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.22.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -25,6 +25,8 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Persistent fog of war on both the culture view and minimap, plus fast scout spores that automatically reveal hidden resource regions.
 - Permanent anomaly discoveries, exploration notifications, expedition supply and suppression goals, and independent scout vision and movement upgrades.
 - Telegraphing bacterial ecology events: contain a local bloom with predation or expedition spores, or survive a temporary toxin zone with antibiotics, detoxification, and repair reserves.
+- A fog-hidden rival fungus that consumes real organic resources, slowly extends its own hyphae, and damages player cores after physical contact.
+- Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Barracks production queues, per-barracks rally points, resource-aware automatic replenishment, and unit-type selection filters.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
 - Up to two hours of resource-faithful offline progress, followed by a detailed report covering nutrient collection, DNA, expedition production, exploration, ecology, and core biomass.
@@ -35,7 +37,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Left click: inspect a core, choose actions, or select expedition spores
 - Top unit filters: select all units or all units of one unlocked role
 - Left drag: rectangular unit selection
-- Right click: issue a movement, gathering, or attack order
+- Right click: issue a movement, gathering, bacteria-attack, or rival-fungus attack order
 - Right drag / middle drag: move the camera
 - Mouse wheel: zoom
 - `WASD` / arrow keys: move the camera
@@ -64,7 +66,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.21.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.22.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -86,6 +88,8 @@ The source code, visual assets, game design, text, and other repository contents
 - 大地图与小地图使用永久探索黑幕；高速嗅营孢子会自动寻找未探索区域并揭示资源热点。
 - 异常资源区会触发永久发现记录与提示；新增远征补给、细菌压制目标，以及独立的嗅营感知和运动升级。
 - 带预警的细菌生态事件：通过捕食和体外部队压制局部暴发，或利用抗生素、解毒代谢和修复储备熬过临时毒素区。
+- 隐藏在探索黑幕后的竞争性真菌会消耗地图真实有机营养、缓慢延伸自己的菌丝，并在接触后侵染我方核心。
+- 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。
 - 最多两小时、严格消耗地图真实资源的离线结算，并在返回后报告营养、DNA、体外单位、探索、生态与核心生物量变化。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
@@ -95,7 +99,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 左键：查看核心、选择操作或选中游猎孢子
 - 顶部兵种筛选：选中全部单位或某一已解锁兵种
 - 左键拖动：矩形框选部队
-- 右键：下达移动、采集或攻击命令
+- 右键：下达移动、采集、攻击细菌或攻击竞争真菌的命令
 - 右键拖动 / 中键拖动：移动镜头
 - 鼠标滚轮：缩放
 - `WASD` / 方向键：移动镜头

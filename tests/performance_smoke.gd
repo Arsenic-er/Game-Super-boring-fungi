@@ -44,12 +44,29 @@ func _run() -> void:
 		"anchor_core_id": barracks_id,
 		"spawned": 0
 	}]
+	var enemy: Dictionary = game.enemy_fungi[0]
+	enemy["state_time"] = 9999.0
+	while game.enemy_hyphae.size() < game.ENEMY_FUNGUS_MAX_SEGMENTS * 3:
+		var hypha_index: int = game.enemy_hyphae.size()
+		var start: Vector2 = enemy["pos"]
+		var angle := float(hypha_index) * 0.43
+		game.enemy_hyphae.append({
+			"id": game.next_enemy_hypha_id,
+			"fungus_id": int(enemy["id"]),
+			"a": start,
+			"b": start + Vector2.from_angle(angle) * game.ENEMY_FUNGUS_SEGMENT_LENGTH,
+			"growth": 1.0,
+			"curve": 0.05,
+			"viability": 1.0
+		})
+		game.next_enemy_hypha_id += 1
 	var started := Time.get_ticks_usec()
 	# 120次批量更新相当于约2秒的60×压力负载。
 	for i in range(120):
 		game._update_bacteria(1.0)
 		game._update_expedition_units(1.0)
 		game._update_ecology_events(1.0)
+		game._update_enemy_fungi(1.0)
 		game._update_core_hazards(1.0)
 		if i % 12 == 0:
 			game._discover_feeders()
@@ -69,6 +86,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)
