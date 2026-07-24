@@ -114,11 +114,43 @@ func _run() -> void:
 	game.queue_redraw()
 	await process_frame
 	await process_frame
+	game.offline_report = {
+		"actual_seconds": 10800.0,
+		"settled_seconds": 7200.0,
+		"capped": true,
+		"absorbed_organic": 12.345,
+		"absorbed_mineral": 0.678,
+		"returned_organic": 4.5,
+		"returned_mineral": 0.25,
+		"organic_delta": 16.845,
+		"mineral_delta": 0.928,
+		"dna_completed": 2,
+		"units_built": 3,
+		"explored_cells": 8,
+		"explored_percent": 0.21,
+		"hotspots": 1,
+		"bacteria_births": 2,
+		"bacteria_consumed": 4,
+		"biomass_delta": -0.125,
+		"living_cores_before": 2,
+		"living_cores_after": 2
+	}
+	game.offline_report_open = true
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var report_panel: Rect2 = game._offline_report_panel_rect(game.get_viewport_rect().size)
+	var report_button: Rect2 = game._offline_report_button_rect(game.get_viewport_rect().size)
+	if not report_panel.encloses(report_button):
+		push_error("UPGRADE_UI_FAIL: offline report button must stay inside its modal panel")
+		quit(1)
+		return
+	game._close_offline_report()
 	var panel: Rect2 = game._upgrade_panel_rect(game.get_viewport_rect().size)
 	if panel.size.x < 700.0 or panel.size.y < 450.0:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

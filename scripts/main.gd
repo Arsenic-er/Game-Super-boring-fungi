@@ -11,7 +11,12 @@ const DNA_JOB_SECONDS := 180.0
 const DNA_SPEED_BONUS_PER_NODE_LEVEL := 0.15
 const CORE_ORGANIC_COST := 70.0
 const CORE_MINERAL_COST := 6.0
-const OFFLINE_CAP_SECONDS := 172800.0
+const OFFLINE_CAP_SECONDS := 7200.0
+const OFFLINE_MIN_SECONDS := 30.0
+const OFFLINE_STEP_SECONDS := 5.0
+const OFFLINE_BACTERIA_CAP_SECONDS := 600.0
+const OFFLINE_HAZARD_CAP_SECONDS := 60.0
+const OFFLINE_ORPHAN_CAP_SECONDS := 600.0
 const SAVE_INTERVAL := 15.0
 const SAVE_PATH := "user://save.json"
 const SETTINGS_PATH := "user://settings.json"
@@ -249,6 +254,8 @@ var settings_pixel_cursor := true
 var discovery_banner_title := ""
 var discovery_banner_detail := ""
 var discovery_banner_time := 0.0
+var offline_report_open := false
+var offline_report: Dictionary = {}
 
 var fallback_font: Font
 var splash_logo: Texture2D
@@ -438,6 +445,9 @@ func _process(delta: float) -> void:
 	if main_menu_active:
 		queue_redraw()
 		return
+	if offline_report_open:
+		queue_redraw()
+		return
 	_handle_camera_keys(delta)
 	if selected_core >= 0 or selected_tip_valid:
 		menu_anim = minf(1.0, menu_anim + delta * 4.8)
@@ -609,7 +619,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 	next_expedition_id += 1
 
 
-func _update_expedition_units(sim_delta: float) -> void:
+func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = true) -> void:
 	var surviving: Array = []
 	for unit in expedition_units:
 		var home := _expedition_home_position(unit)
@@ -655,7 +665,7 @@ func _update_expedition_units(sim_delta: float) -> void:
 		surviving.append(unit)
 	expedition_units = surviving
 	_prune_expedition_selection()
-	_update_exploration()
+	_update_exploration(show_discovery_feedback)
 
 
 func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) -> void:
@@ -1512,6 +1522,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				if main_menu_page == "main":
 					_start_game_from_menu()
 		return
+	if offline_report_open:
+		if event is InputEventMouseMotion:
+			last_mouse = event.position
+			queue_redraw()
+		elif event is InputEventMouseButton:
+			last_mouse = event.position
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				if _offline_report_button_rect(get_viewport_rect().size).has_point(event.position):
+					_close_offline_report()
+		elif event is InputEventKey and event.pressed and not event.echo:
+			if event.keycode == KEY_ESCAPE or event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER or event.keycode == KEY_SPACE:
+				_close_offline_report()
+		return
 	if event is InputEventMouseMotion:
 		last_mouse = event.position
 		if left_selecting:
@@ -2190,6 +2213,8 @@ func _draw() -> void:
 		_draw_discovery_banner(viewport)
 	if toast_time > 0.0 and toast_text != "":
 		_draw_toast(viewport)
+	if offline_report_open:
+		_draw_offline_report(viewport)
 
 
 func _draw_splash(viewport: Vector2) -> void:
@@ -2362,6 +2387,8 @@ func _start_new_culture() -> void:
 	discovery_banner_title = ""
 	discovery_banner_detail = ""
 	discovery_banner_time = 0.0
+	offline_report_open = false
+	offline_report.clear()
 	cores.append(_make_core(Vector2.ZERO))
 	_update_exploration()
 	toast("点击孢子核心，开始延伸第一条菌丝", 6.0)
@@ -3694,6 +3721,72 @@ func _draw_toast(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(17, 25), toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
+func _offline_report_panel_rect(viewport: Vector2) -> Rect2:
+	var size := Vector2(minf(700.0, viewport.x - 48.0), minf(500.0, viewport.y - 48.0))
+	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
+
+
+func _offline_report_button_rect(viewport: Vector2) -> Rect2:
+	var panel := _offline_report_panel_rect(viewport)
+	return Rect2(_pixel_snap(Vector2(panel.get_center().x - 92.0, panel.end.y - 62.0)), Vector2(184.0, 38.0))
+
+
+func _draw_offline_report(viewport: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.005, 0.015, 0.025, 0.82))
+	var panel := _offline_report_panel_rect(viewport)
+	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.99), Color("55d9a5"), 14, 2), panel)
+	draw_string(fallback_font, panel.position + Vector2(28, 38), "休眠培养报告", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("bfffe1"))
+	var actual_seconds := float(offline_report.get("actual_seconds", 0.0))
+	var settled_seconds := float(offline_report.get("settled_seconds", 0.0))
+	var cap_note := "　已触发 2 小时上限" if bool(offline_report.get("capped", false)) else ""
+	draw_string(fallback_font, panel.position + Vector2(28, 68), "离开 %s　·　结算 %s%s" % [_format_duration(actual_seconds), _format_duration(settled_seconds), cap_note], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_line(panel.position + Vector2(28, 82), Vector2(panel.end.x - 28, panel.position.y + 82), Color(COLOR_BORDER, 0.72), 1.0)
+
+	var left_x := panel.position.x + 30.0
+	var right_x := panel.position.x + panel.size.x * 0.53
+	var first_y := panel.position.y + 116.0
+	var row_gap := 28.0
+	var left_lines := [
+		["真实采集", Color("84f2bd")],
+		["细菌丝有机　+%.3f" % float(offline_report.get("absorbed_organic", 0.0)), COLOR_ORGANIC],
+		["细菌丝矿物　+%.3f" % float(offline_report.get("absorbed_mineral", 0.0)), COLOR_MINERAL],
+		["远征有机　　+%.3f" % float(offline_report.get("returned_organic", 0.0)), COLOR_ORGANIC],
+		["远征矿物　　+%.3f" % float(offline_report.get("returned_mineral", 0.0)), COLOR_MINERAL],
+		["余额变化　有机 %+.3f　矿物 %+.3f" % [float(offline_report.get("organic_delta", 0.0)), float(offline_report.get("mineral_delta", 0.0))], COLOR_TEXT]
+	]
+	var right_lines := [
+		["成长与探索", Color("84f2bd")],
+		["DNA 完成　+%d" % int(offline_report.get("dna_completed", 0)), Color("75e6c0")],
+		["体外单位　+%d" % int(offline_report.get("units_built", 0)), Color("76f5ca")],
+		["探索格　　+%d　（%+.2f%%）" % [int(offline_report.get("explored_cells", 0)), float(offline_report.get("explored_percent", 0.0))], Color("5edcf5")],
+		["异常区　　+%d" % int(offline_report.get("hotspots", 0)), Color("8ce9ff")],
+		["细菌出生 %d　消灭 %d" % [int(offline_report.get("bacteria_births", 0)), int(offline_report.get("bacteria_consumed", 0))], COLOR_BACTERIA]
+	]
+	for i in range(left_lines.size()):
+		draw_string(fallback_font, Vector2(left_x, first_y + i * row_gap), String(left_lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, left_lines[i][1])
+	for i in range(right_lines.size()):
+		draw_string(fallback_font, Vector2(right_x, first_y + i * row_gap), String(right_lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, right_lines[i][1])
+
+	var biomass_delta := float(offline_report.get("biomass_delta", 0.0))
+	var living_before := int(offline_report.get("living_cores_before", 0))
+	var living_after := int(offline_report.get("living_cores_after", 0))
+	draw_string(fallback_font, panel.position + Vector2(30, 304), "核心生物量变化　%+.3f　·　存活核心 %d → %d" % [biomass_delta, living_before, living_after], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f") if biomass_delta < 0.0 else COLOR_TEXT)
+	draw_string(fallback_font, panel.position + Vector2(30, 338), "结算仅消耗地图中的真实资源；离线敌害最多推进 1 分钟，细菌生态最多推进 10 分钟。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	if bool(offline_report.get("capped", false)):
+		draw_string(fallback_font, panel.position + Vector2(30, 366), "超过两小时的休眠时间不会产生额外收益或伤害。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("f4ca83"))
+	var button := _offline_report_button_rect(viewport)
+	var hovered := button.has_point(last_mouse)
+	draw_style_box(_rounded_style(Color(0.10, 0.34, 0.27, 0.98) if hovered else Color(0.035, 0.16, 0.16, 0.98), Color("68efad") if hovered else COLOR_BORDER, 8, 2), button)
+	var label := "返回培养皿"
+	var label_width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+	draw_string(fallback_font, Vector2(button.get_center().x - label_width * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLOR_TEXT)
+
+
+func _close_offline_report() -> void:
+	offline_report_open = false
+	queue_redraw()
+
+
 func _draw_label_box(pos: Vector2, text_value: String, color: Color) -> void:
 	var size := fallback_font.get_string_size(text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
 	var rect := Rect2(pos - Vector2(7, 19), size + Vector2(14, 10))
@@ -3997,31 +4090,108 @@ func _load_game() -> bool:
 	if game_over:
 		sim_speed = 0.0
 	var now: float = Time.get_unix_time_from_system()
-	var elapsed: float = clampf(now - float(parsed.get("saved_at", now)), 0.0, OFFLINE_CAP_SECONDS)
-	_apply_offline_progress(elapsed)
+	var actual_elapsed := maxf(0.0, now - float(parsed.get("saved_at", now)))
+	var settled_elapsed := minf(actual_elapsed, OFFLINE_CAP_SECONDS)
+	_apply_offline_progress(settled_elapsed, actual_elapsed)
+	# 立即写回新的 saved_at 和结算后状态，避免报告关闭前异常退出导致重复收益。
+	if offline_report_open:
+		_save_game()
 	selected_core = -1
 	selected_expedition_ids.clear()
 	return true
 
 
-func _apply_offline_progress(seconds: float) -> void:
-	if seconds < 5.0 or game_over:
+func _total_core_biomass() -> float:
+	var total := 0.0
+	for core in cores:
+		if bool(core.get("alive", true)):
+			total += float(core.get("biomass", 0.0))
+	return total
+
+
+func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> void:
+	offline_report_open = false
+	offline_report.clear()
+	if seconds < OFFLINE_MIN_SECONDS or game_over:
 		return
-	_update_growth(seconds)
-	_update_dna_jobs(seconds)
-	_update_barracks_jobs(seconds)
-	# 细菌离线只精确推进前10分钟，防止指数分裂一次性耗尽整张地图。
-	_update_bacteria(minf(seconds, 600.0))
-	_update_core_hazards(minf(seconds, 60.0))
-	_update_orphaned_segments(minf(seconds, 600.0))
-	# 离线吸收按已有核心数量做保守估算，避免扫描世界或凭空无限产出。
-	var hours := seconds / 3600.0
-	organic += min(320.0, hours * 4.0 * _living_core_count())
-	mineral += min(24.0, hours * 0.18 * _living_core_count())
-	toast("离线推进 %s（最多结算 48 小时）" % _format_duration(seconds), 6.0)
+	var observed_seconds := seconds if actual_seconds < 0.0 else maxf(seconds, actual_seconds)
+	var before := {
+		"organic": organic,
+		"mineral": mineral,
+		"dna": dna,
+		"units": expedition_units.size(),
+		"explored": explored_cells.size(),
+		"explored_fraction": _explored_fraction(),
+		"hotspots": _discovered_hotspot_count(),
+		"absorbed_organic": lifetime_organic_absorbed,
+		"absorbed_mineral": lifetime_mineral_absorbed,
+		"returned_organic": lifetime_expedition_organic_returned,
+		"returned_mineral": lifetime_expedition_mineral_returned,
+		"bacteria_births": lifetime_bacteria_births,
+		"bacteria_consumed": lifetime_bacteria_consumed,
+		"biomass": _total_core_biomass(),
+		"living_cores": _living_core_count()
+	}
+	var remaining := seconds
+	var bacteria_remaining := minf(seconds, OFFLINE_BACTERIA_CAP_SECONDS)
+	var hazard_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
+	var orphan_remaining := minf(seconds, OFFLINE_ORPHAN_CAP_SECONDS)
+	while remaining > 0.0005:
+		var step := minf(OFFLINE_STEP_SECONDS, remaining)
+		sim_time += step
+		_update_growth(step)
+		_update_dna_jobs(step)
+		_update_barracks_jobs(step)
+		_discover_feeders()
+		_update_feeders(step)
+		_update_expedition_units(step, false)
+		if bacteria_remaining > 0.0005:
+			var bacteria_step := minf(step, bacteria_remaining)
+			_update_bacteria(bacteria_step)
+			bacteria_remaining -= bacteria_step
+		if hazard_remaining > 0.0005:
+			var hazard_step := minf(step, hazard_remaining)
+			_update_core_hazards(hazard_step)
+			hazard_remaining -= hazard_step
+		if orphan_remaining > 0.0005:
+			var orphan_step := minf(step, orphan_remaining)
+			_update_orphaned_segments(orphan_step)
+			orphan_remaining -= orphan_step
+		remaining -= step
+		if game_over:
+			break
+	_sync_hotspot_discoveries(false)
+	last_discovery_scan_cell_count = explored_cells.size()
+	offline_report = {
+		"actual_seconds": observed_seconds,
+		"settled_seconds": seconds - remaining,
+		"capped": observed_seconds > OFFLINE_CAP_SECONDS + 0.5,
+		"organic_delta": organic - float(before["organic"]),
+		"mineral_delta": mineral - float(before["mineral"]),
+		"dna_completed": dna - int(before["dna"]),
+		"units_built": maxi(0, expedition_units.size() - int(before["units"])),
+		"explored_cells": explored_cells.size() - int(before["explored"]),
+		"explored_percent": (_explored_fraction() - float(before["explored_fraction"])) * 100.0,
+		"hotspots": _discovered_hotspot_count() - int(before["hotspots"]),
+		"absorbed_organic": lifetime_organic_absorbed - float(before["absorbed_organic"]),
+		"absorbed_mineral": lifetime_mineral_absorbed - float(before["absorbed_mineral"]),
+		"returned_organic": lifetime_expedition_organic_returned - float(before["returned_organic"]),
+		"returned_mineral": lifetime_expedition_mineral_returned - float(before["returned_mineral"]),
+		"bacteria_births": lifetime_bacteria_births - int(before["bacteria_births"]),
+		"bacteria_consumed": lifetime_bacteria_consumed - int(before["bacteria_consumed"]),
+		"biomass_delta": _total_core_biomass() - float(before["biomass"]),
+		"living_cores_before": int(before["living_cores"]),
+		"living_cores_after": _living_core_count()
+	}
+	offline_report_open = true
+	toast_text = ""
+	toast_time = 0.0
+	discovery_banner_time = 0.0
 
 
 func _format_duration(seconds: float) -> String:
 	if seconds >= 3600.0:
 		return "%0.1f 小时" % (seconds / 3600.0)
+	if seconds < 60.0:
+		return "%d 秒" % int(seconds)
 	return "%d 分钟" % int(seconds / 60.0)

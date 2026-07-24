@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.18.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.19.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -24,7 +24,8 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Barracks cores and several expedition-spore roles for gathering, transport, mineral collection, and bacteria-focused combat.
 - Persistent fog of war on both the culture view and minimap, plus fast scout spores that automatically reveal hidden resource regions.
 - Permanent anomaly discoveries, exploration notifications, expedition supply and suppression goals, and independent scout vision and movement upgrades.
-- RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, autosave, and up to 48 hours of offline progress.
+- RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
+- Up to two hours of resource-faithful offline progress, followed by a detailed report covering nutrient collection, DNA, expedition production, exploration, ecology, and core biomass.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
 
 ## Controls
@@ -60,7 +61,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.18.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.19.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -80,7 +81,8 @@ The source code, visual assets, game design, text, and other repository contents
 - 兵营核心与多种游猎孢子，分别负责采集、运输、矿物收集和针对细菌的战斗。
 - 大地图与小地图使用永久探索黑幕；高速嗅营孢子会自动寻找未探索区域并揭示资源热点。
 - 异常资源区会触发永久发现记录与提示；新增远征补给、细菌压制目标，以及独立的嗅营感知和运动升级。
-- 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速、自动存档与最多 48 小时离线结算。
+- 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。
+- 最多两小时、严格消耗地图真实资源的离线结算，并在返回后报告营养、DNA、体外单位、探索、生态与核心生物量变化。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
 
 ## 操作方式
