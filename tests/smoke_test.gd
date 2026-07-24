@@ -261,7 +261,7 @@ func _run() -> void:
 	game.lifetime_bacteria_births = 25
 	game.lifetime_bacteria_consumed = 25
 	game.bacteria_components["trap"] = 3
-	if not _check(game._goal_definitions().size() == 10 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist"), "Second goal page should track bacteria ecology, structure evolution, and component specialization"):
+	if not _check(game._goal_definitions().size() == 13 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist"), "Long-term goals should include bacteria ecology, evolution, exploration, supply, and suppression goals"):
 		return
 	var before_specialist_mineral: float = game.mineral
 	game._claim_goal("bacteria_specialist")
@@ -273,6 +273,10 @@ func _run() -> void:
 	game._handle_goals_click(game._goal_next_rect(goals_panel).get_center())
 	if not _check(game.goal_page == 1, "Long-term goals panel should navigate to its ecology page"):
 		return
+	game._handle_goals_click(game._goal_next_rect(goals_panel).get_center())
+	if not _check(game.goal_page == 2, "Long-term goals panel should navigate to its exploration and expedition page"):
+		return
+	game._handle_goals_click(game._goal_prev_rect(goals_panel).get_center())
 	game._handle_goals_click(game._goal_prev_rect(goals_panel).get_center())
 	if not _check(game.goal_page == 0, "Long-term goals panel should navigate back to its first page"):
 		return

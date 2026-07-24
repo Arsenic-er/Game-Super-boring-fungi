@@ -42,6 +42,9 @@ func _run() -> void:
 	game.autosave_enabled = false
 	game.upgrade_open = true
 	game.upgrade_core_id = 0
+	game.barracks_unit_unlocks["scout"] = true
+	game.scout_upgrade_levels["vision"] = 2
+	game.scout_upgrade_levels["speed"] = 1
 	for tab in range(5):
 		game.upgrade_tab = tab
 		game.queue_redraw()
@@ -71,6 +74,10 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	game.goal_page = 1
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	game.goal_page = 2
 	game.queue_redraw()
 	await process_frame
 	await process_frame
@@ -112,6 +119,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_and_diet_units=rendered fog_and_scout=rendered goal_pages=2 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 scout_upgrades=rendered discovery_banner=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

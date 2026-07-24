@@ -30,6 +30,8 @@ func _run() -> void:
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(300.0, -120.0), "barracks"))
 	game.diet_levels["bacteria"] = 1
+	game.scout_upgrade_levels["vision"] = game.MAX_SCOUT_UPGRADE_LEVEL
+	game.scout_upgrade_levels["speed"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	for i in range(game.MAX_EXPEDITION_SPORES):
 		game._spawn_expedition_spore(barracks_id, "scout" if i % 8 == 0 else "forager")
 	var started := Time.get_ticks_usec()

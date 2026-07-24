@@ -85,6 +85,10 @@ const UNIT_REVEAL_RADIUS := 300.0
 const SCOUT_REVEAL_RADIUS := 760.0
 const SCOUT_OPERATING_RADIUS := 1800.0
 const SCOUT_SEARCH_RADIUS := 2200.0
+const SCOUT_UPGRADE_IDS := ["vision", "speed"]
+const SCOUT_UPGRADE_NAMES := {"vision": "感知网络", "speed": "鞭毛运动"}
+const SCOUT_UPGRADE_COSTS := [2, 4, 7, 12]
+const MAX_SCOUT_UPGRADE_LEVEL := 4
 const GOALS_PER_PAGE := 5
 const CORE_MAX_BIOMASS := 100.0
 const CORE_REPAIR_AMOUNT := 20.0
@@ -173,6 +177,8 @@ var bacteria: Array = []
 var expedition_units: Array = []
 var next_expedition_id := 1
 var explored_cells: Dictionary = {}
+var discovered_hotspots: Dictionary = {}
+var last_discovery_scan_cell_count := -1
 
 var organic := 220.0
 var mineral := 24.0
@@ -225,9 +231,13 @@ var lifetime_mineral_absorbed := 0.0
 var lifetime_dna_produced := 0
 var lifetime_bacteria_births := 0
 var lifetime_bacteria_consumed := 0
+var lifetime_expedition_organic_returned := 0.0
+var lifetime_expedition_mineral_returned := 0.0
+var lifetime_expedition_bacteria_killed := 0
 var goals_claimed := {}
 var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
 var diet_unit_unlocks := {"lytic": false}
+var scout_upgrade_levels := {"vision": 0, "speed": 0}
 var splash_active := true
 var splash_time := 0.0
 var main_menu_active := true
@@ -236,6 +246,9 @@ var main_menu_has_save := false
 var game_started := false
 var settings_fullscreen := false
 var settings_pixel_cursor := true
+var discovery_banner_title := ""
+var discovery_banner_detail := ""
+var discovery_banner_time := 0.0
 
 var fallback_font: Font
 var splash_logo: Texture2D
@@ -347,7 +360,8 @@ func _add_resource(pos: Vector2, kind: int, amount: float) -> void:
 
 
 func _scatter_cluster(center: Vector2, count: int, spread: float, kind: int, amount_min: float, amount_max: float, anomalous: bool) -> void:
-	resource_hotspots.append({"pos": center, "radius": spread, "kind": kind, "anomalous": anomalous})
+	var hotspot_id := "anomaly_%d_%d_%d" % [kind, roundi(center.x), roundi(center.y)] if anomalous else ""
+	resource_hotspots.append({"id": hotspot_id, "pos": center, "radius": spread, "kind": kind, "anomalous": anomalous})
 	for i in range(count):
 		var angle := rng.randf_range(0.0, TAU)
 		# 平方分布让中心更密，同时保留少数向外散开的资源点。
@@ -458,6 +472,8 @@ func _process(delta: float) -> void:
 		_save_game()
 	if toast_time > 0.0:
 		toast_time -= delta
+	if discovery_banner_time > 0.0:
+		discovery_banner_time -= delta
 	queue_redraw()
 
 
@@ -589,7 +605,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"reveal_cell": _exploration_key(_exploration_coords(spawn_pos)),
 		"phase": rng.randf_range(0.0, TAU)
 	})
-	_reveal_exploration(spawn_pos, SCOUT_REVEAL_RADIUS if unit_type == "scout" else UNIT_REVEAL_RADIUS)
+	_reveal_exploration(spawn_pos, _scout_reveal_radius() if unit_type == "scout" else UNIT_REVEAL_RADIUS)
 	next_expedition_id += 1
 
 
@@ -603,8 +619,12 @@ func _update_expedition_units(sim_delta: float) -> void:
 		if state == "returning":
 			_move_expedition_unit(unit, home, sim_delta)
 			if (unit["pos"] as Vector2).distance_to(home) <= EXPEDITION_ARRIVAL_DISTANCE:
-				organic += float(unit.get("cargo_organic", 0.0))
-				mineral += float(unit.get("cargo_mineral", 0.0))
+				var returned_organic := float(unit.get("cargo_organic", 0.0))
+				var returned_mineral := float(unit.get("cargo_mineral", 0.0))
+				organic += returned_organic
+				mineral += returned_mineral
+				lifetime_expedition_organic_returned += returned_organic
+				lifetime_expedition_mineral_returned += returned_mineral
 				unit["cargo_organic"] = 0.0
 				unit["cargo_mineral"] = 0.0
 				unit["state"] = "idle"
@@ -628,7 +648,7 @@ func _update_expedition_units(sim_delta: float) -> void:
 			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
 			if float(unit["search_cooldown"]) <= 0.0:
 				_acquire_expedition_target(unit)
-				unit["search_cooldown"] = 2.0
+				unit["search_cooldown"] = _scout_search_cooldown() if String(unit.get("unit_type", "forager")) == "scout" else 2.0
 		if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) >= _expedition_cargo_capacity(unit) - 0.0005:
 			unit["state"] = "returning"
 			unit["target_kind"] = "home"
@@ -643,7 +663,7 @@ func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) 
 	match String(unit.get("unit_type", "forager")):
 		"carrier": speed = 32.0
 		"chelator": speed = 42.0
-		"scout": speed = 82.0
+		"scout": speed = _scout_move_speed()
 		"lytic": speed = 54.0
 	unit["pos"] = (unit["pos"] as Vector2).move_toward(target, speed * sim_delta)
 
@@ -693,6 +713,7 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 	if float(bacterium["biomass"]) <= 0.0005:
 		bacteria.remove_at(index)
 		lifetime_bacteria_consumed += 1
+		lifetime_expedition_bacteria_killed += 1
 		unit["state"] = "returning" if float(unit["cargo_organic"]) > 0.0 else "idle"
 
 
@@ -801,7 +822,7 @@ func _reveal_exploration(pos: Vector2, radius: float) -> void:
 				explored_cells[_exploration_key(cell)] = true
 
 
-func _update_exploration() -> void:
+func _update_exploration(show_discovery_feedback: bool = true) -> void:
 	for core in cores:
 		if bool(core.get("alive", true)):
 			var core_cell := _exploration_key(_exploration_coords(core["pos"]))
@@ -823,9 +844,12 @@ func _update_exploration() -> void:
 		var unit_cell := _exploration_key(_exploration_coords(unit["pos"]))
 		if int(unit.get("reveal_cell", -1)) == unit_cell:
 			continue
-		var reveal_radius := SCOUT_REVEAL_RADIUS if String(unit.get("unit_type", "forager")) == "scout" else UNIT_REVEAL_RADIUS
+		var reveal_radius := _scout_reveal_radius() if String(unit.get("unit_type", "forager")) == "scout" else UNIT_REVEAL_RADIUS
 		_reveal_exploration(unit["pos"], reveal_radius)
 		unit["reveal_cell"] = unit_cell
+	if explored_cells.size() != last_discovery_scan_cell_count:
+		_sync_hotspot_discoveries(show_discovery_feedback)
+		last_discovery_scan_cell_count = explored_cells.size()
 
 
 func _explored_fraction() -> float:
@@ -837,13 +861,76 @@ func _explored_fraction() -> float:
 	return float(explored_cells.size()) / maxf(1.0, float(dish_cells))
 
 
+func _hotspot_display_name(hotspot: Dictionary) -> String:
+	if int(hotspot.get("kind", 0)) == 1:
+		return "矿物离子结晶区"
+	var nearby_bacteria := 0
+	var center: Vector2 = hotspot["pos"]
+	var scan_radius := float(hotspot.get("radius", 80.0)) + 90.0
+	for bacterium in bacteria:
+		if center.distance_to(bacterium["pos"]) <= scan_radius:
+			nearby_bacteria += 1
+			if nearby_bacteria >= 3:
+				return "细菌增殖富集区"
+	return "高浓度有机沉积"
+
+
+func _sync_hotspot_discoveries(show_feedback: bool) -> int:
+	var new_discoveries: Array[String] = []
+	for hotspot in resource_hotspots:
+		if not bool(hotspot.get("anomalous", false)):
+			continue
+		var hotspot_id := String(hotspot.get("id", ""))
+		if hotspot_id == "" or discovered_hotspots.has(hotspot_id):
+			continue
+		if not _is_world_explored(hotspot["pos"]):
+			continue
+		discovered_hotspots[hotspot_id] = true
+		new_discoveries.append(_hotspot_display_name(hotspot))
+	if show_feedback and not new_discoveries.is_empty():
+		discovery_banner_title = "发现新的培养区" if new_discoveries.size() == 1 else "同时发现 %d 处异常区" % new_discoveries.size()
+		discovery_banner_detail = "、".join(new_discoveries.slice(0, mini(3, new_discoveries.size()))) + "　·　已永久标记"
+		discovery_banner_time = 6.0
+		toast("探索记录 +%d　可在目标面板查看奖励" % new_discoveries.size(), 4.0)
+	return new_discoveries.size()
+
+
+func _discovered_hotspot_count(kind: int = -1) -> int:
+	var count := 0
+	for hotspot in resource_hotspots:
+		if not bool(hotspot.get("anomalous", false)):
+			continue
+		if kind >= 0 and int(hotspot.get("kind", -1)) != kind:
+			continue
+		if discovered_hotspots.has(String(hotspot.get("id", ""))):
+			count += 1
+	return count
+
+
+func _scout_move_speed() -> float:
+	return 82.0 * (1.0 + float(scout_upgrade_levels.get("speed", 0)) * 0.15)
+
+
+func _scout_reveal_radius() -> float:
+	return SCOUT_REVEAL_RADIUS * (1.0 + float(scout_upgrade_levels.get("vision", 0)) * 0.20)
+
+
+func _scout_search_radius() -> float:
+	return SCOUT_SEARCH_RADIUS * (1.0 + float(scout_upgrade_levels.get("vision", 0)) * 0.10)
+
+
+func _scout_search_cooldown() -> float:
+	return 2.0 / (1.0 + float(scout_upgrade_levels.get("vision", 0)) * 0.25)
+
+
 func _expedition_operating_radius(unit: Dictionary) -> float:
 	return SCOUT_OPERATING_RADIUS if String(unit.get("unit_type", "forager")) == "scout" else EXPEDITION_OPERATING_RADIUS
 
 
 func _nearest_unexplored_scout_target(pos: Vector2) -> Vector2:
 	var origin := _exploration_coords(pos)
-	var cell_range := int(ceil(SCOUT_SEARCH_RADIUS / EXPLORATION_CELL_SIZE)) + 1
+	var search_radius := _scout_search_radius()
+	var cell_range := int(ceil(search_radius / EXPLORATION_CELL_SIZE)) + 1
 	var best := Vector2(INF, INF)
 	var best_distance := INF
 	for cell_y in range(maxi(0, origin.y - cell_range), mini(EXPLORATION_GRID_SIDE, origin.y + cell_range + 1)):
@@ -853,7 +940,7 @@ func _nearest_unexplored_scout_target(pos: Vector2) -> Vector2:
 				continue
 			var candidate := _exploration_cell_center(cell)
 			var distance := pos.distance_squared_to(candidate)
-			if candidate.length() > WORLD_HALF or distance > SCOUT_SEARCH_RADIUS * SCOUT_SEARCH_RADIUS:
+			if candidate.length() > WORLD_HALF or distance > search_radius * search_radius:
 				continue
 			if _distance_to_colony(candidate) > SCOUT_OPERATING_RADIUS:
 				continue
@@ -1747,6 +1834,34 @@ func _purchase_barracks_unit(unit_id: String) -> void:
 	toast("已解锁%s；现在可在兵营切换生产" % BARRACK_UNIT_NAMES.get(unit_id, unit_id), 4.0)
 
 
+func _scout_upgrade_cost(upgrade_id: String) -> int:
+	var level := int(scout_upgrade_levels.get(upgrade_id, 0))
+	if level < 0 or level >= MAX_SCOUT_UPGRADE_LEVEL:
+		return 0
+	return int(SCOUT_UPGRADE_COSTS[level])
+
+
+func _purchase_scout_upgrade(upgrade_id: String) -> void:
+	if not SCOUT_UPGRADE_IDS.has(upgrade_id) or not bool(barracks_unit_unlocks.get("scout", false)):
+		return
+	var level := int(scout_upgrade_levels.get(upgrade_id, 0))
+	if level >= MAX_SCOUT_UPGRADE_LEVEL:
+		toast("%s已达到最高等级" % SCOUT_UPGRADE_NAMES[upgrade_id], 3.0)
+		return
+	var cost := _scout_upgrade_cost(upgrade_id)
+	if dna < cost:
+		toast("DNA 不足：强化%s需要 %d" % [SCOUT_UPGRADE_NAMES[upgrade_id], cost], 3.0)
+		return
+	dna -= cost
+	scout_upgrade_levels[upgrade_id] = level + 1
+	if upgrade_id == "vision":
+		for unit in expedition_units:
+			if String(unit.get("unit_type", "forager")) == "scout":
+				unit["reveal_cell"] = -1
+		_update_exploration()
+	toast("%s提升至 Lv.%d" % [SCOUT_UPGRADE_NAMES[upgrade_id], level + 1], 3.0)
+
+
 func _purchase_diet_unit(diet_id: String, unit_id: String) -> void:
 	if int(diet_levels.get(diet_id, 0)) <= 0:
 		toast("需要先确立%s" % DIET_NAMES.get(diet_id, "对应食性"), 3.0)
@@ -2071,6 +2186,8 @@ func _draw() -> void:
 		_draw_goals_panel(viewport)
 	if game_over:
 		_draw_game_over(viewport)
+	if discovery_banner_time > 0.0 and discovery_banner_title != "":
+		_draw_discovery_banner(viewport)
 	if toast_time > 0.0 and toast_text != "":
 		_draw_toast(viewport)
 
@@ -2198,6 +2315,8 @@ func _start_new_culture() -> void:
 	feeders.clear()
 	expedition_units.clear()
 	explored_cells.clear()
+	discovered_hotspots.clear()
+	last_discovery_scan_cell_count = -1
 	selected_expedition_ids.clear()
 	next_expedition_id = 1
 	organic = 220.0
@@ -2234,7 +2353,15 @@ func _start_new_culture() -> void:
 	lifetime_dna_produced = 0
 	lifetime_bacteria_births = 0
 	lifetime_bacteria_consumed = 0
+	lifetime_expedition_organic_returned = 0.0
+	lifetime_expedition_mineral_returned = 0.0
+	lifetime_expedition_bacteria_killed = 0
 	goals_claimed = {}
+	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
+		scout_upgrade_levels[scout_upgrade_id] = 0
+	discovery_banner_title = ""
+	discovery_banner_detail = ""
+	discovery_banner_time = 0.0
 	cores.append(_make_core(Vector2.ZERO))
 	_update_exploration()
 	toast("点击孢子核心，开始延伸第一条菌丝", 6.0)
@@ -2656,12 +2783,14 @@ func _draw_minimap(_viewport: Vector2) -> void:
 	for hotspot in resource_hotspots:
 		if not bool(hotspot["anomalous"]):
 			continue
-		if not _is_world_explored(hotspot["pos"]):
+		if not discovered_hotspots.has(String(hotspot.get("id", ""))):
 			continue
 		var hp := _pixel_snap(_world_to_minimap(hotspot["pos"], inner))
 		var hc := COLOR_ORGANIC if int(hotspot["kind"]) == 0 else COLOR_MINERAL
-		draw_rect(Rect2(hp - Vector2(3, 3), Vector2(7, 7)), Color(hc.r, hc.g, hc.b, 0.18))
+		draw_rect(Rect2(hp - Vector2(4, 4), Vector2(9, 9)), Color(hc.r, hc.g, hc.b, 0.20))
 		draw_rect(Rect2(hp - Vector2(1, 1), Vector2(3, 3)), Color(hc.r, hc.g, hc.b, 0.72))
+		draw_line(hp + Vector2(-5, 0), hp + Vector2(5, 0), Color(hc, 0.72), 1.0, false)
+		draw_line(hp + Vector2(0, -5), hp + Vector2(0, 5), Color(hc, 0.72), 1.0, false)
 	for i in range(0, resources.size(), 3):
 		var resource = resources[i]
 		if not bool(resource["alive"]):
@@ -2701,7 +2830,7 @@ func _draw_minimap(_viewport: Vector2) -> void:
 	bottom_right.y = clampf(bottom_right.y, -WORLD_HALF, WORLD_HALF)
 	var view_rect := Rect2(_world_to_minimap(top_left, inner), _world_to_minimap(bottom_right, inner) - _world_to_minimap(top_left, inner))
 	draw_rect(view_rect, Color(0.72, 0.95, 0.92, 0.82), false, 1.2)
-	draw_string(fallback_font, rect.position + Vector2(12, 22), "培养环境总览　探索 %.1f%%" % (_explored_fraction() * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(12, 22), "探索 %.1f%%　发现 %d" % [_explored_fraction() * 100.0, _discovered_hotspot_count()], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
 
 func _world_to_minimap(p: Vector2, rect: Rect2) -> Vector2:
@@ -2788,7 +2917,10 @@ func _goal_definitions() -> Array:
 		{"id": "first_bacterium", "title": "首次微型捕食", "desc": "完整消化第一个细菌", "reward": {"organic": 20.0}, "reward_text": "有机营养 +20.000"},
 		{"id": "bacteria_control", "title": "菌落控制", "desc": "累计完整消化25个细菌", "reward": {"dna": 3}, "reward_text": "DNA +3"},
 		{"id": "first_structure", "title": "结构突变", "desc": "购买第一级通用结构进化", "reward": {"organic": 40.0}, "reward_text": "有机营养 +40.000"},
-		{"id": "bacteria_specialist", "title": "细菌专家", "desc": "将任一细菌专属组件升至3级", "reward": {"dna": 4, "mineral": 2.0}, "reward_text": "DNA +4　矿物 +2.000"}
+		{"id": "bacteria_specialist", "title": "细菌专家", "desc": "将任一细菌专属组件升至3级", "reward": {"dna": 4, "mineral": 2.0}, "reward_text": "DNA +4　矿物 +2.000"},
+		{"id": "culture_survey", "title": "培养环境勘探", "desc": "永久记录3处异常资源区", "reward": {"dna": 2}, "reward_text": "DNA +2"},
+		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
+		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"}
 	]
 
 
@@ -2821,6 +2953,12 @@ func _goal_complete(goal_id: String) -> bool:
 			return _total_structure_levels() >= 1
 		"bacteria_specialist":
 			return _max_bacteria_component_level() >= 3
+		"culture_survey":
+			return _discovered_hotspot_count() >= 3
+		"expedition_supply":
+			return lifetime_expedition_organic_returned >= 10.0 and lifetime_expedition_mineral_returned >= 0.5
+		"expedition_control":
+			return lifetime_expedition_bacteria_killed >= 10
 	return false
 
 
@@ -2846,6 +2984,12 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "%d / 1" % mini(_total_structure_levels(), 1)
 		"bacteria_specialist":
 			return "%d / 3" % mini(_max_bacteria_component_level(), 3)
+		"culture_survey":
+			return "%d / 3 处" % mini(_discovered_hotspot_count(), 3)
+		"expedition_supply":
+			return "有机 %.3f/10.000　矿物 %.3f/0.500" % [minf(lifetime_expedition_organic_returned, 10.0), minf(lifetime_expedition_mineral_returned, 0.5)]
+		"expedition_control":
+			return "%d / 10" % mini(lifetime_expedition_bacteria_killed, 10)
 	return ""
 
 
@@ -3040,6 +3184,13 @@ func _barracks_unit_button_rect(panel: Rect2, index: int) -> Rect2:
 	return _structure_button_rect(panel, index)
 
 
+func _scout_upgrade_button_rect(panel: Rect2, upgrade_id: String) -> Rect2:
+	var card := _barracks_unit_card_rect(panel, BARRACK_UNIT_IDS.find("scout"))
+	if upgrade_id == "vision":
+		return Rect2(card.position + Vector2(18, card.size.y - 44), Vector2(124, 30))
+	return Rect2(card.end - Vector2(142, 44), Vector2(124, 30))
+
+
 func _handle_upgrade_click(pos: Vector2) -> void:
 	var panel := _upgrade_panel_rect(get_viewport_rect().size)
 	if _upgrade_close_rect(panel).has_point(pos):
@@ -3096,6 +3247,11 @@ func _handle_upgrade_click(pos: Vector2) -> void:
 				_purchase_structure(STRUCTURE_IDS[i])
 				return
 	if upgrade_tab == 3:
+		if bool(barracks_unit_unlocks.get("scout", false)):
+			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
+				if _scout_upgrade_button_rect(panel, scout_upgrade_id).has_point(pos):
+					_purchase_scout_upgrade(scout_upgrade_id)
+					return
 		for i in range(BARRACK_UNIT_IDS.size()):
 			if _barracks_unit_button_rect(panel, i).has_point(pos):
 				_purchase_barracks_unit(BARRACK_UNIT_IDS[i])
@@ -3285,7 +3441,18 @@ func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
 		draw_string(fallback_font, card.position + Vector2(18, 28), BARRACK_UNIT_NAMES[unit_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
 		draw_string(fallback_font, card.position + Vector2(18, 55), BARRACK_UNIT_DESCRIPTIONS[unit_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 		var stat_text := "已掌握，可在兵营切换" if unlocked else "解锁后进入所有兵营"
+		if unit_id == "scout" and unlocked:
+			stat_text = "感知 Lv.%d　运动 Lv.%d　视野 %.0f μm" % [int(scout_upgrade_levels.get("vision", 0)), int(scout_upgrade_levels.get("speed", 0)), _scout_reveal_radius() / 2.0]
 		draw_string(fallback_font, card.position + Vector2(18, 88), stat_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC if unlocked else COLOR_MUTED)
+		if unit_id == "scout" and unlocked:
+			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
+				var scout_level := int(scout_upgrade_levels.get(scout_upgrade_id, 0))
+				var scout_maxed := scout_level >= MAX_SCOUT_UPGRADE_LEVEL
+				var scout_button := _scout_upgrade_button_rect(panel, scout_upgrade_id)
+				draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not scout_maxed else Color(0.05, 0.07, 0.09, 1.0), Color(Color("5edcf5"), 0.82) if not scout_maxed else COLOR_BORDER, 7, 2), scout_button)
+				var scout_button_text := "已满级" if scout_maxed else "%s %d DNA" % [SCOUT_UPGRADE_NAMES[scout_upgrade_id], _scout_upgrade_cost(scout_upgrade_id)]
+				draw_string(fallback_font, scout_button.position + Vector2(9, 20), scout_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not scout_maxed else COLOR_MUTED)
+			continue
 		var button := _barracks_unit_button_rect(panel, i)
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(Color("76f5ca"), 0.82) if available and not unlocked else COLOR_BORDER, 7, 2), button)
 		var button_text := "已掌握" if unlocked else ("解锁 %d DNA" % int(BARRACK_UNIT_UNLOCK_COSTS.get(unit_id, 0)) if available else "尚未开放")
@@ -3509,6 +3676,17 @@ func _draw_game_over(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(32, 120), "模拟已暂停；重新开始功能将在存档界面加入", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
 
+func _draw_discovery_banner(viewport: Vector2) -> void:
+	var width := minf(540.0, viewport.x - 80.0)
+	var rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - width * 0.5, 124.0)), Vector2(width, 74.0))
+	var pulse := 0.72 + sin(sim_time * 3.5) * 0.12
+	draw_style_box(_rounded_style(Color(0.018, 0.11, 0.15, 0.98), Color(0.36, 0.86, 0.96, pulse), 10, 2), rect)
+	draw_rect(Rect2(rect.position + Vector2(16, 17), Vector2(8, 8)), Color("5edcf5"))
+	draw_rect(Rect2(rect.position + Vector2(19, 14), Vector2(2, 14)), Color("bdf7ff"))
+	draw_string(fallback_font, rect.position + Vector2(36, 29), discovery_banner_title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("bdf7ff"))
+	draw_string(fallback_font, rect.position + Vector2(36, 55), discovery_banner_detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
 func _draw_toast(viewport: Vector2) -> void:
 	var width := fallback_font.get_string_size(toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 34.0
 	var rect := Rect2(viewport.x * 0.5 - width * 0.5, 78, width, 38)
@@ -3613,6 +3791,8 @@ func _save_game() -> void:
 		})
 	var exploration_data: Array = explored_cells.keys()
 	exploration_data.sort()
+	var discovery_data: Array = discovered_hotspots.keys()
+	discovery_data.sort()
 	var data := {
 		"version": 1,
 		"world_generation": 5,
@@ -3633,7 +3813,11 @@ func _save_game() -> void:
 		"lifetime_dna_produced": lifetime_dna_produced,
 		"lifetime_bacteria_births": lifetime_bacteria_births,
 		"lifetime_bacteria_consumed": lifetime_bacteria_consumed,
+		"lifetime_expedition_organic_returned": lifetime_expedition_organic_returned,
+		"lifetime_expedition_mineral_returned": lifetime_expedition_mineral_returned,
+		"lifetime_expedition_bacteria_killed": lifetime_expedition_bacteria_killed,
 		"goals_claimed": goals_claimed,
+		"scout_upgrade_levels": scout_upgrade_levels,
 		"camera_x": camera_center.x,
 		"camera_y": camera_center.y,
 		"camera_zoom": camera_zoom,
@@ -3643,7 +3827,8 @@ func _save_game() -> void:
 		"feeders": feeder_data,
 		"bacteria": bacteria_data,
 		"expedition_units": expedition_data,
-		"explored_cells": exploration_data
+		"explored_cells": exploration_data,
+		"discovered_hotspots": discovery_data
 	}
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
@@ -3681,6 +3866,9 @@ func _load_game() -> bool:
 	var saved_barracks_unlocks: Dictionary = parsed.get("barracks_unit_unlocks", {})
 	for unit_id in BARRACK_UNIT_IDS:
 		barracks_unit_unlocks[unit_id] = true if unit_id == "forager" else bool(saved_barracks_unlocks.get(unit_id, false))
+	var saved_scout_upgrades: Dictionary = parsed.get("scout_upgrade_levels", {})
+	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
+		scout_upgrade_levels[scout_upgrade_id] = clampi(int(saved_scout_upgrades.get(scout_upgrade_id, 0)), 0, MAX_SCOUT_UPGRADE_LEVEL)
 	var saved_diet_unit_unlocks: Dictionary = parsed.get("diet_unit_unlocks", {})
 	diet_unit_unlocks["lytic"] = bool(saved_diet_unit_unlocks.get("lytic", false))
 	lifetime_organic_absorbed = float(parsed.get("lifetime_organic_absorbed", 0.0))
@@ -3688,6 +3876,9 @@ func _load_game() -> bool:
 	lifetime_dna_produced = int(parsed.get("lifetime_dna_produced", 0))
 	lifetime_bacteria_births = int(parsed.get("lifetime_bacteria_births", 0))
 	lifetime_bacteria_consumed = int(parsed.get("lifetime_bacteria_consumed", 0))
+	lifetime_expedition_organic_returned = float(parsed.get("lifetime_expedition_organic_returned", 0.0))
+	lifetime_expedition_mineral_returned = float(parsed.get("lifetime_expedition_mineral_returned", 0.0))
+	lifetime_expedition_bacteria_killed = int(parsed.get("lifetime_expedition_bacteria_killed", 0))
 	goals_claimed = parsed.get("goals_claimed", {})
 	camera_center = Vector2(float(parsed.get("camera_x", 0.0)), float(parsed.get("camera_y", 0.0)))
 	camera_zoom = clampf(float(parsed.get("camera_zoom", 0.65)), 0.018, 2.4)
@@ -3696,6 +3887,10 @@ func _load_game() -> bool:
 		var key := int(explored_key)
 		if key >= 0 and key < EXPLORATION_GRID_SIDE * EXPLORATION_GRID_SIDE:
 			explored_cells[key] = true
+	discovered_hotspots.clear()
+	for hotspot_id in parsed.get("discovered_hotspots", []):
+		discovered_hotspots[String(hotspot_id)] = true
+	last_discovery_scan_cell_count = -1
 	cores.clear()
 	for item in parsed.get("cores", []):
 		var core := _make_core(Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0))), String(item.get("kind", "normal")))
@@ -3795,7 +3990,9 @@ func _load_game() -> bool:
 		})
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
 	if not parsed.has("explored_cells") or explored_cells.is_empty():
-		_update_exploration()
+		_update_exploration(false)
+	_sync_hotspot_discoveries(false)
+	last_discovery_scan_cell_count = explored_cells.size()
 	game_over = bool(parsed.get("game_over", false)) or _living_core_count() <= 0
 	if game_over:
 		sim_speed = 0.0
