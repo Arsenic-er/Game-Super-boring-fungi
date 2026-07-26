@@ -86,6 +86,10 @@ func _run() -> void:
 	game.queue_redraw()
 	await process_frame
 	await process_frame
+	game.goal_page = 3
+	game.queue_redraw()
+	await process_frame
+	await process_frame
 	game.goals_open = false
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(120.0, 0.0), "barracks"))
@@ -209,6 +213,25 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: clicking the ecology event card should focus its world position")
 		quit(1)
 		return
+	game.chapter_complete = true
+	game.lifetime_enemy_fungi_defeated = 1
+	game.fungal_incursion = {"phase": "warning", "remaining": 45.0, "pos": Vector2(760.0, 120.0), "wave": 1, "enemy_id": -1}
+	game._reveal_exploration(Vector2(760.0, 120.0), game.FUNGAL_INCURSION_REVEAL_RADIUS)
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var incursion_hud: Rect2 = game._fungal_incursion_hud_rect()
+	if ecology_hud.intersects(incursion_hud) or incursion_hud.intersects(game._chapter_guidance_rect()):
+		push_error("UPGRADE_UI_FAIL: ecology, sporefall, and chapter cards must form a non-overlapping stack")
+		quit(1)
+		return
+	game._handle_left_click(incursion_hud.get_center())
+	if not game.camera_center.is_equal_approx(Vector2(760.0, 120.0)):
+		push_error("UPGRADE_UI_FAIL: clicking the sporefall warning should focus its landing point")
+		quit(1)
+		return
+	game.fungal_incursion = {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1}
+	game.chapter_complete = false
 	game.ecology_events.clear()
 	game.ecology_banner_time = 0.0
 	game.offline_report = {
@@ -272,6 +295,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 menus=session-rendered barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered chapter_flow=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 menus=session-rendered barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered sporefall=rendered offline_report=rendered chapter_flow=rendered goal_pages=4 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

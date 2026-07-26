@@ -133,6 +133,13 @@ const ENEMY_FUNGUS_UPDATE_INTERVAL := 0.25
 const ENEMY_FUNGUS_HIT_RADIUS := 24.0
 const ENEMY_THREAT_NOTICE_RADIUS := 650.0
 const ENEMY_THREAT_IMMINENT_RADIUS := 300.0
+const FUNGAL_INCURSION_DELAY_MIN := 900.0
+const FUNGAL_INCURSION_DELAY_MAX := 1200.0
+const FUNGAL_INCURSION_WARNING_SECONDS := 90.0
+const FUNGAL_INCURSION_REVEAL_RADIUS := 240.0
+const FUNGAL_INCURSION_SPAWN_MIN_DISTANCE := 1200.0
+const FUNGAL_INCURSION_SPAWN_MAX_DISTANCE := 2000.0
+const FUNGAL_INCURSION_CORE_CLEARANCE := 1040.0
 const ORPHAN_HYPHA_DECAY_SECONDS := 180.0
 const ORPHAN_RESCUE_DISTANCE := 18.0
 const BARRACKS_ORGANIC_COST := 95.0
@@ -226,6 +233,7 @@ var enemy_hyphae: Array = []
 var next_enemy_fungus_id := 1
 var next_enemy_hypha_id := 1
 var enemy_fungi_initialized := false
+var fungal_incursion := {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1}
 var explored_cells: Dictionary = {}
 var discovered_hotspots: Dictionary = {}
 var last_discovery_scan_cell_count := -1
@@ -318,6 +326,7 @@ var ecology_event_countdown := ECOLOGY_FIRST_EVENT_MAX
 var lifetime_ecology_events_seen := 0
 var lifetime_ecology_events_contained := 0
 var lifetime_enemy_fungi_defeated := 0
+var lifetime_fungal_incursions_defeated := 0
 var ecology_banner_title := ""
 var ecology_banner_detail := ""
 var ecology_banner_time := 0.0
@@ -518,18 +527,28 @@ func _make_core(pos: Vector2, kind: String = "normal") -> Dictionary:
 	}
 
 
-func _make_enemy_fungus(pos: Vector2) -> Dictionary:
+func _make_enemy_fungus(pos: Vector2, source: String = "initial", wave: int = 0) -> Dictionary:
+	var maximum := ENEMY_FUNGUS_CORE_MAX_BIOMASS
+	var reserve := ENEMY_FUNGUS_STARTING_ORGANIC
+	var attack_multiplier := 1.0
+	if source == "incursion":
+		maximum = minf(ENEMY_FUNGUS_CORE_MAX_BIOMASS, 30.0 * (1.0 + 0.12 * float(maxi(0, wave - 1))))
+		reserve = 12.0 + minf(12.0, 2.0 * float(maxi(0, wave - 1)))
+		attack_multiplier = minf(1.10, 0.75 + 0.05 * float(maxi(0, wave - 1)))
 	return {
 		"id": next_enemy_fungus_id,
 		"pos": pos,
-		"biomass": ENEMY_FUNGUS_CORE_MAX_BIOMASS,
-		"max_biomass": ENEMY_FUNGUS_CORE_MAX_BIOMASS,
-		"organic_reserve": ENEMY_FUNGUS_STARTING_ORGANIC,
+		"biomass": maximum,
+		"max_biomass": maximum,
+		"organic_reserve": reserve,
 		"state": "dormant",
-		"state_time": 90.0,
+		"state_time": 0.0 if source == "incursion" else 90.0,
 		"growth_time": 38.0,
 		"alive": true,
 		"discovered": false,
+		"source": source,
+		"wave": wave,
+		"attack_multiplier": attack_multiplier,
 		"pulse": rng.randf_range(0.0, TAU)
 	}
 
@@ -542,8 +561,12 @@ func _spawn_initial_enemy_fungus() -> void:
 	var enemy_id := int(enemy["id"])
 	next_enemy_fungus_id += 1
 	enemy_fungi.append(enemy)
+	_append_initial_enemy_hyphae(enemy_id, enemy["pos"])
+
+
+func _append_initial_enemy_hyphae(enemy_id: int, pos: Vector2) -> void:
 	for angle in [-2.75, -0.65, 1.35]:
-		var start: Vector2 = enemy["pos"]
+		var start := pos
 		var finish := start + Vector2.from_angle(float(angle)) * 105.0
 		enemy_hyphae.append({
 			"id": next_enemy_hypha_id,
@@ -555,6 +578,177 @@ func _spawn_initial_enemy_fungus() -> void:
 			"viability": 1.0
 		})
 		next_enemy_hypha_id += 1
+
+
+func _fungal_incursions_enabled() -> bool:
+	return chapter_complete and lifetime_enemy_fungi_defeated >= 1 and not game_over and _living_core_count() > 0
+
+
+func _has_living_barracks() -> bool:
+	for core in cores:
+		if bool(core.get("alive", true)) and String(core.get("kind", "normal")) == "barracks":
+			return true
+	return false
+
+
+func _living_enemy_fungus_count() -> int:
+	var count := 0
+	for enemy in enemy_fungi:
+		if bool(enemy.get("alive", false)):
+			count += 1
+	return count
+
+
+func _valid_fungal_incursion_position(pos: Vector2) -> bool:
+	if not pos.is_finite() or pos.length() > WORLD_HALF - 320.0:
+		return false
+	var nearest_core := INF
+	for core in cores:
+		if not bool(core.get("alive", true)):
+			continue
+		nearest_core = minf(nearest_core, pos.distance_to(core["pos"]))
+	if nearest_core < FUNGAL_INCURSION_CORE_CLEARANCE or nearest_core > FUNGAL_INCURSION_SPAWN_MAX_DISTANCE:
+		return false
+	for enemy in enemy_fungi:
+		if bool(enemy.get("alive", false)) and pos.distance_to(enemy["pos"]) < 700.0:
+			return false
+	return true
+
+
+func _choose_fungal_incursion_position() -> Vector2:
+	var candidates: Array = []
+	for hotspot in resource_hotspots:
+		if int(hotspot.get("kind", -1)) == 0 and _valid_fungal_incursion_position(hotspot["pos"]):
+			candidates.append(hotspot["pos"])
+	if not candidates.is_empty():
+		return candidates[rng.randi_range(0, candidates.size() - 1)]
+	var anchors: Array = []
+	for core in cores:
+		if bool(core.get("alive", true)):
+			anchors.append(core["pos"])
+	if anchors.is_empty():
+		return Vector2.INF
+	for attempt in range(24):
+		var anchor: Vector2 = anchors[rng.randi_range(0, anchors.size() - 1)]
+		var distance := rng.randf_range(FUNGAL_INCURSION_SPAWN_MIN_DISTANCE, FUNGAL_INCURSION_SPAWN_MAX_DISTANCE)
+		var candidate := anchor + Vector2.from_angle(rng.randf_range(0.0, TAU)) * distance
+		if candidate.length() > WORLD_HALF - 320.0:
+			candidate = candidate.normalized() * (WORLD_HALF - 320.0)
+		if _valid_fungal_incursion_position(candidate):
+			return candidate
+	return Vector2.INF
+
+
+func _begin_fungal_incursion_warning() -> bool:
+	var landing := _choose_fungal_incursion_position()
+	if not landing.is_finite():
+		fungal_incursion["remaining"] = 60.0
+		return false
+	fungal_incursion = {
+		"phase": "warning",
+		"remaining": FUNGAL_INCURSION_WARNING_SECONDS,
+		"pos": landing,
+		"wave": lifetime_fungal_incursions_defeated + 1,
+		"enemy_id": -1
+	}
+	_reveal_exploration(landing, FUNGAL_INCURSION_REVEAL_RADIUS)
+	_sync_hotspot_discoveries(false)
+	_show_fungal_incursion_warning()
+	return true
+
+
+func _show_fungal_incursion_warning() -> void:
+	toast("检测到竞争孢子雨：落点已标记，90 秒后形成菌落", 6.0)
+
+
+func _cleanup_old_fungal_incursions() -> void:
+	var removed_ids := {}
+	var kept: Array = []
+	for enemy in enemy_fungi:
+		if String(enemy.get("source", "initial")) == "incursion" and not bool(enemy.get("alive", false)):
+			removed_ids[int(enemy.get("id", -1))] = true
+		else:
+			kept.append(enemy)
+	enemy_fungi = kept
+	if removed_ids.is_empty():
+		return
+	var kept_hyphae: Array = []
+	for segment in enemy_hyphae:
+		if not removed_ids.has(int(segment.get("fungus_id", -1))):
+			kept_hyphae.append(segment)
+	enemy_hyphae = kept_hyphae
+
+
+func _activate_fungal_incursion() -> bool:
+	var landing: Vector2 = fungal_incursion.get("pos", Vector2.INF)
+	if not _valid_fungal_incursion_position(landing):
+		fungal_incursion["phase"] = "cooldown"
+		fungal_incursion["remaining"] = 60.0
+		fungal_incursion["pos"] = Vector2.INF
+		return false
+	_cleanup_old_fungal_incursions()
+	var wave := maxi(1, int(fungal_incursion.get("wave", lifetime_fungal_incursions_defeated + 1)))
+	var enemy := _make_enemy_fungus(landing, "incursion", wave)
+	enemy["discovered"] = true
+	var enemy_id := int(enemy["id"])
+	next_enemy_fungus_id += 1
+	enemy_fungi.append(enemy)
+	_append_initial_enemy_hyphae(enemy_id, landing)
+	fungal_incursion["phase"] = "active"
+	fungal_incursion["remaining"] = 0.0
+	fungal_incursion["enemy_id"] = enemy_id
+	_show_fungal_incursion_active(wave)
+	return true
+
+
+func _show_fungal_incursion_active(wave: int) -> void:
+	toast("第 %d 轮竞争菌落已形成" % wave, 5.0)
+
+
+func _complete_fungal_incursion(enemy_id: int) -> void:
+	if String(fungal_incursion.get("phase", "locked")) != "active" or int(fungal_incursion.get("enemy_id", -1)) != enemy_id:
+		return
+	var wave := maxi(1, int(fungal_incursion.get("wave", 1)))
+	var organic_reward := minf(30.0, 15.0 + 3.0 * float(wave - 1))
+	var mineral_reward := minf(2.0, 0.5 + 0.25 * float(wave - 1))
+	var dna_reward := 1 if wave % 3 == 0 else 0
+	organic += organic_reward
+	mineral += mineral_reward
+	dna += dna_reward
+	lifetime_fungal_incursions_defeated += 1
+	fungal_incursion = {
+		"phase": "cooldown",
+		"remaining": rng.randf_range(FUNGAL_INCURSION_DELAY_MIN, FUNGAL_INCURSION_DELAY_MAX),
+		"pos": Vector2.INF,
+		"wave": wave,
+		"enemy_id": -1
+	}
+	var dna_text := "　DNA +1" if dna_reward > 0 else ""
+	toast("击退第 %d 轮孢子雨：有机 +%.3f　矿物 +%.3f%s" % [wave, organic_reward, mineral_reward, dna_text], 7.0)
+
+
+func _update_fungal_incursion(sim_delta: float) -> void:
+	if not _fungal_incursions_enabled():
+		return
+	var phase := String(fungal_incursion.get("phase", "locked"))
+	if phase == "locked":
+		if _living_enemy_fungus_count() == 0:
+			fungal_incursion = {"phase": "cooldown", "remaining": rng.randf_range(FUNGAL_INCURSION_DELAY_MIN, FUNGAL_INCURSION_DELAY_MAX), "pos": Vector2.INF, "wave": lifetime_fungal_incursions_defeated, "enemy_id": -1}
+		return
+	if phase == "active":
+		var enemy_index := _enemy_fungus_index_by_id(int(fungal_incursion.get("enemy_id", -1)))
+		if enemy_index < 0 or not bool(enemy_fungi[enemy_index].get("alive", false)):
+			fungal_incursion = {"phase": "cooldown", "remaining": rng.randf_range(FUNGAL_INCURSION_DELAY_MIN, FUNGAL_INCURSION_DELAY_MAX), "pos": Vector2.INF, "wave": lifetime_fungal_incursions_defeated, "enemy_id": -1}
+		return
+	if not _has_living_barracks() or not _current_ecology_event().is_empty():
+		return
+	fungal_incursion["remaining"] = maxf(0.0, float(fungal_incursion.get("remaining", 0.0)) - sim_delta)
+	if float(fungal_incursion["remaining"]) > 0.0005:
+		return
+	if phase == "cooldown":
+		_begin_fungal_incursion_warning()
+	elif phase == "warning":
+		_activate_fungal_incursion()
 
 
 func _enemy_fungus_index_by_id(enemy_id: int) -> int:
@@ -714,7 +908,7 @@ func _update_enemy_fungi(sim_delta: float) -> void:
 				continue
 			enemy["organic_reserve"] = reserve - upkeep
 			var strength := upkeep / maxf(0.000001, 0.020 * sim_delta)
-			_damage_core(core_id, ENEMY_FUNGUS_ATTACK_RATE * sim_delta * strength, "敌对真菌侵染")
+			_damage_core(core_id, ENEMY_FUNGUS_ATTACK_RATE * float(enemy.get("attack_multiplier", 1.0)) * sim_delta * strength, "敌对真菌侵染")
 
 
 func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
@@ -730,7 +924,10 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 		enemy["alive"] = false
 		enemy["state"] = "dead"
 		lifetime_enemy_fungi_defeated += 1
-		toast("竞争性真菌核心已失活", 4.0)
+		if String(enemy.get("source", "initial")) == "incursion":
+			_complete_fungal_incursion(enemy_id)
+		else:
+			toast("竞争性真菌核心已失活", 4.0)
 		return true
 	return false
 
@@ -771,6 +968,7 @@ func _process(delta: float) -> void:
 		_update_auto_replenishment()
 	_update_feeders(sim_delta)
 	_update_ecology_events(sim_delta)
+	_update_fungal_incursion(sim_delta)
 	enemy_fungus_update_clock += sim_delta
 	if enemy_fungus_update_clock >= ENEMY_FUNGUS_UPDATE_INTERVAL:
 		var enemy_step := enemy_fungus_update_clock
@@ -1325,6 +1523,8 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 		return
 	var enemy: Dictionary = enemy_fungi[enemy_index]
+	if offline_simulating and String(enemy.get("source", "initial")) == "incursion":
+		return
 	var enemy_pos: Vector2 = enemy["pos"]
 	if (unit["pos"] as Vector2).distance_to(enemy_pos) > ENEMY_FUNGUS_HIT_RADIUS:
 		unit["target_pos"] = enemy_pos
@@ -1349,7 +1549,7 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 		unit["target_kind"] = "home"
 	elif not offline_simulating or offline_expedition_combat_active:
 		var resistance := 0.75 if unit_type == "piercer" else 1.0
-		_damage_expedition_unit(unit, EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * resistance * sim_delta, "竞争真菌反击")
+		_damage_expedition_unit(unit, EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * float(enemy.get("attack_multiplier", 1.0)) * resistance * sim_delta, "竞争真菌反击")
 
 
 func _acquire_expedition_target(unit: Dictionary) -> void:
@@ -2721,6 +2921,8 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
 		return
+	if _handle_fungal_incursion_click(pos):
+		return
 	if _handle_chapter_guidance_click(pos):
 		return
 	if _handle_enemy_threat_click(pos):
@@ -3292,6 +3494,7 @@ func _draw() -> void:
 	_draw_colony(viewport)
 	_draw_barracks_rally_points()
 	_draw_expedition_units(viewport)
+	_draw_fungal_incursion_marker()
 	_draw_world_fog(viewport)
 	_draw_barracks_placement_preview()
 	_draw_extension_preview()
@@ -3500,6 +3703,7 @@ func _start_new_culture() -> void:
 	next_enemy_fungus_id = 1
 	next_enemy_hypha_id = 1
 	enemy_fungi_initialized = false
+	fungal_incursion = {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1}
 	organic = 220.0
 	mineral = 24.0
 	dna = 0
@@ -3555,6 +3759,7 @@ func _start_new_culture() -> void:
 	lifetime_ecology_events_seen = 0
 	lifetime_ecology_events_contained = 0
 	lifetime_enemy_fungi_defeated = 0
+	lifetime_fungal_incursions_defeated = 0
 	chapter_task_index = 0
 	core_selected_once = false
 	chapter_complete = false
@@ -4078,6 +4283,7 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
 	_draw_ecology_event_hud(viewport)
+	_draw_fungal_incursion_hud(viewport)
 	_draw_chapter_guidance(viewport)
 	_draw_enemy_threat_hud(viewport)
 	_draw_help(viewport)
@@ -4158,6 +4364,14 @@ func _draw_minimap(_viewport: Vector2) -> void:
 		draw_rect(Rect2(ep - Vector2(4, 4), Vector2(9, 9)), Color(event_color, 0.18))
 		draw_line(ep + Vector2(-5, -5), ep + Vector2(5, 5), Color(event_color, 0.92), 1.0, false)
 		draw_line(ep + Vector2(5, -5), ep + Vector2(-5, 5), Color(event_color, 0.92), 1.0, false)
+	if String(fungal_incursion.get("phase", "locked")) == "warning":
+		var landing: Vector2 = fungal_incursion.get("pos", Vector2.INF)
+		if landing.is_finite() and _is_world_explored(landing):
+			var ip := _pixel_snap(_world_to_minimap(landing, inner))
+			var incursion_pulse := 0.55 + sin(sim_time * 4.0) * 0.20
+			draw_rect(Rect2(ip - Vector2(5, 5), Vector2(11, 11)), Color(0.82, 0.28, 0.24, 0.12))
+			draw_line(ip + Vector2(-6, 0), ip + Vector2(6, 0), Color(1.0, 0.48, 0.35, incursion_pulse), 1.0, false)
+			draw_line(ip + Vector2(0, -6), ip + Vector2(0, 6), Color(1.0, 0.48, 0.35, incursion_pulse), 1.0, false)
 	for i in range(0, resources.size(), 3):
 		var resource = resources[i]
 		if not bool(resource["alive"]):
@@ -4322,9 +4536,81 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
+func _fungal_incursion_hud_visible() -> bool:
+	return String(fungal_incursion.get("phase", "locked")) != "locked" and _fungal_incursions_enabled()
+
+
+func _fungal_incursion_hud_rect() -> Rect2:
+	var viewport := get_viewport_rect().size
+	var y := 202.0
+	if not _current_ecology_event().is_empty():
+		y += 74.0
+	return Rect2(viewport.x - 322.0, y, 300.0, 66.0)
+
+
+func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
+	if not _fungal_incursion_hud_visible():
+		return
+	var phase := String(fungal_incursion.get("phase", "locked"))
+	var wave := maxi(1, int(fungal_incursion.get("wave", lifetime_fungal_incursions_defeated + 1)))
+	var paused := not _current_ecology_event().is_empty() or not _has_living_barracks()
+	var accent := Color("ff8b68") if phase == "warning" else (Color("ff5f6d") if phase == "active" else Color("c98f78"))
+	var rect := _fungal_incursion_hud_rect()
+	draw_style_box(_rounded_style(Color(0.105, 0.040, 0.055, 0.97), Color(accent, 0.90), 9, 2), rect)
+	var title := "竞争孢子雨 · 冷却"
+	if phase == "warning":
+		title = "第 %d 轮孢子雨 · 落点预警" % wave
+	elif phase == "active":
+		title = "第 %d 轮竞争菌落 · 活跃" % wave
+	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	var detail := "下一次信号　%s" % _format_duration(float(fungal_incursion.get("remaining", 0.0)))
+	if paused and phase != "active":
+		detail = "生态事件或兵营缺失，计时已延后"
+	elif phase == "warning":
+		var seconds_left := ceili(float(fungal_incursion.get("remaining", 0.0)))
+		detail = "点击定位　%02d:%02d" % [seconds_left / 60, seconds_left % 60]
+	elif phase == "active":
+		detail = "点击定位竞争核心"
+	draw_string(fallback_font, rect.position + Vector2(13, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
+func _handle_fungal_incursion_click(pos: Vector2) -> bool:
+	if not _fungal_incursion_hud_visible() or not _fungal_incursion_hud_rect().has_point(pos):
+		return false
+	var phase := String(fungal_incursion.get("phase", "locked"))
+	var target: Vector2 = fungal_incursion.get("pos", Vector2.INF)
+	if phase == "active":
+		var enemy_index := _enemy_fungus_index_by_id(int(fungal_incursion.get("enemy_id", -1)))
+		if enemy_index >= 0:
+			target = enemy_fungi[enemy_index]["pos"]
+	if target.is_finite():
+		camera_center = target
+		_clamp_camera()
+		toast("镜头已定位竞争孢子雨", 2.0)
+	return true
+
+
+func _draw_fungal_incursion_marker() -> void:
+	if String(fungal_incursion.get("phase", "locked")) != "warning":
+		return
+	var landing: Vector2 = fungal_incursion.get("pos", Vector2.INF)
+	if not landing.is_finite() or not _is_world_explored(landing):
+		return
+	var p := _pixel_snap(world_to_screen(landing))
+	var pulse := 0.62 + sin(sim_time * 4.0) * 0.22
+	var radius := 18.0 + sin(sim_time * 3.0) * 3.0
+	draw_arc(p, radius, 0.0, TAU, 24, Color(1.0, 0.34, 0.26, pulse), 2.0, false)
+	draw_line(p + Vector2(-25, 0), p + Vector2(25, 0), Color(1.0, 0.48, 0.34, pulse), 1.0, false)
+	draw_line(p + Vector2(0, -25), p + Vector2(0, 25), Color(1.0, 0.48, 0.34, pulse), 1.0, false)
+
+
 func _chapter_guidance_rect() -> Rect2:
 	var viewport := get_viewport_rect().size
-	var y := 276.0 if not _current_ecology_event().is_empty() else 202.0
+	var y := 202.0
+	if not _current_ecology_event().is_empty():
+		y += 74.0
+	if _fungal_incursion_hud_visible():
+		y += 74.0
 	var height := 42.0 if guidance_collapsed else (64.0 if chapter_complete else 112.0)
 	return Rect2(viewport.x - 322.0, y, 300.0, height)
 
@@ -4412,7 +4698,8 @@ func _goal_definitions() -> Array:
 		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
 		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"},
 		{"id": "ecology_response", "title": "生态应答", "desc": "成功应对1次细菌生态事件", "reward": {"dna": 2, "mineral": 2.0}, "reward_text": "DNA +2　矿物 +2.000"},
-		{"id": "rival_colony", "title": "竞争者清除", "desc": "使1座竞争性真菌核心失活", "reward": {"dna": 4, "mineral": 3.0}, "reward_text": "DNA +4　矿物 +3.000"}
+		{"id": "rival_colony", "title": "竞争者清除", "desc": "使1座竞争性真菌核心失活", "reward": {"dna": 4, "mineral": 3.0}, "reward_text": "DNA +4　矿物 +3.000"},
+		{"id": "sporefall_guard", "title": "孢子雨守卫", "desc": "击退3轮竞争孢子雨", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"}
 	]
 
 
@@ -4455,6 +4742,8 @@ func _goal_complete(goal_id: String) -> bool:
 			return lifetime_ecology_events_contained >= 1
 		"rival_colony":
 			return lifetime_enemy_fungi_defeated >= 1
+		"sporefall_guard":
+			return lifetime_fungal_incursions_defeated >= 3
 	return false
 
 
@@ -4490,6 +4779,8 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "%d / 1" % mini(lifetime_ecology_events_contained, 1)
 		"rival_colony":
 			return "%d / 1" % mini(lifetime_enemy_fungi_defeated, 1)
+		"sporefall_guard":
+			return "%d / 3" % mini(lifetime_fungal_incursions_defeated, 3)
 	return ""
 
 
@@ -5135,8 +5426,9 @@ func _draw_enemy_fungus_tooltip() -> bool:
 	var maximum := maxf(0.001, float(enemy.get("max_biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS)))
 	var percent := clampf(float(enemy.get("biomass", maximum)) / maximum * 100.0, 0.0, 100.0)
 	var state_names := {"dormant": "休眠", "foraging": "觅食", "assault": "侵染扩张", "starved": "营养匮乏", "dead": "失活"}
+	var origin_text := "第 %d 轮孢子雨" % int(enemy.get("wave", 1)) if String(enemy.get("source", "initial")) == "incursion" else "初始竞争菌落"
 	var lines := [
-		"竞争性真菌菌落　生物量 %.1f%%" % percent,
+		"%s　生物量 %.1f%%" % [origin_text, percent],
 		"状态：%s　有机储备 %.3f" % [state_names.get(String(enemy.get("state", "foraging")), "未知"), float(enemy.get("organic_reserve", 0.0))],
 		"确立真菌食性并生产穿壁孢子可以攻击核心"
 	]
@@ -5668,7 +5960,7 @@ func _draw_chapter_report(viewport: Vector2) -> void:
 		"体外单位　建造 %d　损失 %d" % [lifetime_expedition_units_built, lifetime_expedition_units_lost],
 		"消化细菌　%d" % lifetime_bacteria_consumed,
 		"探索比例　%.2f%%" % (_explored_fraction() * 100.0),
-		"竞争菌落　清除 %d" % lifetime_enemy_fungi_defeated
+		"竞争菌落　清除 %d　孢子雨 %d" % [lifetime_enemy_fungi_defeated, lifetime_fungal_incursions_defeated]
 	]
 	for i in range(left_lines.size()):
 		draw_string(fallback_font, Vector2(left_x, first_y + i * gap), String(left_lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
@@ -5829,6 +6121,9 @@ func _save_game() -> void:
 			"growth_time": float(enemy.get("growth_time", 0.0)),
 			"alive": bool(enemy.get("alive", false)),
 			"discovered": bool(enemy.get("discovered", false)),
+			"source": String(enemy.get("source", "initial")),
+			"wave": int(enemy.get("wave", 0)),
+			"attack_multiplier": float(enemy.get("attack_multiplier", 1.0)),
 			"pulse": float(enemy.get("pulse", 0.0))
 		})
 	var enemy_hyphae_data: Array = []
@@ -5862,6 +6157,16 @@ func _save_game() -> void:
 			"anchor_core_id": int(event.get("anchor_core_id", 0)),
 			"spawned": int(event.get("spawned", 0))
 		})
+	var incursion_pos: Vector2 = fungal_incursion.get("pos", Vector2.INF)
+	var incursion_data := {
+		"phase": String(fungal_incursion.get("phase", "locked")),
+		"remaining": float(fungal_incursion.get("remaining", 0.0)),
+		"x": incursion_pos.x if incursion_pos.is_finite() else 0.0,
+		"y": incursion_pos.y if incursion_pos.is_finite() else 0.0,
+		"has_pos": incursion_pos.is_finite(),
+		"wave": int(fungal_incursion.get("wave", 0)),
+		"enemy_id": int(fungal_incursion.get("enemy_id", -1))
+	}
 	var data := {
 		"version": 1,
 		"world_generation": 5,
@@ -5888,6 +6193,8 @@ func _save_game() -> void:
 		"lifetime_ecology_events_seen": lifetime_ecology_events_seen,
 		"lifetime_ecology_events_contained": lifetime_ecology_events_contained,
 		"lifetime_enemy_fungi_defeated": lifetime_enemy_fungi_defeated,
+		"lifetime_fungal_incursions_defeated": lifetime_fungal_incursions_defeated,
+		"fungal_incursion": incursion_data,
 		"chapter_task_index": chapter_task_index,
 		"core_selected_once": core_selected_once,
 		"chapter_complete": chapter_complete,
@@ -5975,6 +6282,7 @@ func _load_game() -> bool:
 	lifetime_ecology_events_seen = maxi(0, int(parsed.get("lifetime_ecology_events_seen", 0)))
 	lifetime_ecology_events_contained = maxi(0, int(parsed.get("lifetime_ecology_events_contained", 0)))
 	lifetime_enemy_fungi_defeated = maxi(0, int(parsed.get("lifetime_enemy_fungi_defeated", 0)))
+	lifetime_fungal_incursions_defeated = maxi(0, int(parsed.get("lifetime_fungal_incursions_defeated", 0)))
 	chapter_task_index = maxi(0, int(parsed.get("chapter_task_index", 0)))
 	core_selected_once = bool(parsed.get("core_selected_once", false))
 	chapter_complete = bool(parsed.get("chapter_complete", false))
@@ -6144,6 +6452,11 @@ func _load_game() -> bool:
 		if not alive:
 			state = "dead"
 			biomass = 0.0
+		var source := String(item.get("source", "initial"))
+		if source != "incursion":
+			source = "initial"
+		var wave := clampi(int(item.get("wave", 0)), 0, 10000)
+		var default_attack_multiplier := minf(1.10, 0.75 + 0.05 * float(maxi(0, wave - 1))) if source == "incursion" else 1.0
 		enemy_fungi.append({
 			"id": enemy_id,
 			"pos": enemy_pos,
@@ -6155,6 +6468,9 @@ func _load_game() -> bool:
 			"growth_time": clampf(float(item.get("growth_time", 0.0)), 0.0, ENEMY_FUNGUS_GROWTH_INTERVAL_MAX),
 			"alive": alive,
 			"discovered": bool(item.get("discovered", false)),
+			"source": source,
+			"wave": wave,
+			"attack_multiplier": clampf(float(item.get("attack_multiplier", default_attack_multiplier)), 0.5, 1.25),
 			"pulse": float(item.get("pulse", 0.0))
 		})
 		enemy_ids[enemy_id] = true
@@ -6186,6 +6502,34 @@ func _load_game() -> bool:
 		_spawn_initial_enemy_fungus()
 	elif not enemy_fungi.is_empty():
 		enemy_fungi_initialized = true
+	fungal_incursion = {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": lifetime_fungal_incursions_defeated, "enemy_id": -1}
+	var saved_incursion = parsed.get("fungal_incursion", {})
+	if saved_incursion is Dictionary and not saved_incursion.is_empty():
+		var incursion_phase := String(saved_incursion.get("phase", "locked"))
+		if not ["locked", "cooldown", "warning", "active"].has(incursion_phase):
+			incursion_phase = "locked"
+		var incursion_pos := Vector2(float(saved_incursion.get("x", 0.0)), float(saved_incursion.get("y", 0.0))) if bool(saved_incursion.get("has_pos", false)) else Vector2.INF
+		if not incursion_pos.is_finite() or incursion_pos.length() > WORLD_HALF - 20.0:
+			incursion_pos = Vector2.INF
+		var incursion_enemy_id := int(saved_incursion.get("enemy_id", -1))
+		var incursion_wave := clampi(int(saved_incursion.get("wave", lifetime_fungal_incursions_defeated)), 0, 10000)
+		var incursion_remaining := clampf(float(saved_incursion.get("remaining", 0.0)), 0.0, FUNGAL_INCURSION_DELAY_MAX)
+		if incursion_phase == "warning" and not incursion_pos.is_finite():
+			incursion_phase = "cooldown"
+			incursion_remaining = 60.0
+		if incursion_phase == "active":
+			var active_index := _enemy_fungus_index_by_id(incursion_enemy_id)
+			if active_index < 0 or not bool(enemy_fungi[active_index].get("alive", false)) or String(enemy_fungi[active_index].get("source", "initial")) != "incursion":
+				incursion_phase = "cooldown"
+				incursion_remaining = 60.0
+				incursion_enemy_id = -1
+				incursion_pos = Vector2.INF
+		if incursion_phase == "cooldown" or incursion_phase == "locked":
+			incursion_pos = Vector2.INF
+			incursion_enemy_id = -1
+		fungal_incursion = {"phase": incursion_phase, "remaining": incursion_remaining, "pos": incursion_pos, "wave": incursion_wave, "enemy_id": incursion_enemy_id}
+		if incursion_phase == "warning":
+			_reveal_exploration(incursion_pos, FUNGAL_INCURSION_REVEAL_RADIUS)
 	expedition_units.clear()
 	next_expedition_id = maxi(1, int(parsed.get("next_expedition_id", 1)))
 	for item in parsed.get("expedition_units", []):
