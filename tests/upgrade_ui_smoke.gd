@@ -29,7 +29,12 @@ func _run() -> void:
 	game.splash_active = false
 	game._start_new_culture()
 	game.main_menu_active = true
+	game.main_menu_has_save = true
 	game.main_menu_page = "main"
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	game.main_menu_page = "new_confirm"
 	game.queue_redraw()
 	await process_frame
 	await process_frame
@@ -132,10 +137,29 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 	game.mode = "normal"
+	game.pause_menu_open = true
+	for pause_page in ["main", "settings", "restart_confirm"]:
+		game.pause_menu_page = pause_page
+		game.queue_redraw()
+		await process_frame
+		await process_frame
+		var pause_panel: Rect2 = game._pause_menu_panel_rect(game.get_viewport_rect().size)
+		for button_index in range(game._pause_menu_labels().size()):
+			if not pause_panel.encloses(game._pause_menu_button_rect(game.get_viewport_rect().size, button_index)):
+				push_error("UPGRADE_UI_FAIL: pause menu buttons must stay inside their modal panel")
+				quit(1)
+				return
+	game.pause_menu_open = false
+	game.pause_menu_page = "main"
 	game.game_over = true
 	game.queue_redraw()
 	await process_frame
 	await process_frame
+	var game_over_panel: Rect2 = game._game_over_panel_rect(game.get_viewport_rect().size)
+	if not game_over_panel.encloses(game._game_over_button_rect(game.get_viewport_rect().size, 0)) or not game_over_panel.encloses(game._game_over_button_rect(game.get_viewport_rect().size, 1)):
+		push_error("UPGRADE_UI_FAIL: game-over actions must stay inside their modal panel")
+		quit(1)
+		return
 	game.game_over = false
 	var enemy_pos: Vector2 = game.enemy_fungi[0]["pos"]
 	game._reveal_exploration(enemy_pos, 320.0)
@@ -248,6 +272,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered chapter_flow=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 menus=session-rendered barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered chapter_flow=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

@@ -291,6 +291,9 @@ var main_menu_active := true
 var main_menu_page := "main"
 var main_menu_has_save := false
 var game_started := false
+var pause_menu_open := false
+var pause_menu_page := "main"
+var pause_menu_notice := ""
 var settings_fullscreen := false
 var settings_pixel_cursor := true
 var discovery_banner_title := ""
@@ -737,6 +740,9 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 	if chapter_report_open:
+		queue_redraw()
+		return
+	if pause_menu_open or game_over:
 		queue_redraw()
 		return
 	_handle_camera_keys(delta)
@@ -2354,7 +2360,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 				_handle_main_menu_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo:
-			if event.keycode == KEY_ESCAPE and main_menu_page == "settings":
+			if event.keycode == KEY_ESCAPE and main_menu_page != "main":
 				main_menu_page = "main"
 				queue_redraw()
 			elif event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
@@ -2385,6 +2391,36 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ESCAPE or event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 				_close_chapter_report(false)
+		return
+	if pause_menu_open:
+		if event is InputEventMouseMotion:
+			last_mouse = event.position
+			queue_redraw()
+		elif event is InputEventMouseButton:
+			last_mouse = event.position
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				_handle_pause_menu_click(event.position)
+		elif event is InputEventKey and event.pressed and not event.echo:
+			if event.keycode == KEY_ESCAPE:
+				if pause_menu_page == "main":
+					_close_pause_menu()
+				elif pause_menu_page == "restart_confirm" and game_over:
+					pause_menu_open = false
+					pause_menu_page = "main"
+				else:
+					pause_menu_page = "main"
+				queue_redraw()
+		return
+	if game_over:
+		if event is InputEventMouseMotion:
+			last_mouse = event.position
+			queue_redraw()
+		elif event is InputEventMouseButton:
+			last_mouse = event.position
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				_handle_game_over_click(event.position)
+		elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+			_return_to_main_menu()
 		return
 	if event is InputEventMouseMotion:
 		last_mouse = event.position
@@ -2468,10 +2504,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			if goals_open:
 				goals_open = false
 				return
-			mode = "normal"
-			selected_tip_valid = false
-			show_status = false
-			queue_redraw()
+			if selected_core >= 0 or selected_tip_valid or show_status or mode != "normal":
+				mode = "normal"
+				selected_core = -1
+				selected_tip_valid = false
+				show_status = false
+				queue_redraw()
+				return
+			_open_pause_menu()
 
 
 func _zoom_at(screen_pos: Vector2, factor: float) -> void:
@@ -2485,6 +2525,9 @@ func _zoom_at(screen_pos: Vector2, factor: float) -> void:
 
 func _handle_left_click(pos: Vector2) -> void:
 	if game_over:
+		return
+	if _pause_hud_rect().has_point(pos):
+		_open_pause_menu()
 		return
 	if upgrade_open:
 		_handle_upgrade_click(pos)
@@ -3097,6 +3140,8 @@ func _draw() -> void:
 		_draw_offline_report(viewport)
 	elif chapter_report_open:
 		_draw_chapter_report(viewport)
+	elif pause_menu_open:
+		_draw_pause_menu(viewport)
 
 
 func _draw_splash(viewport: Vector2) -> void:
@@ -3118,9 +3163,26 @@ func _draw_splash(viewport: Vector2) -> void:
 
 
 func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
-	var size := Vector2(320.0, 46.0)
-	var first_y := viewport.y * 0.52
-	return Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - size.x * 0.5, first_y + index * 62.0)), size)
+	var compact := viewport.y < 500.0
+	var size := Vector2(minf(320.0, viewport.x - 40.0), 34.0 if compact else 46.0)
+	var first_y := viewport.y * (0.42 if compact else 0.49)
+	var step := 40.0 if compact else 58.0
+	return Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - size.x * 0.5, first_y + index * step)), size)
+
+
+func _main_menu_labels() -> Array[String]:
+	if main_menu_page == "settings":
+		return [
+			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
+			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
+			"返回"
+		]
+	if main_menu_page == "new_confirm":
+		return ["确认覆盖并开始", "取消"]
+	if main_menu_has_save:
+		var continue_label := "查看失活培养" if game_started and game_over else ("继续培养" if game_started else "读取存档")
+		return [continue_label, "开始新培养", "设置", "退出"]
+	return ["开始培养", "设置", "退出"]
 
 
 func _draw_main_menu(viewport: Vector2) -> void:
@@ -3133,26 +3195,19 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		draw_rect(Rect2(_pixel_snap(Vector2(x, y)), Vector2.ONE * size), Color(0.24, 0.70, 0.57, 0.10 if i % 3 else 0.18))
 	var glow_center := Vector2(viewport.x * 0.5, viewport.y * 0.22)
 	draw_circle(glow_center, minf(230.0, viewport.y * 0.32), Color(0.05, 0.25, 0.21, 0.20))
-	var logo_size := minf(270.0, viewport.y * 0.38)
+	var compact := viewport.y < 500.0
+	var logo_size := minf(96.0, viewport.y * 0.25) if compact else minf(270.0, viewport.y * 0.38)
 	var logo_rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - logo_size * 0.5, 8.0)), Vector2.ONE * logo_size)
 	if splash_logo != null:
 		draw_texture_rect(splash_logo, logo_rect, false)
 	var title := "Game: Super boring fungi"
 	var title_size := fallback_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20)
-	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - title_size.x * 0.5, viewport.y * 0.405)), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, COLOR_HYPHA)
+	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - title_size.x * 0.5, viewport.y * (0.29 if compact else 0.405))), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, COLOR_HYPHA)
 	var subtitle := "第一章 · 实验室培养"
 	var subtitle_size := fallback_font.get_string_size(subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
-	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - subtitle_size.x * 0.5, viewport.y * 0.445)), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - subtitle_size.x * 0.5, viewport.y * (0.35 if compact else 0.445))), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
-	var labels: Array[String]
-	if main_menu_page == "settings":
-		labels = [
-			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
-			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
-			"返回"
-		]
-	else:
-		labels = ["读取存档" if main_menu_has_save else "开始培养", "设置", "退出"]
+	var labels := _main_menu_labels()
 	for i in range(labels.size()):
 		var rect := _main_menu_button_rect(viewport, i)
 		var hovered := rect.has_point(last_mouse)
@@ -3160,17 +3215,21 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		var border := Color(0.39, 0.96, 0.65, 0.96) if hovered else Color(0.26, 0.62, 0.54, 0.72)
 		draw_style_box(_rounded_style(background, border, 10, 2), rect)
 		var label_size := fallback_font.get_string_size(labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
-		draw_string(fallback_font, _pixel_snap(Vector2(rect.get_center().x - label_size.x * 0.5, rect.position.y + 29.0)), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("dff7e8"))
-	var hint := "检测到培养记录 · 读取后结算离线进度" if main_menu_has_save else "尚无培养记录 · 将从一个孢子核心开始"
+		draw_string(fallback_font, _pixel_snap(Vector2(rect.get_center().x - label_size.x * 0.5, rect.position.y + rect.size.y * 0.64)), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("dff7e8"))
+	var hint := "检测到培养记录 · 可继续或开始新培养" if main_menu_has_save else "尚无培养记录 · 将从一个孢子核心开始"
 	if main_menu_page == "settings":
 		hint = "设置会自动保存 · Esc 返回"
+	elif main_menu_page == "new_confirm":
+		hint = "现有培养记录将被永久覆盖"
 	var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
-	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - hint_size.x * 0.5, viewport.y * 0.52 + 205.0)), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var hint_y := _main_menu_button_rect(viewport, labels.size() - 1).end.y + (22.0 if compact else 28.0)
+	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - hint_size.x * 0.5, hint_y)), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f") if main_menu_page == "new_confirm" else COLOR_MUTED)
 
 
 func _handle_main_menu_click(pos: Vector2) -> void:
 	var viewport := get_viewport_rect().size
-	for i in range(3):
+	var labels := _main_menu_labels()
+	for i in range(labels.size()):
 		if not _main_menu_button_rect(viewport, i).has_point(pos):
 			continue
 		if main_menu_page == "settings":
@@ -3184,13 +3243,28 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 				_save_settings()
 			else:
 				main_menu_page = "main"
-		else:
+		elif main_menu_page == "new_confirm":
 			if i == 0:
-				_start_game_from_menu()
-			elif i == 1:
-				main_menu_page = "settings"
+				_begin_new_culture()
 			else:
-				get_tree().quit()
+				main_menu_page = "main"
+		else:
+			if main_menu_has_save:
+				if i == 0:
+					_start_game_from_menu()
+				elif i == 1:
+					main_menu_page = "new_confirm"
+				elif i == 2:
+					main_menu_page = "settings"
+				else:
+					get_tree().quit()
+			else:
+				if i == 0:
+					_start_game_from_menu()
+				elif i == 1:
+					main_menu_page = "settings"
+				else:
+					get_tree().quit()
 		queue_redraw()
 		return
 
@@ -3207,9 +3281,23 @@ func _start_game_from_menu() -> void:
 	if not loaded:
 		_start_new_culture()
 	game_started = true
+	if not loaded:
+		_save_game()
 	main_menu_active = false
 	main_menu_page = "main"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	queue_redraw()
+
+
+func _begin_new_culture() -> void:
+	_start_new_culture()
+	game_started = true
+	main_menu_active = false
+	main_menu_page = "main"
+	pause_menu_open = false
+	pause_menu_page = "main"
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_save_game()
 	queue_redraw()
 
 
@@ -3245,6 +3333,9 @@ func _start_new_culture() -> void:
 	enemy_fungus_update_clock = 0.0
 	save_clock = 0.0
 	game_over = false
+	pause_menu_open = false
+	pause_menu_page = "main"
+	pause_menu_notice = ""
 	selected_core = -1
 	selected_tip_valid = false
 	selected_expedition_ids.clear()
@@ -3789,6 +3880,7 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_unit_filter_bar()
 	_draw_minimap(viewport)
 	_draw_scale(viewport)
+	_draw_pause_hud(viewport)
 	_draw_speed_controls(viewport)
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
@@ -3959,6 +4051,18 @@ func _speed_rects() -> Array:
 		{"rect": Rect2(base + Vector2(68, 0), Vector2(62, 32)), "speed": 10.0},
 		{"rect": Rect2(base + Vector2(136, 0), Vector2(62, 32)), "speed": 60.0}
 	]
+
+
+func _pause_hud_rect() -> Rect2:
+	var viewport := get_viewport_rect().size
+	return Rect2(viewport.x - 310.0, viewport.y - 52.0, 60.0, 32.0)
+
+
+func _draw_pause_hud(_viewport: Vector2) -> void:
+	var rect := _pause_hud_rect()
+	var hovered := rect.has_point(last_mouse)
+	draw_style_box(_rounded_style(Color(0.08, 0.24, 0.22, 0.96) if hovered else COLOR_PANEL, Color("76f5ca") if hovered else COLOR_BORDER, 6, 1), rect)
+	draw_string(fallback_font, rect.position + Vector2(10, 22), "暂停", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
 func _draw_speed_controls(_viewport: Vector2) -> void:
@@ -4698,7 +4802,7 @@ func _draw_upgrade_placeholders(panel: Rect2, message: String) -> void:
 
 
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令/拖动地图　滚轮缩放　F5 保存"
+	var text_value := "左键点击/拖框选兵　右键指令/拖动地图　滚轮缩放　F5 保存　Esc 暂停"
 	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 220.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
 		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
@@ -4988,11 +5092,182 @@ func _draw_status_panel(viewport: Vector2) -> void:
 
 func _draw_game_over(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.01, 0.01, 0.025, 0.78))
-	var rect := Rect2(_pixel_snap(viewport * 0.5 - Vector2(220, 92)), Vector2(440, 184))
+	var rect := _game_over_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.055, 0.035, 0.055, 0.98), Color("c77888"), 12, 2), rect)
 	draw_string(fallback_font, rect.position + Vector2(32, 48), "菌落失活", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
 	draw_string(fallback_font, rect.position + Vector2(32, 86), "所有孢子核心的生物量均已归零", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, rect.position + Vector2(32, 120), "模拟已暂停；重新开始功能将在存档界面加入", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(32, 120), "培养已真正暂停；你可以重新开始或返回主菜单。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var labels := ["重新培养", "返回主菜单"]
+	for i in range(2):
+		var button := _game_over_button_rect(viewport, i)
+		var hovered := button.has_point(last_mouse)
+		draw_style_box(_rounded_style(Color(0.22, 0.08, 0.10, 0.98) if hovered else Color(0.09, 0.06, 0.08, 0.98), Color("ff9f9f") if hovered else Color("8d5964"), 8, 2 if hovered else 1), button)
+		var label := String(labels[i])
+		var label_size := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
+		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
+func _game_over_panel_rect(viewport: Vector2) -> Rect2:
+	var size := Vector2(minf(500.0, viewport.x - 40.0), 238.0)
+	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
+
+
+func _game_over_button_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := _game_over_panel_rect(viewport)
+	var size := Vector2(170.0, 40.0)
+	var gap := 18.0
+	var start_x := panel.get_center().x - (size.x * 2.0 + gap) * 0.5
+	return Rect2(_pixel_snap(Vector2(start_x + index * (size.x + gap), panel.end.y - 62.0)), size)
+
+
+func _handle_game_over_click(pos: Vector2) -> void:
+	var viewport := get_viewport_rect().size
+	if _game_over_button_rect(viewport, 0).has_point(pos):
+		pause_menu_open = true
+		pause_menu_page = "restart_confirm"
+		pause_menu_notice = ""
+		queue_redraw()
+	elif _game_over_button_rect(viewport, 1).has_point(pos):
+		_return_to_main_menu()
+
+
+func _pause_menu_labels() -> Array[String]:
+	if pause_menu_page == "settings":
+		return [
+			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
+			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
+			"返回"
+		]
+	if pause_menu_page == "restart_confirm":
+		return ["确认覆盖并重新开始", "取消"]
+	return ["继续培养", "立即保存", "设置", "保存并返回主菜单", "重新开始培养"]
+
+
+func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
+	var height := 410.0 if pause_menu_page == "main" else (300.0 if pause_menu_page == "settings" else 260.0)
+	var size := Vector2(minf(480.0, viewport.x - 40.0), minf(height, viewport.y - 40.0))
+	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
+
+
+func _pause_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := _pause_menu_panel_rect(viewport)
+	var count := maxi(1, _pause_menu_labels().size())
+	var step := minf(54.0, (panel.size.y - 118.0) / float(count))
+	var size := Vector2(minf(330.0, panel.size.x - 48.0), clampf(step - 6.0, 30.0, 42.0))
+	return Rect2(_pixel_snap(Vector2(panel.get_center().x - size.x * 0.5, panel.position.y + 72.0 + index * step)), size)
+
+
+func _draw_pause_menu(viewport: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.82))
+	var panel := _pause_menu_panel_rect(viewport)
+	var accent := Color("76f5ca") if pause_menu_page != "restart_confirm" else Color("ff9f9f")
+	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.995), accent, 14, 2), panel)
+	var title := "培养已暂停"
+	if pause_menu_page == "settings":
+		title = "暂停设置"
+	elif pause_menu_page == "restart_confirm":
+		title = "确认重新培养"
+	draw_string(fallback_font, panel.position + Vector2(28, 42), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, accent)
+	var labels := _pause_menu_labels()
+	for i in range(labels.size()):
+		var button := _pause_menu_button_rect(viewport, i)
+		var hovered := button.has_point(last_mouse)
+		var danger := pause_menu_page == "restart_confirm" and i == 0
+		var border := Color("ff9f9f") if danger else (Color("68efad") if hovered else COLOR_BORDER)
+		var background := Color(0.24, 0.07, 0.09, 0.98) if danger and hovered else (Color(0.10, 0.34, 0.27, 0.98) if hovered else Color(0.035, 0.16, 0.16, 0.98))
+		draw_style_box(_rounded_style(background, border, 8, 2 if hovered else 1), button)
+		var label := String(labels[i])
+		var label_size := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
+		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 26.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	var hint := pause_menu_notice
+	if pause_menu_page == "restart_confirm":
+		hint = "当前培养记录将被永久覆盖，此操作不可撤销。"
+	elif pause_menu_page == "main" and hint == "":
+		hint = "Esc 继续培养 · 暂停期间模拟完全冻结"
+	if hint != "":
+		var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
+		draw_string(fallback_font, Vector2(panel.get_center().x - hint_size.x * 0.5, panel.end.y - 18.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffb0b0") if pause_menu_page == "restart_confirm" else COLOR_MUTED)
+
+
+func _open_pause_menu() -> void:
+	if game_over or main_menu_active or offline_report_open or chapter_report_open:
+		return
+	pause_menu_open = true
+	pause_menu_page = "main"
+	pause_menu_notice = ""
+	selected_core = -1
+	selected_tip_valid = false
+	show_status = false
+	mode = "normal"
+	queue_redraw()
+
+
+func _close_pause_menu() -> void:
+	if game_over:
+		return
+	pause_menu_open = false
+	pause_menu_page = "main"
+	pause_menu_notice = ""
+	queue_redraw()
+
+
+func _handle_pause_menu_click(pos: Vector2) -> void:
+	var viewport := get_viewport_rect().size
+	var labels := _pause_menu_labels()
+	for i in range(labels.size()):
+		if not _pause_menu_button_rect(viewport, i).has_point(pos):
+			continue
+		if pause_menu_page == "settings":
+			if i == 0:
+				settings_fullscreen = not settings_fullscreen
+				_apply_settings()
+				_save_settings()
+			elif i == 1:
+				settings_pixel_cursor = not settings_pixel_cursor
+				_apply_settings()
+				_save_settings()
+			else:
+				pause_menu_page = "main"
+		elif pause_menu_page == "restart_confirm":
+			if i == 0:
+				_begin_new_culture()
+			elif game_over:
+				pause_menu_open = false
+				pause_menu_page = "main"
+			else:
+				pause_menu_page = "main"
+		else:
+			match i:
+				0: _close_pause_menu()
+				1:
+					_save_game()
+					pause_menu_notice = "培养记录已保存"
+				2:
+					pause_menu_page = "settings"
+					pause_menu_notice = ""
+				3: _return_to_main_menu()
+				4:
+					pause_menu_page = "restart_confirm"
+					pause_menu_notice = ""
+		queue_redraw()
+		return
+
+
+func _return_to_main_menu() -> void:
+	if game_started:
+		_save_game()
+	main_menu_active = true
+	main_menu_page = "main"
+	main_menu_has_save = FileAccess.file_exists(save_path)
+	pause_menu_open = false
+	pause_menu_page = "main"
+	pause_menu_notice = ""
+	selected_core = -1
+	selected_tip_valid = false
+	selected_expedition_ids.clear()
+	show_status = false
+	mode = "normal"
+	queue_redraw()
 
 
 func _draw_discovery_banner(viewport: Vector2) -> void:
@@ -5378,6 +5653,7 @@ func _save_game() -> void:
 	var file := FileAccess.open(save_path, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify(data))
+		main_menu_has_save = true
 
 
 func _load_game() -> bool:
@@ -5698,6 +5974,9 @@ func _load_game() -> bool:
 	selected_expedition_ids.clear()
 	unit_selection_filter = "all"
 	mode = "normal"
+	pause_menu_open = false
+	pause_menu_page = "main"
+	pause_menu_notice = ""
 	barracks_auto_clock = 0.0
 	enemy_fungus_update_clock = 0.0
 	return true
