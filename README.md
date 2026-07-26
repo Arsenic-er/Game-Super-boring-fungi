@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.24.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.25.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -31,8 +31,9 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Fog-safe rival-hypha warnings appear only for explored threats; basic foragers retain a very slow manual anti-fungus fallback while fungi-specialist piercers remain dramatically stronger.
 - A complete culture-session flow: true simulation pause, save-now and settings controls, save-and-return, separate continue/new-culture entries, overwrite confirmation, and recoverable game-over actions.
 - Barracks production queues, per-barracks rally points, resource-aware automatic replenishment, and unit-type selection filters.
+- Expedition spores now have role-specific fractional biomass, counterattack and toxin damage, automatic low-biomass retreat, slow free barracks repair, death, and replenishment.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
-- Up to two hours of resource-faithful offline progress, followed by a detailed report covering nutrient collection, DNA, expedition production, exploration, ecology, and core biomass.
+- Up to two hours of resource-faithful offline progress; expedition combat is capped at ten minutes and toxin exposure at one minute, with offline replenishment and a detailed return report.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
 
 ## Controls
@@ -41,6 +42,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Top unit filters: select all units or all units of one unlocked role
 - Left drag: rectangular unit selection
 - Right click: issue a movement, gathering, bacteria-attack, or rival-fungus attack order
+- `R`: return selected expedition spores to their barracks
 - Right drag / middle drag: move the camera
 - Mouse wheel: zoom
 - `WASD` / arrow keys: move the camera
@@ -69,7 +71,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.24.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.25.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -88,6 +90,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 核心生物量、毒素压力、缓慢恢复、孤立菌丝死亡，以及其他活核心重新连接后的网络救援。
 - 兵营核心与多种游猎孢子，分别负责采集、运输、矿物收集和针对细菌的战斗。
 - 可视化兵营生产队列、每座兵营独立集结点、遵守营养消耗的自动补员，以及按兵种快速筛选部队。
+- 体外孢子现在具有按兵种区分的三位小数生物量、反击与毒素伤害、低生物量自动撤退、兵营缓慢免费修复、失活和自动补员闭环。
 - 大地图与小地图使用永久探索黑幕；高速嗅营孢子会自动寻找未探索区域并揭示资源热点。
 - 异常资源区会触发永久发现记录与提示；新增远征补给、细菌压制目标，以及独立的嗅营感知和运动升级。
 - 带预警的细菌生态事件：通过捕食和体外部队压制局部暴发，或利用抗生素、解毒代谢和修复储备熬过临时毒素区。
@@ -97,7 +100,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 竞争菌丝威胁提示只读取已探索区域；基础游猎孢子保留极慢的手动对真菌攻击能力，真菌专属穿壁孢子仍具有显著效率优势。
 - 完成培养会话管理闭环：真正冻结模拟的暂停菜单、立即保存与设置、保存返回主菜单、独立的继续/新培养入口、覆盖确认，以及失败后的重新培养和返回操作。
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。
-- 最多两小时、严格消耗地图真实资源的离线结算，并在返回后报告营养、DNA、体外单位、探索、生态与核心生物量变化。
+- 最多两小时、严格消耗地图真实资源的离线结算；体外单位战斗最多结算十分钟、毒素伤害最多一分钟，期间会执行自动补员，返回后显示详细报告。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
 
 ## 操作方式
@@ -106,6 +109,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 顶部兵种筛选：选中全部单位或某一已解锁兵种
 - 左键拖动：矩形框选部队
 - 右键：下达移动、采集、攻击细菌或攻击竞争真菌的命令
+- `R`：让已选中的体外孢子返回所属兵营
 - 右键拖动 / 中键拖动：移动镜头
 - 鼠标滚轮：缩放
 - `WASD` / 方向键：移动镜头

@@ -15,6 +15,7 @@ const OFFLINE_CAP_SECONDS := 7200.0
 const OFFLINE_MIN_SECONDS := 30.0
 const OFFLINE_STEP_SECONDS := 5.0
 const OFFLINE_BACTERIA_CAP_SECONDS := 600.0
+const OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS := 600.0
 const OFFLINE_HAZARD_CAP_SECONDS := 60.0
 const OFFLINE_ORPHAN_CAP_SECONDS := 600.0
 const SAVE_INTERVAL := 15.0
@@ -152,6 +153,10 @@ const EXPEDITION_ATTACK_RATE := 0.060
 const EXPEDITION_SEARCH_RADIUS := 260.0
 const EXPEDITION_OPERATING_RADIUS := 280.0
 const EXPEDITION_ARRIVAL_DISTANCE := 10.0
+const EXPEDITION_RETREAT_FRACTION := 0.30
+const EXPEDITION_REPAIR_RATE := 0.080
+const EXPEDITION_BACTERIA_COUNTER_RATE := 0.025
+const EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE := 0.032
 const BARRACK_UNIT_IDS := ["forager", "carrier", "chelator", "scout"]
 const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "piercer": "穿壁孢子"}
 const BARRACK_UNIT_DESCRIPTIONS := {
@@ -166,6 +171,7 @@ const BARRACK_UNIT_UNLOCK_COSTS := {"carrier": 3, "chelator": 4, "scout": 5}
 const UNIT_ORGANIC_COSTS := {"forager": 8.0, "carrier": 14.0, "chelator": 10.0, "scout": 6.0, "lytic": 12.0, "piercer": 13.0}
 const UNIT_MINERAL_COSTS := {"forager": 0.250, "carrier": 0.500, "chelator": 1.000, "scout": 0.400, "lytic": 0.750, "piercer": 1.250}
 const UNIT_BUILD_SECONDS := {"forager": 30.0, "carrier": 50.0, "chelator": 42.0, "scout": 24.0, "lytic": 40.0, "piercer": 46.0}
+const UNIT_MAX_BIOMASS := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "piercer": 14.0}
 const DIET_SPECIAL_UNITS := {
 	"animal": [
 		{"id": "animal_attach", "name": "捕食附着体", "desc": "附着动物组织并建立消化点", "available": false, "requirement": "等待小型动物生态"},
@@ -281,6 +287,8 @@ var lifetime_bacteria_consumed := 0
 var lifetime_expedition_organic_returned := 0.0
 var lifetime_expedition_mineral_returned := 0.0
 var lifetime_expedition_bacteria_killed := 0
+var lifetime_expedition_units_lost := 0
+var lifetime_expedition_units_repaired := 0
 var goals_claimed := {}
 var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
 var diet_unit_unlocks := {"lytic": false, "piercer": false}
@@ -302,6 +310,8 @@ var discovery_banner_time := 0.0
 var offline_report_open := false
 var offline_report: Dictionary = {}
 var offline_simulating := false
+var offline_expedition_combat_active := false
+var offline_expedition_toxin_active := false
 var ecology_events: Array = []
 var next_ecology_event_id := 1
 var ecology_event_countdown := ECOLOGY_FIRST_EVENT_MAX
@@ -859,11 +869,10 @@ func _queue_expedition_spore(core_id: int, automatic: bool = false) -> bool:
 		return false
 	var unit_type := String(cores[core_id].get("auto_replenish_unit", "forager")) if automatic else String(cores[core_id].get("production_unit", "forager"))
 	if not _available_barracks_units().has(unit_type):
-		unit_type = "forager"
 		if automatic:
-			cores[core_id]["auto_replenish_unit"] = unit_type
-		else:
-			cores[core_id]["production_unit"] = unit_type
+			return false
+		unit_type = "forager"
+		cores[core_id]["production_unit"] = unit_type
 	var organic_cost := float(UNIT_ORGANIC_COSTS.get(unit_type, EXPEDITION_SPORE_ORGANIC_COST))
 	var mineral_cost := float(UNIT_MINERAL_COSTS.get(unit_type, EXPEDITION_SPORE_MINERAL_COST))
 	var build_seconds := float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS))
@@ -914,6 +923,23 @@ func _barracks_unit_count(core_id: int, unit_type: String, include_queue: bool =
 			if String(job.get("unit_type", "forager")) == unit_type:
 				count += 1
 	return count
+
+
+func _barracks_expedition_status_counts(core_id: int) -> Dictionary:
+	var counts := {"total": 0, "injured": 0, "returning": 0, "repairing": 0}
+	for unit in expedition_units:
+		if int(unit.get("home_core_id", -1)) != core_id:
+			continue
+		counts["total"] += 1
+		var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+		if float(unit.get("biomass", maximum)) < maximum - 0.0005:
+			counts["injured"] += 1
+		var state := String(unit.get("state", "idle"))
+		if state == "returning" or state == "retreating":
+			counts["returning"] += 1
+		elif state == "repairing":
+			counts["repairing"] += 1
+	return counts
 
 
 func _update_auto_replenishment() -> void:
@@ -984,6 +1010,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		return
 	var core_pos: Vector2 = cores[core_id]["pos"]
 	var spawn_pos := core_pos + Vector2.from_angle(rng.randf_range(0.0, TAU)) * rng.randf_range(22.0, 34.0)
+	var maximum_biomass := _expedition_max_biomass(unit_type)
 	var unit := {
 		"id": next_expedition_id,
 		"unit_type": unit_type,
@@ -996,6 +1023,9 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"target_enemy_id": -1,
 		"cargo_organic": 0.0,
 		"cargo_mineral": 0.0,
+		"biomass": maximum_biomass,
+		"max_biomass": maximum_biomass,
+		"last_damage_source": "",
 		"manual": false,
 		"search_cooldown": rng.randf_range(0.0, 2.0),
 		"command_until": 0.0,
@@ -1012,6 +1042,14 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 	_reveal_exploration(spawn_pos, _scout_reveal_radius() if unit_type == "scout" else UNIT_REVEAL_RADIUS)
 	next_expedition_id += 1
 	lifetime_expedition_units_built += 1
+
+
+func _expedition_max_biomass(unit_type: String) -> float:
+	return maxf(1.0, float(UNIT_MAX_BIOMASS.get(unit_type, UNIT_MAX_BIOMASS["forager"])))
+
+
+func _expedition_repair_rate() -> float:
+	return EXPEDITION_REPAIR_RATE * (1.0 + float(survival_levels.get("repair", 0)) * 0.15)
 
 
 func _set_barracks_rally(core_id: int, requested: Vector2) -> void:
@@ -1060,23 +1098,43 @@ func _cycle_barracks_auto_target(core_id: int) -> void:
 func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = true) -> void:
 	var surviving: Array = []
 	for unit in expedition_units:
+		var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+		unit["max_biomass"] = maximum
+		unit["biomass"] = clampf(float(unit.get("biomass", maximum)), 0.0, maximum)
+		unit["damage_flash"] = maxf(0.0, float(unit.get("damage_flash", 0.0)) - sim_delta)
 		var home := _expedition_home_position(unit)
 		if not home.is_finite():
+			_mark_expedition_lost(unit, "失去全部菌落核心")
+			continue
+		if not offline_simulating or offline_expedition_toxin_active:
+			var toxin_rate := _ecology_toxin_damage_rate_at(unit["pos"]) * 0.50
+			if toxin_rate > 0.0:
+				_damage_expedition_unit(unit, toxin_rate * sim_delta, "生态毒素")
+		if float(unit.get("biomass", 0.0)) <= 0.0005:
 			continue
 		var state := String(unit.get("state", "idle"))
-		if state == "returning":
+		if _should_expedition_retreat(unit) and state != "retreating" and state != "repairing" and state != "wounded":
+			_set_expedition_retreat(unit, "生物量过低")
+			state = "retreating"
+		if state == "returning" or state == "retreating":
 			_move_expedition_unit(unit, home, sim_delta)
 			if (unit["pos"] as Vector2).distance_to(home) <= EXPEDITION_ARRIVAL_DISTANCE:
-				var returned_organic := float(unit.get("cargo_organic", 0.0))
-				var returned_mineral := float(unit.get("cargo_mineral", 0.0))
-				organic += returned_organic
-				mineral += returned_mineral
-				lifetime_expedition_organic_returned += returned_organic
-				lifetime_expedition_mineral_returned += returned_mineral
-				unit["cargo_organic"] = 0.0
-				unit["cargo_mineral"] = 0.0
-				unit["state"] = "idle"
+				_deposit_expedition_cargo(unit)
+				if float(unit.get("biomass", maximum)) < maximum - 0.0005:
+					unit["state"] = "repairing" if _expedition_home_is_barracks(unit) else "wounded"
+				else:
+					unit["state"] = "idle"
 				unit["manual"] = false
+				unit["target_kind"] = ""
+		elif state == "repairing":
+			if not _expedition_home_is_barracks(unit):
+				unit["state"] = "wounded"
+			else:
+				unit["pos"] = home
+				_update_expedition_repair(unit, sim_delta)
+		elif state == "wounded":
+			if _expedition_home_is_barracks(unit):
+				_set_expedition_retreat(unit, "前往兵营修复")
 		elif state == "moving":
 			var target: Vector2 = unit.get("target_pos", unit["pos"])
 			_move_expedition_unit(unit, target, sim_delta)
@@ -1101,13 +1159,90 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 			if float(unit["search_cooldown"]) <= 0.0:
 				_acquire_expedition_target(unit)
 				unit["search_cooldown"] = _scout_search_cooldown() if String(unit.get("unit_type", "forager")) == "scout" else 2.0
-		if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) >= _expedition_cargo_capacity(unit) - 0.0005:
+		if float(unit.get("biomass", 0.0)) <= 0.0005:
+			continue
+		var final_state := String(unit.get("state", "idle"))
+		if _should_expedition_retreat(unit) and final_state != "retreating" and final_state != "repairing" and final_state != "wounded":
+			_set_expedition_retreat(unit, "生物量过低")
+			final_state = "retreating"
+		if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) >= _expedition_cargo_capacity(unit) - 0.0005 and final_state != "retreating" and final_state != "repairing" and final_state != "wounded":
 			unit["state"] = "returning"
 			unit["target_kind"] = "home"
 		surviving.append(unit)
 	expedition_units = surviving
 	_prune_expedition_selection()
 	_update_exploration(show_discovery_feedback)
+
+
+func _expedition_home_is_barracks(unit: Dictionary) -> bool:
+	var home_core_id := int(unit.get("home_core_id", -1))
+	return _is_core_alive(home_core_id) and String(cores[home_core_id].get("kind", "normal")) == "barracks"
+
+
+func _should_expedition_retreat(unit: Dictionary) -> bool:
+	var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+	return float(unit.get("biomass", maximum)) <= maximum * EXPEDITION_RETREAT_FRACTION + 0.0005
+
+
+func _set_expedition_retreat(unit: Dictionary, reason: String) -> void:
+	unit["state"] = "retreating" if _should_expedition_retreat(unit) else "returning"
+	unit["retreat_reason"] = reason
+	unit["target_kind"] = "home"
+	unit["target_resource_id"] = -1
+	unit["target_enemy_id"] = -1
+	unit["manual"] = true
+	var home := _expedition_home_position(unit)
+	if home.is_finite():
+		unit["target_pos"] = home
+	unit["command_until"] = sim_time + 3.0
+
+
+func _deposit_expedition_cargo(unit: Dictionary) -> void:
+	var returned_organic := float(unit.get("cargo_organic", 0.0))
+	var returned_mineral := float(unit.get("cargo_mineral", 0.0))
+	organic += returned_organic
+	mineral += returned_mineral
+	lifetime_expedition_organic_returned += returned_organic
+	lifetime_expedition_mineral_returned += returned_mineral
+	unit["cargo_organic"] = 0.0
+	unit["cargo_mineral"] = 0.0
+
+
+func _damage_expedition_unit(unit: Dictionary, amount: float, source: String) -> bool:
+	if amount <= 0.0 or bool(unit.get("lost", false)):
+		return bool(unit.get("lost", false))
+	var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+	unit["biomass"] = maxf(0.0, float(unit.get("biomass", maximum)) - amount)
+	unit["last_damage_source"] = source
+	unit["damage_flash"] = 0.35
+	if float(unit["biomass"]) <= 0.0005:
+		_mark_expedition_lost(unit, source)
+		return true
+	if _should_expedition_retreat(unit) and String(unit.get("state", "idle")) != "repairing" and String(unit.get("state", "idle")) != "wounded":
+		_set_expedition_retreat(unit, source)
+	return false
+
+
+func _mark_expedition_lost(unit: Dictionary, source: String) -> void:
+	if bool(unit.get("lost", false)):
+		return
+	unit["lost"] = true
+	unit["biomass"] = 0.0
+	lifetime_expedition_units_lost += 1
+	var name := String(BARRACK_UNIT_NAMES.get(String(unit.get("unit_type", "forager")), "体外孢子"))
+	toast("%s因%s失活；自动补员会在资源充足时接替" % [name, source], 4.0)
+
+
+func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
+	var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+	var before := clampf(float(unit.get("biomass", maximum)), 0.0, maximum)
+	unit["biomass"] = minf(maximum, before + _expedition_repair_rate() * sim_delta)
+	if float(unit["biomass"]) >= maximum - 0.0005:
+		unit["biomass"] = maximum
+		unit["state"] = "idle"
+		unit["retreat_reason"] = ""
+		unit["manual"] = false
+		lifetime_expedition_units_repaired += 1
 
 
 func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) -> void:
@@ -1118,6 +1253,8 @@ func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) 
 		"scout": speed = _scout_move_speed()
 		"lytic": speed = 54.0
 		"piercer": speed = 48.0
+	if String(unit.get("state", "idle")) == "retreating":
+		speed *= 1.15
 	unit["pos"] = (unit["pos"] as Vector2).move_toward(target, speed * sim_delta)
 
 
@@ -1150,6 +1287,8 @@ func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
 
 
 func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
+	if offline_simulating and not offline_expedition_combat_active:
+		return
 	if _diet_efficiency("bacteria") <= 0.0:
 		unit["state"] = "guarding"
 		return
@@ -1171,9 +1310,15 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 		lifetime_bacteria_consumed += 1
 		lifetime_expedition_bacteria_killed += 1
 		unit["state"] = "returning" if float(unit["cargo_organic"]) > 0.0 else "idle"
+	elif not offline_simulating or offline_expedition_combat_active:
+		var resistance := 0.70 if String(unit.get("unit_type", "forager")) == "lytic" else 1.0
+		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * float(bacterium.get("biomass", 1.0)) * resistance * sim_delta
+		_damage_expedition_unit(unit, counter_damage, "细菌反击")
 
 
 func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> void:
+	if offline_simulating and not offline_expedition_combat_active:
+		return
 	var enemy_id := int(unit.get("target_enemy_id", -1))
 	var enemy_index := _enemy_fungus_index_by_id(enemy_id)
 	if enemy_index < 0 or not bool(enemy_fungi[enemy_index].get("alive", false)):
@@ -1202,6 +1347,9 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 	if defeated:
 		unit["state"] = "returning"
 		unit["target_kind"] = "home"
+	elif not offline_simulating or offline_expedition_combat_active:
+		var resistance := 0.75 if unit_type == "piercer" else 1.0
+		_damage_expedition_unit(unit, EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * resistance * sim_delta, "竞争真菌反击")
 
 
 func _acquire_expedition_target(unit: Dictionary) -> void:
@@ -1719,11 +1867,19 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 	var requested_target := requested
 	var resource_id := -1
 	var enemy_id := -1
+	var friendly_barracks_id := -1
+	var core_hit := _core_at(screen_pos)
+	if core_hit >= 0 and String(cores[core_hit].get("kind", "normal")) == "barracks":
+		target_kind = "friendly_barracks"
+		requested_target = cores[core_hit]["pos"]
+		friendly_barracks_id = core_hit
 	if _is_world_explored(requested):
 		var bacterium_index := _nearest_bacterium_index(requested, hit_radius)
 		var enemy_index := _nearest_enemy_fungus_index(requested, maxf(hit_radius, ENEMY_FUNGUS_HIT_RADIUS), true)
 		var resource := _resource_at_world(requested, hit_radius)
-		if enemy_index >= 0:
+		if friendly_barracks_id >= 0:
+			pass
+		elif enemy_index >= 0:
 			target_kind = "enemy_fungus"
 			requested_target = enemy_fungi[enemy_index]["pos"]
 			enemy_id = int(enemy_fungi[enemy_index].get("id", -1))
@@ -1737,6 +1893,13 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 	var commanded := 0
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
+			continue
+		if target_kind == "friendly_barracks":
+			unit["home_core_id"] = friendly_barracks_id
+			_set_expedition_retreat(unit, "手动返巢")
+			commanded += 1
+			continue
+		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 			continue
 		var target := _clamp_expedition_command_target(requested_target, _expedition_operating_radius(unit))
 		var unit_target_kind := target_kind
@@ -1762,6 +1925,21 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		commanded += 1
 	if commanded > 0:
 		toast("已向 %d 个体外单位下达指令" % commanded, 1.8)
+	elif not selected_expedition_ids.is_empty():
+		toast("重伤或修复中的单位暂时不能出击", 2.5)
+
+
+func _order_selected_expedition_return() -> void:
+	if selected_expedition_ids.is_empty():
+		return
+	var ordered := 0
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))) or bool(unit.get("lost", false)):
+			continue
+		_set_expedition_retreat(unit, "手动返巢")
+		ordered += 1
+	if ordered > 0:
+		toast("%d 个体外单位正在返回兵营" % ordered, 2.5)
 
 
 func _discover_feeders() -> void:
@@ -2484,6 +2662,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_F5:
 			_save_game()
 			toast("已保存", 2.0)
+		elif event.keycode == KEY_R:
+			_order_selected_expedition_return()
 		elif event.keycode == KEY_E:
 			upgrade_open = not upgrade_open
 			if upgrade_open:
@@ -3120,8 +3300,9 @@ func _draw() -> void:
 	_draw_selection_menu()
 	if not upgrade_open and not goals_open:
 		if not _draw_core_tooltip():
-			if not _draw_enemy_fungus_tooltip():
-				_draw_bacteria_tooltip()
+			if not _draw_expedition_tooltip():
+				if not _draw_enemy_fungus_tooltip():
+					_draw_bacteria_tooltip()
 	if show_status and selected_core >= 0:
 		_draw_status_panel(viewport)
 	if upgrade_open:
@@ -3363,6 +3544,8 @@ func _start_new_culture() -> void:
 	lifetime_expedition_organic_returned = 0.0
 	lifetime_expedition_mineral_returned = 0.0
 	lifetime_expedition_bacteria_killed = 0
+	lifetime_expedition_units_lost = 0
+	lifetime_expedition_units_repaired = 0
 	goals_claimed = {}
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = 0
@@ -3557,6 +3740,8 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 		var phase := float(unit.get("phase", 0.0)) + sim_time * 4.0
 		var tail_offset := Vector2(-4.0, sin(phase) * 2.0)
 		var body_color := _unit_color(unit_type)
+		if float(unit.get("damage_flash", 0.0)) > 0.0:
+			body_color = body_color.lerp(Color("ff5f6d"), 0.62)
 		draw_rect(Rect2(p + tail_offset - Vector2(2, 1), Vector2(4, 2)), body_color.darkened(0.35))
 		var body_size := 8.0 if unit_type == "carrier" else 6.0
 		draw_rect(Rect2(p - Vector2.ONE * body_size * 0.5, Vector2.ONE * body_size), body_color)
@@ -3566,6 +3751,14 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 			draw_rect(Rect2(p + Vector2(4, 2), Vector2(3, 3)), COLOR_ORGANIC)
 		if float(unit.get("cargo_mineral", 0.0)) > 0.0005:
 			draw_rect(Rect2(p + Vector2(4, 2), Vector2(3, 3)), COLOR_MINERAL)
+		var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(unit_type))))
+		var health_fraction := clampf(float(unit.get("biomass", maximum)) / maximum, 0.0, 1.0)
+		var unit_state := String(unit.get("state", "idle"))
+		if selected or health_fraction < 0.999 or ["retreating", "repairing", "wounded"].has(unit_state):
+			var bar_rect := Rect2(p + Vector2(-8, -12), Vector2(16, 3))
+			draw_rect(bar_rect, Color(0.01, 0.02, 0.025, 0.92))
+			var health_color := Color("75e6c0") if health_fraction > EXPEDITION_RETREAT_FRACTION else Color("ff7b7b")
+			draw_rect(Rect2(bar_rect.position + Vector2.ONE, Vector2((bar_rect.size.x - 2.0) * health_fraction, 1.0)), health_color)
 		if selected:
 			draw_arc(p, 9.0, 0.0, TAU, 16, command_color, 1.0, false)
 
@@ -4802,14 +4995,83 @@ func _draw_upgrade_placeholders(panel: Rect2, message: String) -> void:
 
 
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令/拖动地图　滚轮缩放　F5 保存　Esc 暂停"
+	var text_value := "左键点击/拖框选兵　右键指令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
 	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 220.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
 		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
 		var selected_text := "%s筛选　已选 %d / %d" % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
-		var rect := Rect2(22, viewport.y - 86, 238, 34)
+		var health_total := 0.0
+		var health_count := 0
+		var retreating := 0
+		var repairing := 0
+		for unit in expedition_units:
+			if not selected_expedition_ids.has(int(unit.get("id", -1))):
+				continue
+			var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
+			health_total += clampf(float(unit.get("biomass", maximum)) / maximum, 0.0, 1.0)
+			health_count += 1
+			var state := String(unit.get("state", "idle"))
+			if state == "returning" or state == "retreating" or state == "wounded":
+				retreating += 1
+			elif state == "repairing":
+				repairing += 1
+		var average_health := health_total / maxf(1.0, float(health_count)) * 100.0
+		var rect := Rect2(22, viewport.y - 110, 300, 58)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
+		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　返巢 %d　修复 %d" % [average_health, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+
+
+func _expedition_state_name(state: String) -> String:
+	match state:
+		"moving": return "移动"
+		"gathering": return "采集"
+		"attacking": return "猎食细菌"
+		"attacking_fungus": return "攻击竞争真菌"
+		"returning": return "返巢卸载"
+		"retreating": return "负伤撤退"
+		"repairing": return "兵营修复"
+		"wounded": return "重伤等待兵营"
+		"guarding": return "警戒"
+	return "待命"
+
+
+func _draw_expedition_tooltip() -> bool:
+	var unit_id := _expedition_unit_at_screen(last_mouse)
+	if unit_id < 0:
+		return false
+	var unit: Dictionary = {}
+	for candidate in expedition_units:
+		if int(candidate.get("id", -1)) == unit_id:
+			unit = candidate
+			break
+	if unit.is_empty():
+		return false
+	var unit_type := String(unit.get("unit_type", "forager"))
+	var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(unit_type))))
+	var biomass := clampf(float(unit.get("biomass", maximum)), 0.0, maximum)
+	var home_id := int(unit.get("home_core_id", -1))
+	var lines := [
+		String(BARRACK_UNIT_NAMES.get(unit_type, "体外孢子")),
+		"生物量 %.3f / %.3f（%.1f%%）" % [biomass, maximum, biomass / maximum * 100.0],
+		"状态　%s" % _expedition_state_name(String(unit.get("state", "idle"))),
+		"携带　有机 %.3f　矿物 %.3f" % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
+		"归属兵营　%s" % ("核心 %d" % (home_id + 1) if _expedition_home_is_barracks(unit) else "暂无可用兵营")
+	]
+	var max_width := 0.0
+	for line in lines:
+		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
+	var size := Vector2(max_width + 28.0, 18.0 + lines.size() * 22.0)
+	var viewport := get_viewport_rect().size
+	var pos := last_mouse + Vector2(18, 14)
+	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
+	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
+	var rect := Rect2(_pixel_snap(pos), size)
+	var accent := _unit_color(unit_type)
+	draw_style_box(_rounded_style(Color(0.018, 0.065, 0.075, 0.98), Color(accent, 0.88), 8, 2), rect)
+	for i in range(lines.size()):
+		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), String(lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if i == 0 else COLOR_MUTED)
+	return true
 
 
 func _draw_bacteria_tooltip() -> void:
@@ -5044,7 +5306,8 @@ func _draw_status_panel(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(16, 207), "水分供应　稳定（无限）", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_WATER)
 	draw_string(fallback_font, rect.position + Vector2(16, 232), "细菌丝范围　%.0f μm　Lv.%d" % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
 	var barracks_radius := SCOUT_OPERATING_RADIUS if String(core.get("production_unit", "forager")) == "scout" else EXPEDITION_OPERATING_RADIUS
-	var final_text := "活动半径　%.0f μm　体外部队 %d / %d" % [barracks_radius / 2.0, expedition_units.size(), MAX_EXPEDITION_SPORES] if is_barracks else "DNA 速度　+%d%%　%.1f 秒/点" % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
+	var barracks_counts := _barracks_expedition_status_counts(selected_core) if is_barracks else {}
+	var final_text := "活动 %.0f μm　现役 %d　负伤 %d　返巢 %d　修复 %d" % [barracks_radius / 2.0, int(barracks_counts.get("total", 0)), int(barracks_counts.get("injured", 0)), int(barracks_counts.get("returning", 0)), int(barracks_counts.get("repairing", 0))] if is_barracks else "DNA 速度　+%d%%　%.1f 秒/点" % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
 	draw_string(fallback_font, rect.position + Vector2(16, 257), final_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("76f5ca") if is_barracks else COLOR_MINERAL)
 	if is_barracks:
 		var jobs: Array = core.get("spore_jobs", [])
@@ -5070,13 +5333,16 @@ func _draw_status_panel(viewport: Vector2) -> void:
 				var slot_type := String((jobs[i] as Dictionary).get("unit_type", "forager"))
 				var short_name: String = String({"forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "piercer": "穿"}.get(slot_type, "?"))
 				draw_string(fallback_font, slot.position + Vector2(8, 19), short_name, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, _unit_color(slot_type))
+		var auto_available := _available_barracks_units().has(auto_unit)
 		var auto_text := "自动补员：%s　%s %d / %d" % [
 			"开" if bool(core.get("auto_replenish", false)) else "关",
 			BARRACK_UNIT_NAMES.get(auto_unit, auto_unit),
 			_barracks_unit_count(selected_core, auto_unit, true),
 			auto_target
 		]
-		draw_string(fallback_font, rect.position + Vector2(16, 352), auto_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		if bool(core.get("auto_replenish", false)) and not auto_available:
+			auto_text = "自动补员暂停：食性条件失效（%s）" % BARRACK_UNIT_NAMES.get(auto_unit, auto_unit)
+		draw_string(fallback_font, rect.position + Vector2(16, 352), auto_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffad78") if bool(core.get("auto_replenish", false)) and not auto_available else COLOR_MUTED)
 		var auto_button := _barracks_auto_button_rect()
 		var target_button := _barracks_target_button_rect()
 		var rally_button := _barracks_rally_button_rect()
@@ -5335,7 +5601,7 @@ func _draw_offline_report(viewport: Vector2) -> void:
 	var right_lines := [
 		["成长与探索", Color("84f2bd")],
 		["DNA 完成　+%d" % int(offline_report.get("dna_completed", 0)), Color("75e6c0")],
-		["体外单位　+%d" % int(offline_report.get("units_built", 0)), Color("76f5ca")],
+		["体外单位　建造 +%d　修复 +%d　损失 %d" % [int(offline_report.get("units_built", 0)), int(offline_report.get("units_repaired", 0)), int(offline_report.get("units_lost", 0))], Color("76f5ca")],
 		["探索格　　+%d　（%+.2f%%）" % [int(offline_report.get("explored_cells", 0)), float(offline_report.get("explored_percent", 0.0))], Color("5edcf5")],
 		["异常区　　+%d" % int(offline_report.get("hotspots", 0)), Color("8ce9ff")],
 		["细菌出生 %d　消灭 %d" % [int(offline_report.get("bacteria_births", 0)), int(offline_report.get("bacteria_consumed", 0))], COLOR_BACTERIA]
@@ -5399,7 +5665,7 @@ func _draw_chapter_report(viewport: Vector2) -> void:
 	]
 	var right_lines := [
 		"DNA 记录　%d" % lifetime_dna_produced,
-		"体外单位　%d" % lifetime_expedition_units_built,
+		"体外单位　建造 %d　损失 %d" % [lifetime_expedition_units_built, lifetime_expedition_units_lost],
 		"消化细菌　%d" % lifetime_bacteria_consumed,
 		"探索比例　%.2f%%" % (_explored_fraction() * 100.0),
 		"竞争菌落　清除 %d" % lifetime_enemy_fungi_defeated
@@ -5541,6 +5807,9 @@ func _save_game() -> void:
 			"target_enemy_id": int(unit.get("target_enemy_id", -1)),
 			"cargo_organic": float(unit.get("cargo_organic", 0.0)),
 			"cargo_mineral": float(unit.get("cargo_mineral", 0.0)),
+			"biomass": float(unit.get("biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))),
+			"max_biomass": float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))),
+			"retreat_reason": String(unit.get("retreat_reason", "")),
 			"manual": bool(unit.get("manual", false)),
 			"search_cooldown": float(unit.get("search_cooldown", 0.0)),
 			"phase": float(unit.get("phase", 0.0))
@@ -5626,6 +5895,8 @@ func _save_game() -> void:
 		"chapter_completed_at": chapter_completed_at,
 		"guidance_collapsed": guidance_collapsed,
 		"lifetime_expedition_units_built": lifetime_expedition_units_built,
+		"lifetime_expedition_units_lost": lifetime_expedition_units_lost,
+		"lifetime_expedition_units_repaired": lifetime_expedition_units_repaired,
 		"ecology_event_countdown": ecology_event_countdown,
 		"next_ecology_event_id": next_ecology_event_id,
 		"goals_claimed": goals_claimed,
@@ -5712,6 +5983,8 @@ func _load_game() -> bool:
 	chapter_completed_at = maxf(0.0, float(parsed.get("chapter_completed_at", 0.0)))
 	guidance_collapsed = bool(parsed.get("guidance_collapsed", false))
 	lifetime_expedition_units_built = maxi(0, int(parsed.get("lifetime_expedition_units_built", 0)))
+	lifetime_expedition_units_lost = maxi(0, int(parsed.get("lifetime_expedition_units_lost", 0)))
+	lifetime_expedition_units_repaired = maxi(0, int(parsed.get("lifetime_expedition_units_repaired", 0)))
 	enemy_threat_level = 0
 	enemy_threat_pos = Vector2.INF
 	ecology_event_countdown = clampf(float(parsed.get("ecology_event_countdown", ECOLOGY_FIRST_EVENT_MAX)), 0.0, ECOLOGY_EVENT_INTERVAL_MAX)
@@ -5745,9 +6018,10 @@ func _load_game() -> bool:
 		core["rally_enabled"] = bool(item.get("rally_enabled", false)) and String(core.get("kind", "normal")) == "barracks"
 		core["rally_point"] = rally_point
 		var auto_unit := String(item.get("auto_replenish_unit", core["production_unit"]))
-		var valid_auto_unit := _available_barracks_units().has(auto_unit)
-		core["auto_replenish_unit"] = auto_unit if valid_auto_unit else "forager"
-		core["auto_replenish"] = bool(item.get("auto_replenish", false)) and valid_auto_unit and String(core.get("kind", "normal")) == "barracks"
+		var known_auto_unit := UNIT_MAX_BIOMASS.has(auto_unit)
+		core["auto_replenish_unit"] = auto_unit if known_auto_unit else "forager"
+		# 保留因食性逆转而暂时失效的专属兵种配置；补员逻辑会暂停，UI 会明确提示原因。
+		core["auto_replenish"] = bool(item.get("auto_replenish", false)) and known_auto_unit and String(core.get("kind", "normal")) == "barracks"
 		core["auto_replenish_target"] = _normalized_auto_target(int(item.get("auto_replenish_target", 4)))
 		core["feeder_range_level"] = clampi(int(item.get("feeder_range_level", 0)), 0, MAX_FEEDER_RANGE_LEVEL)
 		core["max_biomass"] = maxf(1.0, float(item.get("max_biomass", CORE_MAX_BIOMASS)))
@@ -5919,18 +6193,33 @@ func _load_game() -> bool:
 			break
 		var unit_id := maxi(1, int(item.get("id", next_expedition_id)))
 		var unit_pos := Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0)))
+		var unit_type := String(item.get("unit_type", "forager"))
+		if not UNIT_MAX_BIOMASS.has(unit_type):
+			unit_type = "forager"
+		var maximum := _expedition_max_biomass(unit_type)
+		var saved_maximum := maxf(0.001, float(item.get("max_biomass", maximum)))
+		var health_fraction := clampf(float(item.get("biomass", saved_maximum)) / saved_maximum, 0.0, 1.0)
+		var loaded_state := String(item.get("state", "idle"))
+		if not ["idle", "guarding", "moving", "gathering", "attacking", "attacking_fungus", "returning", "retreating", "repairing", "wounded"].has(loaded_state):
+			loaded_state = "idle"
 		expedition_units.append({
 			"id": unit_id,
-			"unit_type": String(item.get("unit_type", "forager")),
+			"unit_type": unit_type,
 			"home_core_id": int(item.get("home_core_id", -1)),
 			"pos": unit_pos,
-			"state": String(item.get("state", "idle")),
+			"state": loaded_state,
 			"target_kind": String(item.get("target_kind", "")),
 			"target_pos": Vector2(float(item.get("target_x", unit_pos.x)), float(item.get("target_y", unit_pos.y))),
 			"target_resource_id": int(item.get("target_resource_id", -1)),
 			"target_enemy_id": int(item.get("target_enemy_id", -1)),
 			"cargo_organic": clampf(float(item.get("cargo_organic", 0.0)), 0.0, 9.0),
 			"cargo_mineral": clampf(float(item.get("cargo_mineral", 0.0)), 0.0, 9.0),
+			"biomass": maximum * health_fraction,
+			"max_biomass": maximum,
+			"retreat_reason": String(item.get("retreat_reason", "")),
+			"last_damage_source": "",
+			"damage_flash": 0.0,
+			"lost": false,
 			"manual": bool(item.get("manual", false)),
 			"search_cooldown": maxf(0.0, float(item.get("search_cooldown", 0.0))),
 			"command_until": 0.0,
@@ -5938,6 +6227,11 @@ func _load_game() -> bool:
 			"phase": float(item.get("phase", 0.0))
 		})
 		var loaded_unit: Dictionary = expedition_units.back()
+		if String(loaded_unit.get("state", "idle")) == "repairing" or String(loaded_unit.get("state", "idle")) == "retreating" or String(loaded_unit.get("state", "idle")) == "wounded":
+			if float(loaded_unit.get("biomass", maximum)) >= maximum - 0.0005:
+				loaded_unit["state"] = "idle"
+			elif not _expedition_home_is_barracks(loaded_unit):
+				loaded_unit["state"] = "wounded"
 		if String(loaded_unit.get("target_kind", "")) == "enemy_fungus" and _enemy_fungus_index_by_id(int(loaded_unit.get("target_enemy_id", -1))) < 0:
 			loaded_unit["target_kind"] = ""
 			loaded_unit["target_enemy_id"] = -1
@@ -6000,7 +6294,9 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		"organic": organic,
 		"mineral": mineral,
 		"dna": dna,
-		"units": expedition_units.size(),
+		"units_built": lifetime_expedition_units_built,
+		"units_lost": lifetime_expedition_units_lost,
+		"units_repaired": lifetime_expedition_units_repaired,
 		"explored": explored_cells.size(),
 		"explored_fraction": _explored_fraction(),
 		"hotspots": _discovered_hotspot_count(),
@@ -6015,6 +6311,8 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 	}
 	var remaining := seconds
 	var bacteria_remaining := minf(seconds, OFFLINE_BACTERIA_CAP_SECONDS)
+	var expedition_combat_remaining := minf(seconds, OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS)
+	var expedition_toxin_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
 	var hazard_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
 	var orphan_remaining := minf(seconds, OFFLINE_ORPHAN_CAP_SECONDS)
 	offline_simulating = true
@@ -6026,7 +6324,12 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		_update_barracks_jobs(step)
 		_discover_feeders()
 		_update_feeders(step)
+		offline_expedition_combat_active = expedition_combat_remaining > 0.0005
+		offline_expedition_toxin_active = expedition_toxin_remaining > 0.0005
 		_update_expedition_units(step, false)
+		_update_auto_replenishment()
+		expedition_combat_remaining = maxf(0.0, expedition_combat_remaining - step)
+		expedition_toxin_remaining = maxf(0.0, expedition_toxin_remaining - step)
 		if bacteria_remaining > 0.0005:
 			var bacteria_step := minf(step, bacteria_remaining)
 			_update_bacteria(bacteria_step)
@@ -6043,6 +6346,8 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		if game_over:
 			break
 	offline_simulating = false
+	offline_expedition_combat_active = false
+	offline_expedition_toxin_active = false
 	_sync_hotspot_discoveries(false)
 	last_discovery_scan_cell_count = explored_cells.size()
 	offline_report = {
@@ -6052,7 +6357,9 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		"organic_delta": organic - float(before["organic"]),
 		"mineral_delta": mineral - float(before["mineral"]),
 		"dna_completed": dna - int(before["dna"]),
-		"units_built": maxi(0, expedition_units.size() - int(before["units"])),
+		"units_built": maxi(0, lifetime_expedition_units_built - int(before["units_built"])),
+		"units_lost": maxi(0, lifetime_expedition_units_lost - int(before["units_lost"])),
+		"units_repaired": maxi(0, lifetime_expedition_units_repaired - int(before["units_repaired"])),
 		"explored_cells": explored_cells.size() - int(before["explored"]),
 		"explored_percent": (_explored_fraction() - float(before["explored_fraction"])) * 100.0,
 		"hotspots": _discovered_hotspot_count() - int(before["hotspots"]),
