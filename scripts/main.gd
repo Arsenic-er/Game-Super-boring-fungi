@@ -130,6 +130,8 @@ const ENEMY_FUNGUS_ATTACK_RADIUS := 26.0
 const ENEMY_FUNGUS_ATTACK_RATE := 0.032
 const ENEMY_FUNGUS_UPDATE_INTERVAL := 0.25
 const ENEMY_FUNGUS_HIT_RADIUS := 24.0
+const ENEMY_THREAT_NOTICE_RADIUS := 650.0
+const ENEMY_THREAT_IMMINENT_RADIUS := 300.0
 const ORPHAN_HYPHA_DECAY_SECONDS := 180.0
 const ORPHAN_RESCUE_DISTANCE := 18.0
 const BARRACKS_ORGANIC_COST := 95.0
@@ -306,6 +308,16 @@ var lifetime_enemy_fungi_defeated := 0
 var ecology_banner_title := ""
 var ecology_banner_detail := ""
 var ecology_banner_time := 0.0
+var chapter_task_index := 0
+var core_selected_once := false
+var chapter_complete := false
+var chapter_report_open := false
+var chapter_report_seen := false
+var chapter_completed_at := 0.0
+var guidance_collapsed := false
+var lifetime_expedition_units_built := 0
+var enemy_threat_level := 0
+var enemy_threat_pos := Vector2.INF
 
 var fallback_font: Font
 var splash_logo: Texture2D
@@ -724,6 +736,9 @@ func _process(delta: float) -> void:
 	if offline_report_open:
 		queue_redraw()
 		return
+	if chapter_report_open:
+		queue_redraw()
+		return
 	_handle_camera_keys(delta)
 	if selected_core >= 0 or selected_tip_valid:
 		menu_anim = minf(1.0, menu_anim + delta * 4.8)
@@ -745,6 +760,7 @@ func _process(delta: float) -> void:
 		var enemy_step := enemy_fungus_update_clock
 		enemy_fungus_update_clock = 0.0
 		_update_enemy_fungi(enemy_step)
+		_update_enemy_threat()
 	expedition_update_clock += sim_delta
 	if expedition_update_clock >= 0.10:
 		var expedition_step := expedition_update_clock
@@ -772,6 +788,7 @@ func _process(delta: float) -> void:
 		discovery_banner_time -= delta
 	if ecology_banner_time > 0.0:
 		ecology_banner_time -= delta
+	_update_chapter_flow()
 	queue_redraw()
 
 
@@ -988,6 +1005,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 	expedition_units.append(unit)
 	_reveal_exploration(spawn_pos, _scout_reveal_radius() if unit_type == "scout" else UNIT_REVEAL_RADIUS)
 	next_expedition_id += 1
+	lifetime_expedition_units_built += 1
 
 
 func _set_barracks_rally(core_id: int, requested: Vector2) -> void:
@@ -1150,9 +1168,6 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 
 
 func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> void:
-	if _diet_efficiency("fungi") <= 0.0:
-		unit["state"] = "guarding"
-		return
 	var enemy_id := int(unit.get("target_enemy_id", -1))
 	var enemy_index := _enemy_fungus_index_by_id(enemy_id)
 	if enemy_index < 0 or not bool(enemy_fungi[enemy_index].get("alive", false)):
@@ -1165,10 +1180,15 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 		unit["state"] = "moving"
 		return
 	var unit_type := String(unit.get("unit_type", "forager"))
-	if unit_type != "piercer":
+	var attack_rate := 0.0
+	if unit_type == "piercer" and _diet_efficiency("fungi") > 0.0:
+		attack_rate = 0.180 * _diet_efficiency("fungi")
+	elif unit_type == "forager":
+		# 通用游猎孢子可被手动用于最低效率的啃噬，避免非真菌食性路线软锁。
+		attack_rate = 0.010
+	else:
 		unit["state"] = "guarding"
 		return
-	var attack_rate := 0.180 * _diet_efficiency("fungi")
 	var before := float(enemy.get("biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS))
 	var damage := minf(before, attack_rate * sim_delta)
 	var defeated := _damage_enemy_fungus(enemy_id, damage)
@@ -1400,6 +1420,111 @@ func _sync_enemy_fungi_discovery(show_feedback: bool) -> int:
 	return discovered_now
 
 
+func _chapter_tasks() -> Array:
+	return [
+		{"title": "唤醒孢子", "detail": "点击中央孢子核心", "hint": "左键点击发光的孢子核心，打开它的操作菜单。"},
+		{"title": "初次萌发", "detail": "延伸第一段主菌丝", "hint": "在核心菜单选择“延伸菌丝”，再点击附近空地。"},
+		{"title": "建立吸收网络", "detail": "累计吸收 1.000 有机营养", "hint": "让主菌丝靠近橙色营养点，细吸收丝会自动长出。"},
+		{"title": "记录遗传变化", "detail": "由核心完成 1 次 DNA 记录", "hint": "点击孢子核心并选择“产生 DNA”；生产会持续一段时间。"},
+		{"title": "扩建菌落", "detail": "拥有 2 个存活核心", "hint": "延伸足够长的菌丝后，在末端长出新的孢子核心。"},
+		{"title": "形成营养策略", "detail": "在升级界面解锁 1 条主食性", "hint": "打开左上角“升级 [E]”，在食性页选择你的第一条路线。"},
+		{"title": "组织远征", "detail": "建造兵营并生产 1 个体外孢子", "hint": "从菌丝末端建立兵营核心，然后在核心菜单排队生产游猎孢子。"},
+		{"title": "发现竞争菌落", "detail": "探索并发现竞争性真菌", "hint": "派侦察孢子向黑幕外移动；竞争菌只有进入视野后才会显示。"},
+		{"title": "清除竞争菌落", "detail": "使竞争性真菌核心失活", "hint": "框选部队后右键敌菌核心。穿壁孢子效率最高，游猎孢子也能缓慢啃噬。"}
+	]
+
+
+func _chapter_task_complete(index: int) -> bool:
+	match index:
+		0: return core_selected_once
+		1: return not segments.is_empty()
+		2: return lifetime_organic_absorbed >= 1.0
+		3: return lifetime_dna_produced >= 1
+		4: return _living_core_count() >= 2
+		5: return not diet_order.is_empty()
+		6:
+			var has_barracks := false
+			for core in cores:
+				if bool(core.get("alive", true)) and String(core.get("kind", "normal")) == "barracks":
+					has_barracks = true
+					break
+			return has_barracks and lifetime_expedition_units_built >= 1
+		7:
+			for enemy in enemy_fungi:
+				if bool(enemy.get("discovered", false)):
+					return true
+			return false
+		8: return lifetime_enemy_fungi_defeated >= 1
+	return false
+
+
+func _infer_chapter_task_index() -> int:
+	var inferred := 0
+	var tasks := _chapter_tasks()
+	while inferred < tasks.size() and _chapter_task_complete(inferred):
+		inferred += 1
+	return inferred
+
+
+func _update_chapter_flow(show_feedback: bool = true) -> void:
+	if chapter_complete:
+		if not chapter_report_seen and not offline_report_open and game_started:
+			chapter_report_open = true
+		return
+	var tasks := _chapter_tasks()
+	var advanced := false
+	while chapter_task_index < tasks.size() and _chapter_task_complete(chapter_task_index):
+		chapter_task_index += 1
+		advanced = true
+	if chapter_task_index >= tasks.size():
+		chapter_complete = true
+		chapter_completed_at = sim_time
+		chapter_report_open = not offline_report_open and game_started
+		if autosave_enabled:
+			_save_game()
+		if show_feedback:
+			toast("第一章目标完成：培养皿已被你的菌落掌控", 5.0)
+	elif advanced and show_feedback:
+		var task: Dictionary = tasks[chapter_task_index]
+		toast("新任务：%s" % String(task["title"]), 4.0)
+
+
+func _update_enemy_threat() -> void:
+	var previous := enemy_threat_level
+	enemy_threat_level = 0
+	enemy_threat_pos = Vector2.INF
+	var closest := INF
+	for segment in enemy_hyphae:
+		if float(segment.get("growth", 0.0)) < 0.95 or float(segment.get("viability", 1.0)) <= 0.05:
+			continue
+		var endpoint: Vector2 = segment["b"]
+		if not _is_world_explored(segment["a"]) or not _is_world_explored(endpoint):
+			continue
+		var fungus_index := _enemy_fungus_index_by_id(int(segment.get("fungus_id", -1)))
+		if fungus_index < 0 or not bool(enemy_fungi[fungus_index].get("alive", false)):
+			continue
+		for core_id in range(cores.size()):
+			if not _is_core_alive(core_id):
+				continue
+			var distance := endpoint.distance_to(cores[core_id]["pos"])
+			if distance < closest:
+				closest = distance
+				enemy_threat_pos = endpoint
+	if closest <= ENEMY_FUNGUS_ATTACK_RADIUS:
+		enemy_threat_level = 3
+	elif closest <= ENEMY_THREAT_IMMINENT_RADIUS:
+		enemy_threat_level = 2
+	elif closest <= ENEMY_THREAT_NOTICE_RADIUS:
+		enemy_threat_level = 1
+	if enemy_threat_level > previous and game_started:
+		var warning := "竞争菌丝已进入警戒范围"
+		if enemy_threat_level == 2:
+			warning = "竞争菌丝正在逼近核心"
+		elif enemy_threat_level == 3:
+			warning = "竞争菌丝已接触菌落！"
+		toast(warning, 4.0)
+
+
 func _discovered_hotspot_count(kind: int = -1) -> int:
 	var count := 0
 	for hotspot in resource_hotspots:
@@ -1615,7 +1740,7 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			unit_target_kind = "ground"
 			unit_resource_id = -1
 			unit_enemy_id = -1
-		elif target_kind == "enemy_fungus" and (String(unit.get("unit_type", "forager")) != "piercer" or _diet_efficiency("fungi") <= 0.0):
+		elif target_kind == "enemy_fungus" and not (String(unit.get("unit_type", "forager")) == "forager" or (String(unit.get("unit_type", "forager")) == "piercer" and _diet_efficiency("fungi") > 0.0)):
 			unit_target_kind = "ground"
 			unit_enemy_id = -1
 		elif String(unit.get("unit_type", "forager")) == "scout" and (target_kind == "resource" or target_kind == "bacteria"):
@@ -2249,6 +2374,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.keycode == KEY_ESCAPE or event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER or event.keycode == KEY_SPACE:
 				_close_offline_report()
 		return
+	if chapter_report_open:
+		if event is InputEventMouseMotion:
+			last_mouse = event.position
+			queue_redraw()
+		elif event is InputEventMouseButton:
+			last_mouse = event.position
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				_handle_chapter_report_click(event.position)
+		elif event is InputEventKey and event.pressed and not event.echo:
+			if event.keycode == KEY_ESCAPE or event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+				_close_chapter_report(false)
+		return
 	if event is InputEventMouseMotion:
 		last_mouse = event.position
 		if left_selecting:
@@ -2361,6 +2498,10 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
 		return
+	if _handle_chapter_guidance_click(pos):
+		return
+	if _handle_enemy_threat_click(pos):
+		return
 	if not _current_ecology_event().is_empty() and _ecology_event_hud_rect().has_point(pos):
 		camera_center = _current_ecology_event()["pos"]
 		_clamp_camera()
@@ -2421,6 +2562,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	var core_hit := _core_at(pos)
 	if core_hit >= 0:
+		core_selected_once = true
 		selected_expedition_ids.clear()
 		selected_core = core_hit
 		selected_tip_valid = false
@@ -2953,6 +3095,8 @@ func _draw() -> void:
 		_draw_toast(viewport)
 	if offline_report_open:
 		_draw_offline_report(viewport)
+	elif chapter_report_open:
+		_draw_chapter_report(viewport)
 
 
 func _draw_splash(viewport: Vector2) -> void:
@@ -3137,6 +3281,16 @@ func _start_new_culture() -> void:
 	lifetime_ecology_events_seen = 0
 	lifetime_ecology_events_contained = 0
 	lifetime_enemy_fungi_defeated = 0
+	chapter_task_index = 0
+	core_selected_once = false
+	chapter_complete = false
+	chapter_report_open = false
+	chapter_report_seen = false
+	chapter_completed_at = 0.0
+	guidance_collapsed = false
+	lifetime_expedition_units_built = 0
+	enemy_threat_level = 0
+	enemy_threat_pos = Vector2.INF
 	ecology_banner_title = ""
 	ecology_banner_detail = ""
 	ecology_banner_time = 0.0
@@ -3639,6 +3793,8 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
 	_draw_ecology_event_hud(viewport)
+	_draw_chapter_guidance(viewport)
+	_draw_enemy_threat_hud(viewport)
 	_draw_help(viewport)
 
 
@@ -3867,6 +4023,80 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 	if not warning and event_type == "bloom":
 		detail = "局部细菌 %d　%02d:%02d" % [_count_event_bacteria(int(event.get("id", -1))), seconds_left / 60, seconds_left % 60]
 	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
+func _chapter_guidance_rect() -> Rect2:
+	var viewport := get_viewport_rect().size
+	var y := 276.0 if not _current_ecology_event().is_empty() else 202.0
+	var height := 42.0 if guidance_collapsed else (64.0 if chapter_complete else 112.0)
+	return Rect2(viewport.x - 322.0, y, 300.0, height)
+
+
+func _draw_chapter_guidance(_viewport: Vector2) -> void:
+	var rect := _chapter_guidance_rect()
+	var accent := Color("76f5ca") if not chapter_complete else Color("f4ca83")
+	var hovered := rect.has_point(last_mouse)
+	draw_style_box(_rounded_style(Color(0.025, 0.085, 0.105, 0.97) if hovered else Color(0.018, 0.060, 0.085, 0.96), Color(accent, 0.78), 9, 2), rect)
+	var arrow := "＋" if guidance_collapsed else "－"
+	if chapter_complete:
+		draw_string(fallback_font, rect.position + Vector2(13, 25), "第一章完成", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+		draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 25), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+		if not guidance_collapsed:
+			draw_string(fallback_font, rect.position + Vector2(13, 49), "自由培养中 · 下一章节尚未开放", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		return
+	var tasks := _chapter_tasks()
+	var task: Dictionary = tasks[clampi(chapter_task_index, 0, tasks.size() - 1)]
+	draw_string(fallback_font, rect.position + Vector2(13, 24), "章节任务 %d/%d　%s" % [chapter_task_index + 1, tasks.size(), String(task["title"])], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 24), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	if guidance_collapsed:
+		return
+	draw_string(fallback_font, rect.position + Vector2(13, 52), String(task["detail"]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(13, 78), "按自己的节奏完成，不限时", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(13, 101), "点击查看操作提示", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(accent, 0.82))
+
+
+func _handle_chapter_guidance_click(pos: Vector2) -> bool:
+	var rect := _chapter_guidance_rect()
+	if not rect.has_point(pos):
+		return false
+	if pos.y <= rect.position.y + 38.0 or guidance_collapsed or chapter_complete:
+		guidance_collapsed = not guidance_collapsed
+	else:
+		var tasks := _chapter_tasks()
+		if chapter_task_index < tasks.size():
+			toast(String(tasks[chapter_task_index]["hint"]), 7.0)
+	return true
+
+
+func _enemy_threat_hud_rect() -> Rect2:
+	var guide := _chapter_guidance_rect()
+	return Rect2(guide.position + Vector2(0.0, guide.size.y + 8.0), Vector2(guide.size.x, 62.0))
+
+
+func _draw_enemy_threat_hud(_viewport: Vector2) -> void:
+	if enemy_threat_level <= 0 or not enemy_threat_pos.is_finite():
+		return
+	var rect := _enemy_threat_hud_rect()
+	var accent := Color("f4ca83") if enemy_threat_level == 1 else (Color("ff956b") if enemy_threat_level == 2 else Color("ff5f6d"))
+	var title := "竞争菌丝进入警戒范围"
+	if enemy_threat_level == 2:
+		title = "竞争菌丝正在逼近"
+	elif enemy_threat_level == 3:
+		title = "菌落正在遭受接触攻击"
+	draw_style_box(_rounded_style(Color(0.12, 0.045, 0.055, 0.97), Color(accent, 0.92), 9, 2), rect)
+	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	draw_string(fallback_font, rect.position + Vector2(13, 48), "点击定位已发现的威胁", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+
+
+func _handle_enemy_threat_click(pos: Vector2) -> bool:
+	if enemy_threat_level <= 0 or not enemy_threat_pos.is_finite() or not _enemy_threat_hud_rect().has_point(pos):
+		return false
+	if not _is_world_explored(enemy_threat_pos):
+		return true
+	camera_center = enemy_threat_pos
+	_clamp_camera()
+	toast("镜头已定位竞争菌丝前缘", 2.0)
+	return true
 
 
 func _goal_definitions() -> Array:
@@ -4857,6 +5087,82 @@ func _draw_offline_report(viewport: Vector2) -> void:
 
 func _close_offline_report() -> void:
 	offline_report_open = false
+	_update_chapter_flow(false)
+	queue_redraw()
+
+
+func _chapter_report_panel_rect(viewport: Vector2) -> Rect2:
+	var size := Vector2(minf(720.0, viewport.x - 48.0), minf(520.0, viewport.y - 48.0))
+	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
+
+
+func _chapter_report_button_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := _chapter_report_panel_rect(viewport)
+	var width := minf(190.0, (panel.size.x - 72.0) / 3.0)
+	var gap := 12.0
+	var total_width := width * 3.0 + gap * 2.0
+	return Rect2(_pixel_snap(Vector2(panel.get_center().x - total_width * 0.5 + index * (width + gap), panel.end.y - 62.0)), Vector2(width, 38.0))
+
+
+func _draw_chapter_report(viewport: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.86))
+	var panel := _chapter_report_panel_rect(viewport)
+	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.085, 0.995), Color("76f5ca"), 14, 2), panel)
+	draw_string(fallback_font, panel.position + Vector2(30, 42), "第一章完成 · 实验室培养", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("c6ffe4"))
+	draw_string(fallback_font, panel.position + Vector2(30, 73), "从一枚孢子开始，你已建立远征体系并清除了竞争菌落。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_line(panel.position + Vector2(30, 92), Vector2(panel.end.x - 30, panel.position.y + 92), Color(COLOR_BORDER, 0.78), 1.0)
+	var left_x := panel.position.x + 34.0
+	var right_x := panel.position.x + panel.size.x * 0.54
+	var first_y := panel.position.y + 132.0
+	var gap := 31.0
+	var left_lines := [
+		"培养时长　%s" % _format_duration(chapter_completed_at),
+		"主菌丝长度　%d μm" % int(_total_hypha_length() / 2.0),
+		"存活核心　%d" % _living_core_count(),
+		"有机吸收　%.3f" % lifetime_organic_absorbed,
+		"矿物吸收　%.3f" % lifetime_mineral_absorbed
+	]
+	var right_lines := [
+		"DNA 记录　%d" % lifetime_dna_produced,
+		"体外单位　%d" % lifetime_expedition_units_built,
+		"消化细菌　%d" % lifetime_bacteria_consumed,
+		"探索比例　%.2f%%" % (_explored_fraction() * 100.0),
+		"竞争菌落　清除 %d" % lifetime_enemy_fungi_defeated
+	]
+	for i in range(left_lines.size()):
+		draw_string(fallback_font, Vector2(left_x, first_y + i * gap), String(left_lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	for i in range(right_lines.size()):
+		draw_string(fallback_font, Vector2(right_x, first_y + i * gap), String(right_lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, panel.position + Vector2(34, 320), "长期目标中的未领取奖励仍可继续完成；本结算不会结束当前存档。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 352), "后续阶段将继承这一章形成的生理与传播倾向。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("8ce9ff"))
+	var labels := ["继续培养", "返回主菜单", "下一章节尚未开放"]
+	for i in range(3):
+		var button := _chapter_report_button_rect(viewport, i)
+		var disabled := i == 2
+		var hovered := button.has_point(last_mouse) and not disabled
+		var background := Color(0.025, 0.055, 0.065, 0.96) if disabled else (Color(0.10, 0.34, 0.27, 0.98) if hovered else Color(0.035, 0.16, 0.16, 0.98))
+		var border := COLOR_MUTED.darkened(0.45) if disabled else (Color("68efad") if hovered else COLOR_BORDER)
+		draw_style_box(_rounded_style(background, border, 8, 2 if hovered else 1), button)
+		var label := String(labels[i])
+		var label_size := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11 if disabled else UI_FONT_SIZE)
+		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11 if disabled else UI_FONT_SIZE, COLOR_MUTED if disabled else COLOR_TEXT)
+
+
+func _handle_chapter_report_click(pos: Vector2) -> void:
+	if _chapter_report_button_rect(get_viewport_rect().size, 0).has_point(pos):
+		_close_chapter_report(false)
+	elif _chapter_report_button_rect(get_viewport_rect().size, 1).has_point(pos):
+		_close_chapter_report(true)
+
+
+func _close_chapter_report(to_main_menu: bool) -> void:
+	chapter_report_open = false
+	chapter_report_seen = true
+	if to_main_menu:
+		main_menu_active = true
+		main_menu_page = "main"
+		main_menu_has_save = true
+	_save_game()
 	queue_redraw()
 
 
@@ -5038,6 +5344,13 @@ func _save_game() -> void:
 		"lifetime_ecology_events_seen": lifetime_ecology_events_seen,
 		"lifetime_ecology_events_contained": lifetime_ecology_events_contained,
 		"lifetime_enemy_fungi_defeated": lifetime_enemy_fungi_defeated,
+		"chapter_task_index": chapter_task_index,
+		"core_selected_once": core_selected_once,
+		"chapter_complete": chapter_complete,
+		"chapter_report_seen": chapter_report_seen,
+		"chapter_completed_at": chapter_completed_at,
+		"guidance_collapsed": guidance_collapsed,
+		"lifetime_expedition_units_built": lifetime_expedition_units_built,
 		"ecology_event_countdown": ecology_event_countdown,
 		"next_ecology_event_id": next_ecology_event_id,
 		"goals_claimed": goals_claimed,
@@ -5045,12 +5358,14 @@ func _save_game() -> void:
 		"camera_x": camera_center.x,
 		"camera_y": camera_center.y,
 		"camera_zoom": camera_zoom,
+		"sim_time": sim_time,
 		"cores": core_data,
 		"segments": segment_data,
 		"resource_states": resource_states,
 		"feeders": feeder_data,
 		"bacteria": bacteria_data,
 		"expedition_units": expedition_data,
+		"next_expedition_id": next_expedition_id,
 		"enemy_fungi_initialized": enemy_fungi_initialized,
 		"next_enemy_fungus_id": next_enemy_fungus_id,
 		"next_enemy_hypha_id": next_enemy_hypha_id,
@@ -5113,11 +5428,22 @@ func _load_game() -> bool:
 	lifetime_ecology_events_seen = maxi(0, int(parsed.get("lifetime_ecology_events_seen", 0)))
 	lifetime_ecology_events_contained = maxi(0, int(parsed.get("lifetime_ecology_events_contained", 0)))
 	lifetime_enemy_fungi_defeated = maxi(0, int(parsed.get("lifetime_enemy_fungi_defeated", 0)))
+	chapter_task_index = maxi(0, int(parsed.get("chapter_task_index", 0)))
+	core_selected_once = bool(parsed.get("core_selected_once", false))
+	chapter_complete = bool(parsed.get("chapter_complete", false))
+	chapter_report_open = false
+	chapter_report_seen = bool(parsed.get("chapter_report_seen", false))
+	chapter_completed_at = maxf(0.0, float(parsed.get("chapter_completed_at", 0.0)))
+	guidance_collapsed = bool(parsed.get("guidance_collapsed", false))
+	lifetime_expedition_units_built = maxi(0, int(parsed.get("lifetime_expedition_units_built", 0)))
+	enemy_threat_level = 0
+	enemy_threat_pos = Vector2.INF
 	ecology_event_countdown = clampf(float(parsed.get("ecology_event_countdown", ECOLOGY_FIRST_EVENT_MAX)), 0.0, ECOLOGY_EVENT_INTERVAL_MAX)
 	next_ecology_event_id = maxi(1, int(parsed.get("next_ecology_event_id", 1)))
 	goals_claimed = parsed.get("goals_claimed", {})
 	camera_center = Vector2(float(parsed.get("camera_x", 0.0)), float(parsed.get("camera_y", 0.0)))
 	camera_zoom = clampf(float(parsed.get("camera_zoom", 0.65)), 0.018, 2.4)
+	sim_time = maxf(0.0, float(parsed.get("sim_time", 0.0)))
 	explored_cells.clear()
 	for explored_key in parsed.get("explored_cells", []):
 		var key := int(explored_key)
@@ -5311,7 +5637,7 @@ func _load_game() -> bool:
 	elif not enemy_fungi.is_empty():
 		enemy_fungi_initialized = true
 	expedition_units.clear()
-	next_expedition_id = 1
+	next_expedition_id = maxi(1, int(parsed.get("next_expedition_id", 1)))
 	for item in parsed.get("expedition_units", []):
 		if expedition_units.size() >= MAX_EXPEDITION_SPORES:
 			break
@@ -5341,6 +5667,18 @@ func _load_game() -> bool:
 			loaded_unit["target_enemy_id"] = -1
 			loaded_unit["state"] = "idle"
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
+	# v0.22 及更早存档没有章节字段：根据已完成的实际行为向前补齐，不回退玩家进度。
+	lifetime_expedition_units_built = maxi(lifetime_expedition_units_built, expedition_units.size())
+	if lifetime_expedition_units_built == 0 and (lifetime_expedition_organic_returned > 0.0 or lifetime_expedition_mineral_returned > 0.0 or lifetime_expedition_bacteria_killed > 0):
+		lifetime_expedition_units_built = 1
+	if not core_selected_once and (not segments.is_empty() or lifetime_organic_absorbed > 0.0 or lifetime_dna_produced > 0 or _living_core_count() > 1 or not diet_order.is_empty()):
+		core_selected_once = true
+	chapter_task_index = maxi(chapter_task_index, _infer_chapter_task_index())
+	chapter_task_index = clampi(chapter_task_index, 0, _chapter_tasks().size())
+	if chapter_task_index >= _chapter_tasks().size():
+		chapter_complete = true
+		if chapter_completed_at <= 0.0:
+			chapter_completed_at = sim_time
 	if not parsed.has("explored_cells") or explored_cells.is_empty():
 		_update_exploration(false)
 	_sync_hotspot_discoveries(false)

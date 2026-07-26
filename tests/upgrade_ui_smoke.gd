@@ -176,6 +176,10 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: ecology event card must remain below the minimap")
 		quit(1)
 		return
+	if ecology_hud.intersects(game._chapter_guidance_rect()):
+		push_error("UPGRADE_UI_FAIL: chapter guidance must not overlap an active ecology event card")
+		quit(1)
+		return
 	game._handle_left_click(ecology_hud.get_center())
 	if not game.camera_center.is_equal_approx(Vector2(220.0, -80.0)):
 		push_error("UPGRADE_UI_FAIL: clicking the ecology event card should focus its world position")
@@ -215,11 +219,35 @@ func _run() -> void:
 		quit(1)
 		return
 	game._close_offline_report()
+	game.enemy_threat_level = 2
+	game.enemy_threat_pos = Vector2.ZERO
+	game.chapter_task_index = 4
+	game.guidance_collapsed = false
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	if game._chapter_guidance_rect().intersects(game._enemy_threat_hud_rect()):
+		push_error("UPGRADE_UI_FAIL: threat warning must remain below chapter guidance")
+		quit(1)
+		return
+	game.chapter_complete = true
+	game.chapter_completed_at = 1234.0
+	game.chapter_report_open = true
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	var chapter_panel: Rect2 = game._chapter_report_panel_rect(game.get_viewport_rect().size)
+	for button_index in range(3):
+		if not chapter_panel.encloses(game._chapter_report_button_rect(game.get_viewport_rect().size, button_index)):
+			push_error("UPGRADE_UI_FAIL: chapter report buttons must stay inside the modal panel")
+			quit(1)
+			return
+	game.chapter_report_open = false
 	var panel: Rect2 = game._upgrade_panel_rect(game.get_viewport_rect().size)
 	if panel.size.x < 700.0 or panel.size.y < 450.0:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 barracks_queue=rendered rally=rendered filters=7 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered offline_report=rendered chapter_flow=rendered goal_pages=3 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)
