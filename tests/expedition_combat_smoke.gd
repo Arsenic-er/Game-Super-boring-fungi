@@ -25,7 +25,7 @@ func _run() -> void:
 
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(120.0, 0.0), "barracks"))
-	var expected_max := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "piercer": 14.0}
+	var expected_max := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "piercer": 14.0, "coil": 11.0}
 	for unit_type in expected_max:
 		game._spawn_expedition_spore(barracks_id, unit_type)
 		var unit: Dictionary = game.expedition_units.back()
@@ -125,7 +125,7 @@ func _run() -> void:
 		return
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("EXPEDITION_COMBAT_OK maxes=6 retreat=30% repair=0.080 death=true save=compatible offline=capped")
+	print("EXPEDITION_COMBAT_OK maxes=7 retreat=30% repair=0.080 death=true save=compatible offline=capped")
 	game.queue_free()
 	quit(0)
 
