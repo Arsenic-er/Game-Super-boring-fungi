@@ -171,9 +171,13 @@ const ENEMY_HYPHA_PARENT_MATCH_DISTANCE := 18.0
 const SUPPRESSOR_DEPLOY_SECONDS := 4.0
 const SUPPRESSOR_ZONE_RADIUS := 140.0
 const SUPPRESSOR_BACTERIA_MULTIPLIER := 0.30
+const ANTIFUNGAL_DEPLOY_SECONDS := 5.0
+const ANTIFUNGAL_ZONE_RADIUS := 150.0
+const ANTIFUNGAL_GROWTH_MULTIPLIER := 0.35
+const ANTIFUNGAL_DISCONNECTED_DECAY_MULTIPLIER := 2.0
 const BLOOM_CONTAINMENT_HOLD_SECONDS := 12.0
 const BARRACK_UNIT_IDS := ["forager", "carrier", "chelator", "scout"]
-const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "suppressor": "抑菌囊体", "piercer": "穿壁孢子", "coil": "缠丝猎手"}
+const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "suppressor": "抑菌囊体", "piercer": "穿壁孢子", "coil": "缠丝猎手", "antifungal": "抗真菌囊体"}
 const BARRACK_UNIT_DESCRIPTIONS := {
 	"forager": "通用采集与自卫单位",
 	"carrier": "低速、大容量有机营养运输",
@@ -182,13 +186,14 @@ const BARRACK_UNIT_DESCRIPTIONS := {
 	"lytic": "细菌食性专属的高速裂菌单位",
 	"suppressor": "细菌食性专属；展开可重部署的前沿抑菌区",
 	"piercer": "真菌食性专属的敌方核心攻击单位",
-	"coil": "真菌食性专属；切断菌丝并使断联分支衰败"
+	"coil": "真菌食性专属；切断菌丝并使断联分支衰败",
+	"antifungal": "真菌食性专属；封锁竞争真菌吸收与再扩张"
 }
 const BARRACK_UNIT_UNLOCK_COSTS := {"carrier": 3, "chelator": 4, "scout": 5}
-const UNIT_ORGANIC_COSTS := {"forager": 8.0, "carrier": 14.0, "chelator": 10.0, "scout": 6.0, "lytic": 12.0, "suppressor": 11.0, "piercer": 13.0, "coil": 15.0}
-const UNIT_MINERAL_COSTS := {"forager": 0.250, "carrier": 0.500, "chelator": 1.000, "scout": 0.400, "lytic": 0.750, "suppressor": 0.750, "piercer": 1.250, "coil": 1.500}
-const UNIT_BUILD_SECONDS := {"forager": 30.0, "carrier": 50.0, "chelator": 42.0, "scout": 24.0, "lytic": 40.0, "suppressor": 38.0, "piercer": 46.0, "coil": 52.0}
-const UNIT_MAX_BIOMASS := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "suppressor": 12.0, "piercer": 14.0, "coil": 11.0}
+const UNIT_ORGANIC_COSTS := {"forager": 8.0, "carrier": 14.0, "chelator": 10.0, "scout": 6.0, "lytic": 12.0, "suppressor": 11.0, "piercer": 13.0, "coil": 15.0, "antifungal": 18.0}
+const UNIT_MINERAL_COSTS := {"forager": 0.250, "carrier": 0.500, "chelator": 1.000, "scout": 0.400, "lytic": 0.750, "suppressor": 0.750, "piercer": 1.250, "coil": 1.500, "antifungal": 2.000}
+const UNIT_BUILD_SECONDS := {"forager": 30.0, "carrier": 50.0, "chelator": 42.0, "scout": 24.0, "lytic": 40.0, "suppressor": 38.0, "piercer": 46.0, "coil": 52.0, "antifungal": 58.0}
+const UNIT_MAX_BIOMASS := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "suppressor": 12.0, "piercer": 14.0, "coil": 11.0, "antifungal": 14.0}
 const DIET_SPECIAL_UNITS := {
 	"animal": [
 		{"id": "animal_attach", "name": "捕食附着体", "desc": "附着动物组织并建立消化点", "available": false, "requirement": "等待小型动物生态"},
@@ -208,7 +213,7 @@ const DIET_SPECIAL_UNITS := {
 	"fungi": [
 		{"id": "coil", "name": "缠丝猎手", "desc": "切断敌方菌丝；断联分支会失去供给并衰败", "available": true, "cost": 5},
 		{"id": "piercer", "name": "穿壁孢子", "desc": "附着敌方核心并蓄力穿透", "available": true, "cost": 4},
-		{"id": "antifungal", "name": "抗真菌囊体", "desc": "抑制敌方生长、修复与菌丝重连", "available": false, "requirement": "等待范围部署系统"}
+		{"id": "antifungal", "name": "抗真菌囊体", "desc": "压低敌菌吸收与扩张，加速断联菌丝衰败", "available": true, "cost": 6}
 	]
 }
 
@@ -309,9 +314,10 @@ var lifetime_expedition_units_lost := 0
 var lifetime_expedition_units_repaired := 0
 var lifetime_enemy_hyphae_severed := 0
 var lifetime_suppressed_blooms_contained := 0
+var lifetime_antifungal_assisted_kills := 0
 var goals_claimed := {}
 var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
-var diet_unit_unlocks := {"lytic": false, "suppressor": false, "piercer": false, "coil": false}
+var diet_unit_unlocks := {"lytic": false, "suppressor": false, "piercer": false, "coil": false, "antifungal": false}
 var scout_upgrade_levels := {"vision": 0, "speed": 0}
 var splash_active := true
 var splash_time := 0.0
@@ -934,16 +940,54 @@ func _enemy_fungus_contacting_core(enemy: Dictionary, core_id: int) -> bool:
 	return false
 
 
+func _active_antifungal_centers() -> Array:
+	var centers: Array = []
+	if _diet_efficiency("fungi") <= 0.0 or not bool(diet_unit_unlocks.get("antifungal", false)):
+		return centers
+	for unit in expedition_units:
+		if String(unit.get("unit_type", "forager")) == "antifungal" and String(unit.get("state", "idle")) == "deployed" and float(unit.get("biomass", 0.0)) > 0.0005:
+			centers.append(unit["pos"])
+	return centers
+
+
+func _antifungal_multiplier_with_centers(pos: Vector2, centers: Array) -> float:
+	var radius_squared := ANTIFUNGAL_ZONE_RADIUS * ANTIFUNGAL_ZONE_RADIUS
+	for center_variant in centers:
+		if pos.distance_squared_to(center_variant) <= radius_squared:
+			return ANTIFUNGAL_GROWTH_MULTIPLIER
+	return 1.0
+
+
+func _antifungal_multiplier_at(pos: Vector2) -> float:
+	return _antifungal_multiplier_with_centers(pos, _active_antifungal_centers())
+
+
+func _antifungal_segment_multiplier(segment: Dictionary, centers: Array) -> float:
+	if centers.is_empty():
+		return 1.0
+	var start: Vector2 = segment["a"]
+	var finish: Vector2 = start.lerp(segment["b"], clampf(float(segment.get("growth", 0.0)), 0.0, 1.0))
+	var radius_squared := ANTIFUNGAL_ZONE_RADIUS * ANTIFUNGAL_ZONE_RADIUS
+	for center_variant in centers:
+		var closest := Geometry2D.get_closest_point_to_segment(center_variant, start, finish)
+		if closest.distance_squared_to(center_variant) <= radius_squared:
+			return ANTIFUNGAL_GROWTH_MULTIPLIER
+	return 1.0
+
+
 func _update_enemy_fungi(sim_delta: float) -> void:
+	var antifungal_centers := _active_antifungal_centers()
 	_refresh_enemy_hypha_connectivity()
 	for segment in enemy_hyphae:
 		var enemy_index := _enemy_fungus_index_by_id(int(segment.get("fungus_id", -1)))
 		var owner_alive := enemy_index >= 0 and bool(enemy_fungi[enemy_index].get("alive", false))
 		var connected := bool(segment.get("connected", false))
+		var local_multiplier := _antifungal_segment_multiplier(segment, antifungal_centers)
 		if owner_alive and connected and float(segment.get("growth", 0.0)) < 1.0:
-			segment["growth"] = minf(1.0, float(segment["growth"]) + sim_delta / ENEMY_FUNGUS_GROWTH_SECONDS)
+			segment["growth"] = minf(1.0, float(segment["growth"]) + sim_delta * local_multiplier / ENEMY_FUNGUS_GROWTH_SECONDS)
 		elif owner_alive and not connected:
-			segment["viability"] = maxf(0.0, float(segment.get("viability", 1.0)) - sim_delta / ENEMY_HYPHA_DISCONNECTED_DECAY_SECONDS)
+			var decay_multiplier := ANTIFUNGAL_DISCONNECTED_DECAY_MULTIPLIER if local_multiplier < 0.999 else 1.0
+			segment["viability"] = maxf(0.0, float(segment.get("viability", 1.0)) - sim_delta * decay_multiplier / ENEMY_HYPHA_DISCONNECTED_DECAY_SECONDS)
 		elif not owner_alive:
 			segment["viability"] = maxf(0.0, float(segment.get("viability", 1.0)) - sim_delta / ORPHAN_HYPHA_DECAY_SECONDS)
 	var surviving_hyphae: Array = []
@@ -955,10 +999,11 @@ func _update_enemy_fungi(sim_delta: float) -> void:
 	for enemy in enemy_fungi:
 		if not bool(enemy.get("alive", false)):
 			continue
+		var growth_multiplier := _antifungal_multiplier_with_centers(enemy["pos"], antifungal_centers)
 		var sources := _enemy_fungus_sources(enemy)
 		var resource := _enemy_resource_near_sources(sources, ENEMY_FUNGUS_ABSORB_RADIUS)
 		if not resource.is_empty():
-			var absorbed := minf(float(resource["amount"]), ENEMY_FUNGUS_ABSORB_RATE * sim_delta)
+			var absorbed := minf(float(resource["amount"]), ENEMY_FUNGUS_ABSORB_RATE * sim_delta * growth_multiplier)
 			resource["amount"] = maxf(0.0, float(resource["amount"]) - absorbed)
 			resource["alive"] = float(resource["amount"]) > 0.0005
 			enemy["organic_reserve"] = float(enemy.get("organic_reserve", 0.0)) + absorbed
@@ -966,7 +1011,7 @@ func _update_enemy_fungi(sim_delta: float) -> void:
 		if float(enemy["state_time"]) > 0.0:
 			enemy["state"] = "dormant"
 			continue
-		enemy["growth_time"] = maxf(0.0, float(enemy.get("growth_time", 0.0)) - sim_delta)
+		enemy["growth_time"] = maxf(0.0, float(enemy.get("growth_time", 0.0)) - sim_delta * growth_multiplier)
 		var nearest_core_id := _nearest_living_player_core(enemy["pos"])
 		enemy["state"] = "assault" if nearest_core_id >= 0 and (enemy["pos"] as Vector2).distance_to(cores[nearest_core_id]["pos"]) <= 3000.0 else "foraging"
 		if float(enemy["growth_time"]) <= 0.0:
@@ -994,10 +1039,13 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 		return false
 	enemy["biomass"] = maxf(0.0, float(enemy.get("biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS)) - amount)
 	if float(enemy["biomass"]) <= 0.0005:
+		var antifungal_assisted := _antifungal_multiplier_at(enemy["pos"]) < 0.999
 		enemy["biomass"] = 0.0
 		enemy["alive"] = false
 		enemy["state"] = "dead"
 		lifetime_enemy_fungi_defeated += 1
+		if antifungal_assisted:
+			lifetime_antifungal_assisted_kills += 1
 		if String(enemy.get("source", "initial")) == "incursion":
 			_complete_fungal_incursion(enemy_id)
 		else:
@@ -1174,6 +1222,8 @@ func _available_barracks_units() -> Array:
 		available.append("piercer")
 	if int(diet_levels.get("fungi", 0)) > 0 and bool(diet_unit_unlocks.get("coil", false)):
 		available.append("coil")
+	if int(diet_levels.get("fungi", 0)) > 0 and bool(diet_unit_unlocks.get("antifungal", false)):
+		available.append("antifungal")
 	return available
 
 
@@ -1426,7 +1476,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 					unit["state"] = "attacking_fungus"
 				elif target_kind == "enemy_hypha":
 					unit["state"] = "attacking_hypha"
-				elif target_kind == "deploy_zone" and String(unit.get("unit_type", "forager")) == "suppressor":
+				elif target_kind == "deploy_zone" and _is_deployable_unit_type(String(unit.get("unit_type", "forager"))):
 					unit["state"] = "deploying"
 					unit["deploy_progress"] = 0.0
 				else:
@@ -1440,7 +1490,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		elif state == "attacking_hypha":
 			_update_expedition_hypha_attack(unit, sim_delta)
 		elif state == "deploying":
-			_update_suppressor_deployment(unit, sim_delta)
+			_update_deployable_unit(unit, sim_delta)
 		elif state == "deployed":
 			pass
 		else:
@@ -1536,13 +1586,27 @@ func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
 		lifetime_expedition_units_repaired += 1
 
 
-func _update_suppressor_deployment(unit: Dictionary, sim_delta: float) -> void:
-	if String(unit.get("unit_type", "forager")) != "suppressor":
+func _is_deployable_unit_type(unit_type: String) -> bool:
+	return unit_type == "suppressor" or unit_type == "antifungal"
+
+
+func _deploy_seconds_for_unit(unit_type: String) -> float:
+	return ANTIFUNGAL_DEPLOY_SECONDS if unit_type == "antifungal" else SUPPRESSOR_DEPLOY_SECONDS
+
+
+func _deploy_radius_for_unit(unit_type: String) -> float:
+	return ANTIFUNGAL_ZONE_RADIUS if unit_type == "antifungal" else SUPPRESSOR_ZONE_RADIUS
+
+
+func _update_deployable_unit(unit: Dictionary, sim_delta: float) -> void:
+	var unit_type := String(unit.get("unit_type", "forager"))
+	if not _is_deployable_unit_type(unit_type):
 		unit["state"] = "idle"
 		return
-	unit["deploy_progress"] = minf(SUPPRESSOR_DEPLOY_SECONDS, float(unit.get("deploy_progress", 0.0)) + sim_delta)
-	if float(unit["deploy_progress"]) >= SUPPRESSOR_DEPLOY_SECONDS - 0.0005:
-		unit["deploy_progress"] = SUPPRESSOR_DEPLOY_SECONDS
+	var deploy_seconds := _deploy_seconds_for_unit(unit_type)
+	unit["deploy_progress"] = minf(deploy_seconds, float(unit.get("deploy_progress", 0.0)) + sim_delta)
+	if float(unit["deploy_progress"]) >= deploy_seconds - 0.0005:
+		unit["deploy_progress"] = deploy_seconds
 		unit["state"] = "deployed"
 		unit["target_kind"] = "deploy_zone"
 
@@ -1555,6 +1619,7 @@ func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) 
 		"scout": speed = _scout_move_speed()
 		"lytic": speed = 54.0
 		"suppressor": speed = 38.0
+		"antifungal": speed = 34.0
 		"piercer": speed = 48.0
 		"coil": speed = 52.0
 	if String(unit.get("state", "idle")) == "retreating":
@@ -1704,7 +1769,7 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 	var best_pos := pos
 	var best_distance := INF
 	var unit_type := String(unit.get("unit_type", "forager"))
-	if unit_type == "suppressor":
+	if _is_deployable_unit_type(unit_type):
 		return
 	if unit_type == "scout":
 		var scout_target := _nearest_unexplored_scout_target(pos)
@@ -2187,13 +2252,13 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 
 
 func _unit_filter_ids() -> Array:
-	return ["all", "forager", "carrier", "chelator", "scout", "lytic", "suppressor", "piercer", "coil"]
+	return ["all", "forager", "carrier", "chelator", "scout", "lytic", "suppressor", "piercer", "coil", "antifungal"]
 
 
 func _unit_filter_rects() -> Array:
 	var viewport := get_viewport_rect().size
 	var ids := _unit_filter_ids()
-	var width := 30.0
+	var width := 28.0
 	var gap := 3.0
 	var total_width := ids.size() * width + (ids.size() - 1) * gap
 	var start_x := maxf(390.0, minf(740.0, viewport.x - total_width - 242.0))
@@ -2310,7 +2375,7 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		var unit_enemy_id := enemy_id
 		var unit_enemy_hypha_id := enemy_hypha_id
 		var unit_type := String(unit.get("unit_type", "forager"))
-		if unit_type == "suppressor":
+		if _is_deployable_unit_type(unit_type):
 			unit_target_kind = "deploy_zone"
 			unit_resource_id = -1
 			unit_enemy_id = -1
@@ -4010,7 +4075,7 @@ func _start_new_culture() -> void:
 	for survival_id in SURVIVAL_IDS:
 		survival_levels[survival_id] = 0
 	barracks_unit_unlocks = {"forager": true, "carrier": false, "chelator": false, "scout": false}
-	diet_unit_unlocks = {"lytic": false, "suppressor": false, "piercer": false, "coil": false}
+	diet_unit_unlocks = {"lytic": false, "suppressor": false, "piercer": false, "coil": false, "antifungal": false}
 	lifetime_organic_absorbed = 0.0
 	lifetime_mineral_absorbed = 0.0
 	lifetime_dna_produced = 0
@@ -4023,6 +4088,7 @@ func _start_new_culture() -> void:
 	lifetime_expedition_units_repaired = 0
 	lifetime_enemy_hyphae_severed = 0
 	lifetime_suppressed_blooms_contained = 0
+	lifetime_antifungal_assisted_kills = 0
 	goals_claimed = {}
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = 0
@@ -4201,7 +4267,8 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 	var command_color := Color(0.38, 1.0, 0.56, 0.90)
 	var hovered_unit_id := _expedition_unit_at_screen(last_mouse)
 	for unit in expedition_units:
-		if String(unit.get("unit_type", "forager")) != "suppressor":
+		var zone_unit_type := String(unit.get("unit_type", "forager"))
+		if not _is_deployable_unit_type(zone_unit_type):
 			continue
 		var zone_state := String(unit.get("state", "idle"))
 		if zone_state != "deployed" and zone_state != "deploying":
@@ -4210,19 +4277,21 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 		if zone_center.x < -20.0 or zone_center.y < -20.0 or zone_center.x > viewport.x + 20.0 or zone_center.y > viewport.y + 20.0:
 			continue
 		var selected_zone := selected_expedition_ids.has(int(unit.get("id", -1))) or hovered_unit_id == int(unit.get("id", -1))
+		var zone_color := Color("b487ff") if zone_unit_type == "antifungal" else Color("86e7b8")
 		if zone_state == "deployed":
 			if camera_zoom < 0.09:
-				draw_rect(Rect2(zone_center - Vector2.ONE, Vector2(3, 3)), Color("86e7b8"))
+				draw_rect(Rect2(zone_center - Vector2.ONE, Vector2(3, 3)), zone_color)
 			else:
-				var radius := SUPPRESSOR_ZONE_RADIUS * camera_zoom
-				draw_circle(zone_center, radius, Color(0.24, 0.78, 0.58, 0.07 if not selected_zone else 0.13))
-				var dot_color := Color(0.45, 0.96, 0.72, 0.46 if not selected_zone else 0.82)
+				var radius := _deploy_radius_for_unit(zone_unit_type) * camera_zoom
+				var fill_color := Color(zone_color, 0.07 if not selected_zone else 0.13)
+				draw_circle(zone_center, radius, fill_color)
+				var dot_color := Color(zone_color, 0.46 if not selected_zone else 0.82)
 				for dot in range(32):
 					var dot_pos := _pixel_snap(zone_center + Vector2.from_angle(TAU * float(dot) / 32.0) * radius)
 					draw_rect(Rect2(dot_pos - Vector2.ONE, Vector2(2, 2)), dot_color)
 		else:
-			var progress := clampf(float(unit.get("deploy_progress", 0.0)) / SUPPRESSOR_DEPLOY_SECONDS, 0.0, 1.0)
-			draw_arc(zone_center, 11.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 16, Color("86e7b8"), 2.0, false)
+			var progress := clampf(float(unit.get("deploy_progress", 0.0)) / _deploy_seconds_for_unit(zone_unit_type), 0.0, 1.0)
+			draw_arc(zone_center, 11.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 16, zone_color, 2.0, false)
 	for unit in expedition_units:
 		var unit_id := int(unit.get("id", -1))
 		var unit_type := String(unit.get("unit_type", "forager"))
@@ -4245,12 +4314,15 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 		if float(unit.get("damage_flash", 0.0)) > 0.0:
 			body_color = body_color.lerp(Color("ff5f6d"), 0.62)
 		draw_rect(Rect2(p + tail_offset - Vector2(2, 1), Vector2(4, 2)), body_color.darkened(0.35))
-		var body_size := 8.0 if unit_type == "carrier" or (unit_type == "suppressor" and String(unit.get("state", "idle")) == "deployed") else 6.0
+		var body_size := 8.0 if unit_type == "carrier" or (_is_deployable_unit_type(unit_type) and String(unit.get("state", "idle")) == "deployed") else 6.0
 		draw_rect(Rect2(p - Vector2.ONE * body_size * 0.5, Vector2.ONE * body_size), body_color)
 		draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), body_color.lightened(0.42))
 		if unit_type == "suppressor":
 			draw_rect(Rect2(p + Vector2(-4, -4), Vector2(2, 2)), Color("ff91b8"))
 			draw_rect(Rect2(p + Vector2(3, 3), Vector2(2, 2)), Color("ff91b8"))
+		elif unit_type == "antifungal":
+			draw_rect(Rect2(p + Vector2(-4, -4), Vector2(2, 2)), Color("ff9a66"))
+			draw_rect(Rect2(p + Vector2(3, 3), Vector2(2, 2)), Color("ff9a66"))
 		draw_rect(Rect2(p + Vector2(1, -2), Vector2(1, 1)), Color("ffffff"))
 		if float(unit.get("cargo_organic", 0.0)) > 0.0005:
 			draw_rect(Rect2(p + Vector2(4, 2), Vector2(3, 3)), COLOR_ORGANIC)
@@ -4327,6 +4399,8 @@ func _unit_color(unit_type: String) -> Color:
 		return COLOR_BACTERIA
 	if unit_type == "suppressor":
 		return Color("86e7b8")
+	if unit_type == "antifungal":
+		return Color("b487ff")
 	if unit_type == "piercer":
 		return Color("ff936d")
 	if unit_type == "coil":
@@ -4602,7 +4676,7 @@ func _draw_hud(viewport: Vector2) -> void:
 
 
 func _draw_unit_filter_bar() -> void:
-	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "piercer": "穿", "coil": "缠"}
+	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "piercer": "穿", "coil": "缠", "antifungal": "封"}
 	for item in _unit_filter_rects():
 		var filter_id := String(item["id"])
 		var rect: Rect2 = item["rect"]
@@ -4623,8 +4697,12 @@ func _draw_unit_filter_bar() -> void:
 		draw_string(fallback_font, rect.position + Vector2(5, 39), "%02d" % count, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(text_color, 0.82))
 
 
+func _resource_bar_rect() -> Rect2:
+	return Rect2(18, 16, 708, 48)
+
+
 func _draw_top_resources() -> void:
-	var panel := Rect2(18, 16, 708, 48)
+	var panel := _resource_bar_rect()
 	draw_style_box(_panel_style(), panel)
 	var x := 36.0
 	_draw_resource_readout(Vector2(x, 47), COLOR_WATER, "水分  ∞")
@@ -5017,6 +5095,7 @@ func _goal_definitions() -> Array:
 		{"id": "suppression_field", "title": "静菌封锁", "desc": "用抑菌囊体控制1次细菌暴发", "reward": {"dna": 2, "organic": 15.0}, "reward_text": "DNA +2　有机 +15.000"},
 		{"id": "rival_colony", "title": "竞争者清除", "desc": "使1座竞争性真菌核心失活", "reward": {"dna": 4, "mineral": 3.0}, "reward_text": "DNA +4　矿物 +3.000"},
 		{"id": "hypha_severing", "title": "断丝战术", "desc": "累计切断3段敌方菌丝", "reward": {"dna": 2, "organic": 10.0}, "reward_text": "DNA +2　有机 +10.000"},
+		{"id": "antifungal_lockdown", "title": "真菌封锁", "desc": "在抗真菌区内使1座竞争核心失活", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"},
 		{"id": "sporefall_guard", "title": "孢子雨守卫", "desc": "击退3轮竞争孢子雨", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"}
 	]
 
@@ -5064,6 +5143,8 @@ func _goal_complete(goal_id: String) -> bool:
 			return lifetime_enemy_fungi_defeated >= 1
 		"hypha_severing":
 			return lifetime_enemy_hyphae_severed >= 3
+		"antifungal_lockdown":
+			return lifetime_antifungal_assisted_kills >= 1
 		"sporefall_guard":
 			return lifetime_fungal_incursions_defeated >= 3
 	return false
@@ -5105,6 +5186,8 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "%d / 1" % mini(lifetime_enemy_fungi_defeated, 1)
 		"hypha_severing":
 			return "%d / 3" % mini(lifetime_enemy_hyphae_severed, 3)
+		"antifungal_lockdown":
+			return "%d / 1" % mini(lifetime_antifungal_assisted_kills, 1)
 		"sporefall_guard":
 			return "%d / 3" % mini(lifetime_fungal_incursions_defeated, 3)
 	return ""
@@ -5646,8 +5729,8 @@ func _expedition_state_name(state: String) -> String:
 		"attacking": return "猎食细菌"
 		"attacking_fungus": return "攻击竞争真菌"
 		"attacking_hypha": return "切断敌方菌丝"
-		"deploying": return "展开抑菌囊体"
-		"deployed": return "抑菌区已展开"
+		"deploying": return "展开部署囊体"
+		"deployed": return "作用区已展开"
 		"returning": return "返巢卸载"
 		"retreating": return "负伤撤退"
 		"repairing": return "兵营修复"
@@ -5685,6 +5768,14 @@ func _draw_expedition_tooltip() -> bool:
 			detail = "展开 %.1f / %.1f 秒　·　范围 70 μm" % [float(unit.get("deploy_progress", 0.0)), SUPPRESSOR_DEPLOY_SECONDS]
 		elif deploy_state == "deployed":
 			detail = "抑菌半径 70 μm　·　细菌吸收与分裂速度 30%"
+		lines.append(detail)
+	elif unit_type == "antifungal":
+		var deploy_state := String(unit.get("state", "idle"))
+		var detail := "右键指定位置后展开；范围 75 μm，敌菌吸收与扩张 35%"
+		if deploy_state == "deploying":
+			detail = "展开 %.1f / %.1f 秒　·　范围 75 μm" % [float(unit.get("deploy_progress", 0.0)), ANTIFUNGAL_DEPLOY_SECONDS]
+		elif deploy_state == "deployed":
+			detail = "封锁半径 75 μm　·　断联敌菌丝衰败速度 200%"
 		lines.append(detail)
 	var max_width := 0.0
 	for line in lines:
@@ -6001,7 +6092,7 @@ func _draw_status_panel(viewport: Vector2) -> void:
 				draw_rect(Rect2(slot.position + Vector2(2, 2), Vector2((slot.size.x - 4.0) * slot_progress, slot.size.y - 4.0)), Color(slot_border, 0.20))
 			if i < jobs.size():
 				var slot_type := String((jobs[i] as Dictionary).get("unit_type", "forager"))
-				var short_name: String = String({"forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "piercer": "穿"}.get(slot_type, "?"))
+				var short_name: String = String({"forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "piercer": "穿", "coil": "缠", "antifungal": "封"}.get(slot_type, "?"))
 				draw_string(fallback_font, slot.position + Vector2(8, 19), short_name, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, _unit_color(slot_type))
 		var auto_available := _available_barracks_units().has(auto_unit)
 		var auto_text := "自动补员：%s　%s %d / %d" % [
@@ -6578,6 +6669,7 @@ func _save_game() -> void:
 		"lifetime_enemy_fungi_defeated": lifetime_enemy_fungi_defeated,
 		"lifetime_enemy_hyphae_severed": lifetime_enemy_hyphae_severed,
 		"lifetime_suppressed_blooms_contained": lifetime_suppressed_blooms_contained,
+		"lifetime_antifungal_assisted_kills": lifetime_antifungal_assisted_kills,
 		"lifetime_fungal_incursions_defeated": lifetime_fungal_incursions_defeated,
 		"fungal_incursion": incursion_data,
 		"chapter_task_index": chapter_task_index,
@@ -6654,7 +6746,7 @@ func _load_game() -> bool:
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = clampi(int(saved_scout_upgrades.get(scout_upgrade_id, 0)), 0, MAX_SCOUT_UPGRADE_LEVEL)
 	var saved_diet_unit_unlocks: Dictionary = parsed.get("diet_unit_unlocks", {})
-	for special_unit_id in ["lytic", "suppressor", "piercer", "coil"]:
+	for special_unit_id in ["lytic", "suppressor", "piercer", "coil", "antifungal"]:
 		diet_unit_unlocks[special_unit_id] = bool(saved_diet_unit_unlocks.get(special_unit_id, false))
 	lifetime_organic_absorbed = float(parsed.get("lifetime_organic_absorbed", 0.0))
 	lifetime_mineral_absorbed = float(parsed.get("lifetime_mineral_absorbed", 0.0))
@@ -6669,6 +6761,7 @@ func _load_game() -> bool:
 	lifetime_enemy_fungi_defeated = maxi(0, int(parsed.get("lifetime_enemy_fungi_defeated", 0)))
 	lifetime_enemy_hyphae_severed = maxi(0, int(parsed.get("lifetime_enemy_hyphae_severed", 0)))
 	lifetime_suppressed_blooms_contained = maxi(0, int(parsed.get("lifetime_suppressed_blooms_contained", 0)))
+	lifetime_antifungal_assisted_kills = maxi(0, int(parsed.get("lifetime_antifungal_assisted_kills", 0)))
 	lifetime_fungal_incursions_defeated = maxi(0, int(parsed.get("lifetime_fungal_incursions_defeated", 0)))
 	chapter_task_index = maxi(0, int(parsed.get("chapter_task_index", 0)))
 	core_selected_once = bool(parsed.get("core_selected_once", false))
@@ -6952,6 +7045,7 @@ func _load_game() -> bool:
 		var loaded_state := String(item.get("state", "idle"))
 		if not ["idle", "guarding", "moving", "gathering", "attacking", "attacking_fungus", "attacking_hypha", "deploying", "deployed", "returning", "retreating", "repairing", "wounded"].has(loaded_state):
 			loaded_state = "idle"
+		var loaded_deploy_seconds := _deploy_seconds_for_unit(unit_type)
 		expedition_units.append({
 			"id": unit_id,
 			"unit_type": unit_type,
@@ -6963,7 +7057,7 @@ func _load_game() -> bool:
 			"target_resource_id": int(item.get("target_resource_id", -1)),
 			"target_enemy_id": int(item.get("target_enemy_id", -1)),
 			"target_enemy_hypha_id": int(item.get("target_enemy_hypha_id", -1)),
-			"deploy_progress": clampf(float(item.get("deploy_progress", SUPPRESSOR_DEPLOY_SECONDS if loaded_state == "deployed" else 0.0)), 0.0, SUPPRESSOR_DEPLOY_SECONDS),
+			"deploy_progress": clampf(float(item.get("deploy_progress", loaded_deploy_seconds if loaded_state == "deployed" else 0.0)), 0.0, loaded_deploy_seconds),
 			"cargo_organic": clampf(float(item.get("cargo_organic", 0.0)), 0.0, 9.0),
 			"cargo_mineral": clampf(float(item.get("cargo_mineral", 0.0)), 0.0, 9.0),
 			"biomass": maximum * health_fraction,
@@ -6979,7 +7073,7 @@ func _load_game() -> bool:
 			"phase": float(item.get("phase", 0.0))
 		})
 		var loaded_unit: Dictionary = expedition_units.back()
-		if String(loaded_unit.get("unit_type", "forager")) != "suppressor" and ["deploying", "deployed"].has(String(loaded_unit.get("state", "idle"))):
+		if not _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) and ["deploying", "deployed"].has(String(loaded_unit.get("state", "idle"))):
 			loaded_unit["state"] = "idle"
 			loaded_unit["target_kind"] = ""
 			loaded_unit["deploy_progress"] = 0.0

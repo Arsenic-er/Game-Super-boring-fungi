@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.28.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.29.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -30,6 +30,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - A fog-hidden rival fungus that consumes real organic resources, slowly extends its own hyphae, and damages player cores after physical contact.
 - Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Fungi-diet progression also unlocks coil hunters: order them onto individual enemy hyphae to sever supply lines, make dependent branches fade over 90 seconds, and earn the new severing objective while the rival regrows from its surviving network.
+- Fungi-diet progression now adds reusable antifungal pods: unfold a 75 μm lockdown field to reduce rival nutrient absorption and regrowth to 35%, double the decay of severed hyphae, and complete a dedicated containment objective without dealing direct damage.
 - A nine-step, non-blocking Chapter 1 guidance chain now connects core awakening, germination, absorption, DNA, colony growth, diet evolution, barracks, exploration, and rival clearance, ending in a persistent culture report.
 - Fog-safe rival-hypha warnings appear only for explored threats; basic foragers retain a very slow manual anti-fungus fallback while fungi-specialist piercers remain dramatically stronger.
 - A complete culture-session flow: true simulation pause, save-now and settings controls, save-and-return, separate continue/new-culture entries, overwrite confirmation, and recoverable game-over actions.
@@ -45,7 +46,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Left click: inspect a core, choose actions, or select expedition spores
 - Top unit filters: select all units or all units of one unlocked role
 - Left drag: rectangular unit selection
-- Right click: issue movement, gathering, combat, hypha-severing, or suppressor-deployment orders
+- Right click: issue movement, gathering, combat, hypha-severing, or deployable-zone orders
 - `R`: return selected expedition spores to their barracks
 - Right drag / middle drag: move the camera
 - Mouse wheel: zoom
@@ -75,7 +76,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.28.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.29.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -104,6 +105,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 隐藏在探索黑幕后的竞争性真菌会消耗地图真实有机营养、缓慢延伸自己的菌丝，并在接触后侵染我方核心。
 - 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 真菌食性还可解锁“缠丝猎手”：把它右键指派到一段敌方菌丝后可切断供给线，使依赖该段的远端分支在90秒内逐渐暗淡、失活；竞争菌仍会从幸存网络重新生长，并新增“断丝战术”目标。
+- 真菌食性新增可重复部署的“抗真菌囊体”：展开半径75 μm的封锁区，把竞争真菌的营养吸收和再扩张压至35%，令已切断菌丝以两倍速度衰败；封锁区不直接造成伤害，并配有独立长期目标。
 - 新增九步、非强制式第一章引导，将唤醒核心、萌发、吸收、DNA、扩建、食性、兵营、探索和清除竞争菌串成完整流程，结束后生成可持久保存的培养报告。
 - 竞争菌丝威胁提示只读取已探索区域；基础游猎孢子保留极慢的手动对真菌攻击能力，真菌专属穿壁孢子仍具有显著效率优势。
 - 完成培养会话管理闭环：真正冻结模拟的暂停菜单、立即保存与设置、保存返回主菜单、独立的继续/新培养入口、覆盖确认，以及失败后的重新培养和返回操作。
@@ -116,7 +118,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 左键：查看核心、选择操作或选中游猎孢子
 - 顶部兵种筛选：选中全部单位或某一已解锁兵种
 - 左键拖动：矩形框选部队
-- 右键：下达移动、采集、战斗、切断敌方菌丝或部署抑菌囊体的命令
+- 右键：下达移动、采集、战斗、切断敌方菌丝或部署区域囊体的命令
 - `R`：让已选中的体外孢子返回所属兵营
 - 右键拖动 / 中键拖动：移动镜头
 - 鼠标滚轮：缩放
