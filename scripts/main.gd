@@ -1,5 +1,7 @@
 extends Node2D
 
+const PixelAudio = preload("res://scripts/pixel_audio.gd")
+
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
 const MIN_SEGMENT_LENGTH := 28.0
@@ -340,6 +342,11 @@ var pause_menu_page := "main"
 var pause_menu_notice := ""
 var settings_fullscreen := false
 var settings_pixel_cursor := true
+var settings_master_volume := 0.80
+var settings_ui_volume := 0.75
+var settings_world_volume := 0.65
+var settings_combat_volume := 0.70
+var settings_ambient_volume := 0.35
 var discovery_banner_title := ""
 var discovery_banner_detail := ""
 var discovery_banner_time := 0.0
@@ -372,6 +379,8 @@ var enemy_threat_pos := Vector2.INF
 var fallback_font: Font
 var splash_logo: Texture2D
 var cursor_texture: Texture2D
+var pixel_audio: Node
+var audio_hover_target := ""
 
 
 func _ready() -> void:
@@ -391,6 +400,12 @@ func _ready() -> void:
 	var bundled_cursor = load(CURSOR_TEXTURE_PATH)
 	if bundled_cursor is Texture2D:
 		cursor_texture = bundled_cursor
+	# Windows export smoke tests use Dummy display/audio drivers. Avoid constructing
+	# native audio players on that non-gameplay path; normal Windows launches and
+	# Linux headless regression tests retain the complete audio system.
+	if not (OS.get_name() == "Windows" and DisplayServer.get_name() == "headless"):
+		pixel_audio = PixelAudio.new()
+		add_child(pixel_audio)
 	_apply_settings()
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	rng.seed = 0xF00D47
@@ -686,6 +701,7 @@ func _begin_fungal_incursion_warning() -> bool:
 	}
 	_reveal_exploration(landing, FUNGAL_INCURSION_REVEAL_RADIUS)
 	_sync_hotspot_discoveries(false)
+	_play_sound("warning", 1.15)
 	_show_fungal_incursion_warning()
 	return true
 
@@ -1047,12 +1063,14 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 	var enemy: Dictionary = enemy_fungi[enemy_index]
 	if not bool(enemy.get("alive", false)):
 		return false
+	_play_sound("attack")
 	enemy["biomass"] = maxf(0.0, float(enemy.get("biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS)) - amount)
 	if float(enemy["biomass"]) <= 0.0005:
 		var antifungal_assisted := _antifungal_multiplier_at(enemy["pos"]) < 0.999
 		enemy["biomass"] = 0.0
 		enemy["alive"] = false
 		enemy["state"] = "dead"
+		_play_sound("loss", 0.92)
 		lifetime_enemy_fungi_defeated += 1
 		if antifungal_assisted:
 			lifetime_antifungal_assisted_kills += 1
@@ -1065,6 +1083,8 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 
 
 func _process(delta: float) -> void:
+	if pixel_audio != null:
+		pixel_audio.update_context(main_menu_active, pause_menu_open or offline_report_open or chapter_report_open, game_over, camera_zoom)
 	if splash_active:
 		splash_time += delta
 		if splash_time >= SPLASH_FADE_IN_SECONDS + SPLASH_HOLD_SECONDS + SPLASH_FADE_OUT_SECONDS:
@@ -1146,11 +1166,17 @@ func _handle_camera_keys(delta: float) -> void:
 
 
 func _update_growth(sim_delta: float) -> void:
+	var completed := 0
 	for segment in segments:
 		if bool(segment.get("orphaned", false)) or not _is_core_alive(int(segment["core_id"])):
 			continue
 		if float(segment["growth"]) < 1.0:
-			segment["growth"] = min(1.0, float(segment["growth"]) + sim_delta / _hypha_growth_seconds())
+			var before := float(segment["growth"])
+			segment["growth"] = min(1.0, before + sim_delta / _hypha_growth_seconds())
+			if before < 1.0 and float(segment["growth"]) >= 1.0:
+				completed += 1
+	if completed > 0:
+		_play_sound("hypha_complete", clampf(0.65 + completed * 0.08, 0.65, 1.2))
 
 
 func _update_dna_jobs(sim_delta: float) -> void:
@@ -1168,6 +1194,7 @@ func _update_dna_jobs(sim_delta: float) -> void:
 				jobs.pop_front()
 				dna += 1
 				lifetime_dna_produced += 1
+				_play_sound("dna_ready")
 				toast("DNA +1　孢子核心完成了一次代谢记录", 3.0)
 			else:
 				if job is Dictionary:
@@ -1215,6 +1242,7 @@ func _queue_expedition_spore(core_id: int, automatic: bool = false) -> bool:
 	jobs.append({"remaining": build_seconds, "total": build_seconds, "unit_type": unit_type, "automatic": automatic})
 	cores[core_id]["spore_jobs"] = jobs
 	if not automatic:
+		_play_sound("unit_queue")
 		toast("%s已进入生产队列（%d / %d）" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), jobs.size(), BARRACKS_QUEUE_CAPACITY], 3.0)
 	return true
 
@@ -1382,6 +1410,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		unit["manual"] = true
 		unit["command_until"] = sim_time + 3.0
 	expedition_units.append(unit)
+	_play_sound("unit_spawn", 0.76 if offline_simulating else 1.0)
 	_reveal_exploration(spawn_pos, _scout_reveal_radius() if unit_type == "scout" else UNIT_REVEAL_RADIUS)
 	next_expedition_id += 1
 	lifetime_expedition_units_built += 1
@@ -1563,6 +1592,8 @@ func _set_expedition_retreat(unit: Dictionary, reason: String) -> void:
 func _deposit_expedition_cargo(unit: Dictionary) -> void:
 	var returned_organic := float(unit.get("cargo_organic", 0.0))
 	var returned_mineral := float(unit.get("cargo_mineral", 0.0))
+	if returned_organic + returned_mineral > 0.0005:
+		_play_sound("cargo_deposit", clampf(0.7 + returned_organic * 0.04 + returned_mineral * 0.1, 0.7, 1.2))
 	organic += returned_organic
 	mineral += returned_mineral
 	lifetime_expedition_organic_returned += returned_organic
@@ -1578,6 +1609,7 @@ func _damage_expedition_unit(unit: Dictionary, amount: float, source: String) ->
 	unit["biomass"] = maxf(0.0, float(unit.get("biomass", maximum)) - amount)
 	unit["last_damage_source"] = source
 	unit["damage_flash"] = 0.35
+	_play_sound("damage", 0.72)
 	if float(unit["biomass"]) <= 0.0005:
 		_mark_expedition_lost(unit, source)
 		return true
@@ -1592,6 +1624,7 @@ func _mark_expedition_lost(unit: Dictionary, source: String) -> void:
 	unit["lost"] = true
 	unit["biomass"] = 0.0
 	lifetime_expedition_units_lost += 1
+	_play_sound("loss")
 	var name := String(BARRACK_UNIT_NAMES.get(String(unit.get("unit_type", "forager")), "体外孢子"))
 	toast("%s因%s失活；自动补员会在资源充足时接替" % [name, source], 4.0)
 
@@ -1606,6 +1639,7 @@ func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
 		unit["retreat_reason"] = ""
 		unit["manual"] = false
 		lifetime_expedition_units_repaired += 1
+		_play_sound("repair", 0.72)
 
 
 func _is_deployable_unit_type(unit_type: String) -> bool:
@@ -1628,9 +1662,12 @@ func _update_deployable_unit(unit: Dictionary, sim_delta: float) -> void:
 	var deploy_seconds := _deploy_seconds_for_unit(unit_type)
 	unit["deploy_progress"] = minf(deploy_seconds, float(unit.get("deploy_progress", 0.0)) + sim_delta)
 	if float(unit["deploy_progress"]) >= deploy_seconds - 0.0005:
+		var just_completed := String(unit.get("state", "idle")) != "deployed"
 		unit["deploy_progress"] = deploy_seconds
 		unit["state"] = "deployed"
 		unit["target_kind"] = "deploy_zone"
+		if just_completed:
+			_play_sound("deploy")
 
 
 func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) -> void:
@@ -1699,6 +1736,8 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 		return
 	var attack_rate := 0.150 if String(unit.get("unit_type", "forager")) == "lytic" else EXPEDITION_ATTACK_RATE
 	var attack := minf(float(bacterium.get("biomass", 1.0)), attack_rate * _diet_efficiency("bacteria") * sim_delta)
+	if attack > 0.0:
+		_play_sound("attack")
 	bacterium["biomass"] = float(bacterium.get("biomass", 1.0)) - attack
 	unit["cargo_organic"] = minf(_expedition_cargo_capacity(unit), float(unit.get("cargo_organic", 0.0)) + attack)
 	if float(bacterium["biomass"]) <= 0.0005:
@@ -1728,6 +1767,7 @@ func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
 		return
 	unit["burst_cooldown"] = DISPERSER_BURST_COOLDOWN
 	unit["burst_flash"] = 0.35
+	_play_sound("lytic_burst")
 	var hit_count := 0
 	var killed_count := 0
 	var total_damage := 0.0
@@ -1976,12 +2016,14 @@ func _damage_enemy_hypha(hypha_id: int, amount: float) -> bool:
 	if index < 0 or amount <= 0.0:
 		return false
 	var segment: Dictionary = enemy_hyphae[index]
+	_play_sound("attack", 0.8)
 	segment["viability"] = maxf(0.0, float(segment.get("viability", 1.0)) - amount)
 	if float(segment["viability"]) > 0.0005:
 		return false
 	enemy_hyphae.remove_at(index)
 	lifetime_enemy_hyphae_severed += 1
 	_refresh_enemy_hypha_connectivity()
+	_play_sound("hypha_cut")
 	toast("敌方菌丝被切断；远端分支已失去供给", 4.0)
 	return true
 
@@ -2093,6 +2135,7 @@ func _sync_hotspot_discoveries(show_feedback: bool) -> int:
 		discovered_hotspots[hotspot_id] = true
 		new_discoveries.append(_hotspot_display_name(hotspot))
 	if show_feedback and not new_discoveries.is_empty():
+		_play_sound("discovery", clampf(0.85 + new_discoveries.size() * 0.08, 0.85, 1.2))
 		discovery_banner_title = "发现新的培养区" if new_discoveries.size() == 1 else "同时发现 %d 处异常区" % new_discoveries.size()
 		discovery_banner_detail = "、".join(new_discoveries.slice(0, mini(3, new_discoveries.size()))) + "　·　已永久标记"
 		discovery_banner_time = 6.0
@@ -2108,6 +2151,7 @@ func _sync_enemy_fungi_discovery(show_feedback: bool) -> int:
 		enemy["discovered"] = true
 		discovered_now += 1
 	if show_feedback and discovered_now > 0:
+		_play_sound("discovery", 1.15)
 		discovery_banner_title = "发现竞争性真菌菌落"
 		discovery_banner_detail = "它会消耗真实营养扩张菌丝；真菌食性可解锁穿壁孢子"
 		discovery_banner_time = 7.0
@@ -2165,6 +2209,7 @@ func _update_chapter_flow(show_feedback: bool = true) -> void:
 	if chapter_complete:
 		if not chapter_report_seen and not offline_report_open and game_started:
 			chapter_report_open = true
+			_play_sound("goal", 1.2)
 		return
 	var tasks := _chapter_tasks()
 	var advanced := false
@@ -2175,6 +2220,7 @@ func _update_chapter_flow(show_feedback: bool = true) -> void:
 		chapter_complete = true
 		chapter_completed_at = sim_time
 		chapter_report_open = not offline_report_open and game_started
+		_play_sound("goal", 1.2)
 		if autosave_enabled:
 			_save_game()
 		if show_feedback:
@@ -2331,6 +2377,7 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 	show_status = false
 	mode = "normal"
 	if not selected_expedition_ids.is_empty():
+		_play_sound("select_unit", clampf(0.75 + selected_expedition_ids.size() * 0.025, 0.75, 1.25))
 		toast("已选中 %d 个体外单位" % selected_expedition_ids.size(), 1.8)
 
 
@@ -2372,6 +2419,7 @@ func _select_units_by_filter(filter_id: String) -> void:
 	show_status = false
 	mode = "normal"
 	var label := "全部" if filter_id == "all" else String(BARRACK_UNIT_NAMES.get(filter_id, filter_id))
+	_play_sound("select_unit", clampf(0.75 + selected_expedition_ids.size() * 0.015, 0.75, 1.2))
 	toast("%s筛选：已选 %d 个单位" % [label, selected_expedition_ids.size()], 1.8)
 
 
@@ -2495,8 +2543,10 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		unit["command_until"] = sim_time + 3.0
 		commanded += 1
 	if commanded > 0:
+		_play_sound("command", clampf(0.8 + commanded * 0.02, 0.8, 1.25))
 		toast("已向 %d 个体外单位下达指令" % commanded, 1.8)
 	elif not selected_expedition_ids.is_empty():
+		_play_sound("ui_error")
 		toast("重伤或修复中的单位暂时不能出击", 2.5)
 
 
@@ -2510,6 +2560,7 @@ func _order_selected_expedition_return() -> void:
 		_set_expedition_retreat(unit, "手动返巢")
 		ordered += 1
 	if ordered > 0:
+		_play_sound("return_order", clampf(0.8 + ordered * 0.02, 0.8, 1.2))
 		toast("%d 个体外单位正在返回兵营" % ordered, 2.5)
 
 
@@ -2566,6 +2617,8 @@ func _discover_feeders() -> void:
 
 func _update_feeders(sim_delta: float) -> void:
 	var surviving: Array = []
+	var organic_taken := 0.0
+	var mineral_taken := 0.0
 	for feeder in feeders:
 		if not _is_core_alive(int(feeder.get("core_id", -1))):
 			continue
@@ -2584,14 +2637,20 @@ func _update_feeders(sim_delta: float) -> void:
 		if int(resource["kind"]) == 0:
 			organic += taken
 			lifetime_organic_absorbed += taken
+			organic_taken += taken
 		else:
 			mineral += taken
 			lifetime_mineral_absorbed += taken
+			mineral_taken += taken
 		if float(resource["amount"]) <= 0.0005:
 			resource["amount"] = 0.0
 			resource["alive"] = false
 			surviving.erase(feeder)
 	feeders = surviving
+	if organic_taken > 0.0:
+		_play_sound("organic_absorb", clampf(0.6 + organic_taken * 2.0, 0.6, 1.15))
+	if mineral_taken > 0.0:
+		_play_sound("mineral_absorb", clampf(0.7 + mineral_taken * 3.0, 0.7, 1.2))
 
 
 func _current_ecology_event() -> Dictionary:
@@ -2646,6 +2705,7 @@ func _begin_ecology_event() -> void:
 	next_ecology_event_id += 1
 	lifetime_ecology_events_seen += 1
 	ecology_events = [event]
+	_play_sound("warning")
 	_reveal_exploration(center, float(event["radius"]) + 48.0)
 	_update_exploration(false)
 	_show_ecology_banner("生态预警：%s" % _ecology_event_name(event_type), "点击右侧事件卡定位；准备裂菌孢子、抗生素或修复储备。", 7.0)
@@ -2922,6 +2982,7 @@ func _damage_core(core_id: int, amount: float, source: String = "环境压力") 
 		return
 	var core: Dictionary = cores[core_id]
 	core["biomass"] = maxf(0.0, float(core.get("biomass", CORE_MAX_BIOMASS)) - amount)
+	_play_sound("damage", 0.9)
 	if float(core["biomass"]) <= 0.0005:
 		_kill_core(core_id, source)
 
@@ -2943,6 +3004,7 @@ func _repair_core(core_id: int) -> void:
 	organic -= CORE_REPAIR_ORGANIC_COST
 	var added_reserve := minf(_repair_reserve_purchase_amount(), maximum - biomass - reserve)
 	core["repair_reserve"] = reserve + added_reserve
+	_play_sound("repair")
 	toast("修复储备 +%.3f　将以 %.3f / 秒缓慢恢复" % [added_reserve, _repair_recovery_rate()], 4.0)
 
 
@@ -2965,6 +3027,7 @@ func _kill_core(core_id: int, source: String) -> void:
 		if int(feeder.get("core_id", -1)) != core_id:
 			remaining_feeders.append(feeder)
 	feeders = remaining_feeders
+	_play_sound("loss", 1.2, _living_core_count() <= 1)
 	if selected_core == core_id or selected_tip_core == core_id:
 		selected_core = -1
 		selected_tip_valid = false
@@ -3023,6 +3086,7 @@ func _rescue_orphan_network(old_core_id: int, new_core_id: int) -> void:
 			segment["viability"] = 1.0
 			rescued += 1
 	if rescued > 0:
+		_play_sound("repair", clampf(0.8 + rescued * 0.02, 0.8, 1.2))
 		toast("核心 %d 接管了 %d 段孤立菌丝" % [new_core_id + 1, rescued], 5.0)
 
 
@@ -3151,9 +3215,88 @@ func _distance_to_line_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
 	return p.distance_to(a + ab * t)
 
 
+func _play_sound(cue_name: String, strength: float = 1.0, force: bool = false) -> bool:
+	if pixel_audio == null or offline_simulating:
+		return false
+	return bool(pixel_audio.play_cue(cue_name, strength, force))
+
+
+func _update_audio_hover(pos: Vector2) -> void:
+	var target := _audio_hover_target_at(pos)
+	if target != audio_hover_target:
+		audio_hover_target = target
+		if target != "":
+			_play_sound("ui_hover")
+
+
+func _audio_hover_target_at(pos: Vector2) -> String:
+	var viewport := get_viewport_rect().size
+	if splash_active:
+		return ""
+	if main_menu_active:
+		for index in range(_main_menu_labels().size()):
+			if _main_menu_button_rect(viewport, index).has_point(pos):
+				return "main_%d" % index
+		return ""
+	if offline_report_open:
+		return "offline_close" if _offline_report_button_rect(viewport).has_point(pos) else ""
+	if chapter_report_open:
+		for index in range(3):
+			if _chapter_report_button_rect(viewport, index).has_point(pos):
+				return "chapter_%d" % index
+		return ""
+	if pause_menu_open:
+		for index in range(_pause_menu_labels().size()):
+			if _pause_menu_button_rect(viewport, index).has_point(pos):
+				return "pause_%d" % index
+		return ""
+	if game_over:
+		for index in range(2):
+			if _game_over_button_rect(viewport, index).has_point(pos):
+				return "game_over_%d" % index
+		return ""
+	if upgrade_open:
+		var upgrade_panel := _upgrade_panel_rect(viewport)
+		if _upgrade_close_rect(upgrade_panel).has_point(pos):
+			return "upgrade_close"
+		for index in range(_upgrade_tab_rects(upgrade_panel).size()):
+			if (_upgrade_tab_rects(upgrade_panel)[index] as Rect2).has_point(pos):
+				return "upgrade_tab_%d" % index
+		return "upgrade_action" if upgrade_panel.has_point(pos) else ""
+	if goals_open:
+		var goals_panel := _goals_panel_rect(viewport)
+		if _goal_prev_rect(goals_panel).has_point(pos):
+			return "goal_prev"
+		if _goal_next_rect(goals_panel).has_point(pos):
+			return "goal_next"
+		for index in range(GOALS_PER_PAGE):
+			if _goal_button_rect(goals_panel, index).has_point(pos):
+				return "goal_%d" % index
+		return ""
+	if _pause_hud_rect().has_point(pos):
+		return "pause"
+	if _upgrade_hud_rect().has_point(pos):
+		return "upgrade"
+	if _goals_hud_rect().has_point(pos):
+		return "goals"
+	var filter_id := _unit_filter_at(pos)
+	if filter_id != "":
+		return "filter_" + filter_id
+	if _speed_button_at(pos) > 0.0:
+		return "speed"
+	for button in _current_menu_buttons():
+		if pos.distance_to(button["pos"]) <= float(button["radius"]):
+			return "core_" + String(button["action"])
+	if show_status and selected_core >= 0 and _status_panel_rect().has_point(pos):
+		return "status"
+	return ""
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if splash_active:
 		return
+	if event is InputEventMouseMotion:
+		_update_audio_hover(event.position)
 	if main_menu_active:
 		if event is InputEventMouseMotion:
 			last_mouse = event.position
@@ -3164,10 +3307,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_handle_main_menu_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ESCAPE and main_menu_page != "main":
+				_play_sound("ui_cancel")
 				main_menu_page = "main"
 				queue_redraw()
 			elif event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 				if main_menu_page == "main":
+					_play_sound("ui_confirm")
 					_start_game_from_menu()
 		return
 	if offline_report_open:
@@ -3286,11 +3431,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_F5:
 			_save_game()
+			_play_sound("save")
 			toast("已保存", 2.0)
 		elif event.keycode == KEY_R:
 			_order_selected_expedition_return()
 		elif event.keycode == KEY_E:
 			upgrade_open = not upgrade_open
+			_play_sound("panel_open" if upgrade_open else "panel_close")
 			if upgrade_open:
 				goals_open = false
 				upgrade_core_id = selected_core if selected_core >= 0 else 0
@@ -3298,6 +3445,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				selected_tip_valid = false
 		elif event.keycode == KEY_G:
 			goals_open = not goals_open
+			_play_sound("panel_open" if goals_open else "panel_close")
 			if goals_open:
 				upgrade_open = false
 				selected_core = -1
@@ -3305,9 +3453,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_ESCAPE:
 			if upgrade_open:
 				upgrade_open = false
+				_play_sound("panel_close")
 				return
 			if goals_open:
 				goals_open = false
+				_play_sound("panel_close")
 				return
 			if selected_core >= 0 or selected_tip_valid or show_status or mode != "normal":
 				mode = "normal"
@@ -3320,6 +3470,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _zoom_at(screen_pos: Vector2, factor: float) -> void:
+	_play_sound("zoom_scan", 0.65)
 	var before := screen_to_world(screen_pos)
 	camera_zoom = clamp(camera_zoom * factor, 0.018, 2.4)
 	var after := screen_to_world(screen_pos)
@@ -3358,6 +3509,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		toast("镜头已定位到生态事件区域", 2.0)
 		return
 	if _upgrade_hud_rect().has_point(pos):
+		_play_sound("panel_open")
 		upgrade_open = true
 		upgrade_core_id = selected_core if selected_core >= 0 else 0
 		selected_core = -1
@@ -3365,6 +3517,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		show_status = false
 		return
 	if _goals_hud_rect().has_point(pos):
+		_play_sound("panel_open")
 		goals_open = true
 		upgrade_open = false
 		selected_core = -1
@@ -3374,6 +3527,7 @@ func _handle_left_click(pos: Vector2) -> void:
 	var speed_hit := _speed_button_at(pos)
 	if speed_hit > 0.0:
 		sim_speed = speed_hit
+		_play_sound("ui_confirm", clampf(0.65 + log(maxf(1.0, sim_speed)) * 0.08, 0.65, 1.15), true)
 		toast("测试速度：%d×" % int(sim_speed), 1.5)
 		return
 	if _minimap_rect().has_point(pos):
@@ -3404,6 +3558,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	var expedition_hit := _expedition_unit_at_screen(pos)
 	if expedition_hit >= 0:
+		_play_sound("select_unit")
 		selected_expedition_ids = [expedition_hit]
 		selected_core = -1
 		selected_tip_valid = false
@@ -3412,6 +3567,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	var core_hit := _core_at(pos)
 	if core_hit >= 0:
+		_play_sound("select_core")
 		core_selected_once = true
 		selected_expedition_ids.clear()
 		selected_core = core_hit
@@ -3422,6 +3578,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	var tip_hit := _tip_at(pos)
 	if not tip_hit.is_empty():
+		_play_sound("select_core", 0.72)
 		selected_expedition_ids.clear()
 		selected_tip = tip_hit["pos"]
 		selected_tip_core = int(tip_hit["core_id"])
@@ -3495,6 +3652,7 @@ func _upgrade_feeder_range(core_id: int) -> void:
 	organic -= cost
 	level += 1
 	cores[core_id]["feeder_range_level"] = level
+	_play_sound("upgrade")
 	toast("节点 Lv.%d　范围 %.0f μm　DNA 速度 +%d%%" % [level, _feeder_range_for_core(core_id) / 2.0, int(_dna_speed_bonus(core_id) * 100.0)], 4.0)
 
 
@@ -3509,6 +3667,7 @@ func _queue_dna(core_id: int) -> void:
 	var jobs: Array = cores[core_id]["jobs"]
 	var duration := _dna_job_duration(core_id)
 	jobs.append({"remaining": duration, "total": duration})
+	_play_sound("dna_queue")
 	toast("DNA 生产已排队（核心队列 %d）" % jobs.size(), 3.0)
 
 
@@ -3553,6 +3712,7 @@ func _purchase_diet(diet_id: String) -> void:
 		dna -= unlock_cost
 		diet_levels[diet_id] = 1
 		diet_order.append(diet_id)
+		_play_sound("upgrade")
 		toast("已确立%s　初始吸收效率 20%%" % DIET_NAMES[diet_id], 4.0)
 		return
 	if level >= 5:
@@ -3564,6 +3724,7 @@ func _purchase_diet(diet_id: String) -> void:
 		return
 	dna -= level_cost
 	diet_levels[diet_id] = level + 1
+	_play_sound("upgrade")
 	toast("%s效率提升至 %d%%" % [DIET_NAMES[diet_id], int(_diet_efficiency(diet_id) * 100.0)], 4.0)
 
 
@@ -3578,6 +3739,7 @@ func _purchase_barracks_unit(unit_id: String) -> void:
 		return
 	dna -= cost
 	barracks_unit_unlocks[unit_id] = true
+	_play_sound("upgrade")
 	toast("已解锁%s；现在可在兵营切换生产" % BARRACK_UNIT_NAMES.get(unit_id, unit_id), 4.0)
 
 
@@ -3601,6 +3763,7 @@ func _purchase_scout_upgrade(upgrade_id: String) -> void:
 		return
 	dna -= cost
 	scout_upgrade_levels[upgrade_id] = level + 1
+	_play_sound("upgrade")
 	if upgrade_id == "vision":
 		for unit in expedition_units:
 			if String(unit.get("unit_type", "forager")) == "scout":
@@ -3631,6 +3794,7 @@ func _purchase_diet_unit(diet_id: String, unit_id: String) -> void:
 		return
 	dna -= cost
 	diet_unit_unlocks[unit_id] = true
+	_play_sound("upgrade")
 	toast("已解锁%s；兵营生产列表已更新" % definition.get("name", unit_id), 4.0)
 
 
@@ -3657,6 +3821,7 @@ func _purchase_bacteria_component(component_id: String) -> void:
 		return
 	dna -= cost
 	bacteria_components[component_id] = level + 1
+	_play_sound("upgrade")
 	toast("%s　Lv.%d / 3" % [BACTERIA_COMPONENT_NAMES[component_id], level + 1], 4.0)
 
 
@@ -3697,6 +3862,7 @@ func _purchase_structure(structure_id: String) -> void:
 		return
 	dna -= cost
 	structure_levels[structure_id] = level + 1
+	_play_sound("upgrade")
 	toast("%s　Lv.%d / 4" % [STRUCTURE_NAMES[structure_id], level + 1], 4.0)
 
 
@@ -3736,6 +3902,7 @@ func _purchase_survival(survival_id: String) -> void:
 		return
 	dna -= cost
 	survival_levels[survival_id] = level + 1
+	_play_sound("upgrade")
 	if survival_id == "wall":
 		for core_id in range(cores.size()):
 			var core: Dictionary = cores[core_id]
@@ -3778,6 +3945,7 @@ func _create_secondary_core() -> void:
 	organic -= CORE_ORGANIC_COST
 	mineral -= CORE_MINERAL_COST
 	cores.append(_make_core(selected_tip))
+	_play_sound("core_build")
 	selected_core = cores.size() - 1
 	selected_tip_valid = false
 	mode = "normal"
@@ -3798,6 +3966,7 @@ func _create_barracks_core() -> void:
 	mineral -= BARRACKS_MINERAL_COST
 	dna -= BARRACKS_DNA_COST
 	cores.append(_make_core(selected_tip, "barracks"))
+	_play_sound("core_build", 1.15)
 	selected_core = cores.size() - 1
 	selected_tip_valid = false
 	mode = "normal"
@@ -3842,6 +4011,7 @@ func _confirm_extension(target: Vector2) -> void:
 	selected_tip_valid = false
 	selected_core = core_id
 	mode = "normal"
+	_play_sound("hypha_grow")
 	toast("菌丝开始生长　消耗有机营养 %d" % cost, 2.5)
 
 
@@ -3973,6 +4143,14 @@ func _draw_splash(viewport: Vector2) -> void:
 
 
 func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
+	if main_menu_page == "settings":
+		var very_compact := viewport.y <= 400.0
+		var compact_settings := viewport.y < 650.0
+		var settings_height := 24.0 if very_compact else (28.0 if compact_settings else 34.0)
+		var settings_first_y := 88.0 if very_compact else (110.0 if compact_settings else 155.0)
+		var settings_step := 28.0 if very_compact else (34.0 if compact_settings else 42.0)
+		var settings_size := Vector2(minf(320.0, viewport.x - 40.0), settings_height)
+		return Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - settings_size.x * 0.5, settings_first_y + index * settings_step)), settings_size)
 	var compact := viewport.y < 500.0
 	var size := Vector2(minf(320.0, viewport.x - 40.0), 34.0 if compact else 46.0)
 	var first_y := viewport.y * (0.42 if compact else 0.49)
@@ -3985,6 +4163,11 @@ func _main_menu_labels() -> Array[String]:
 		return [
 			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
 			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
+			"总音量　%d%%" % int(round(settings_master_volume * 100.0)),
+			"界面音效　%d%%" % int(round(settings_ui_volume * 100.0)),
+			"菌落音效　%d%%" % int(round(settings_world_volume * 100.0)),
+			"战斗音效　%d%%" % int(round(settings_combat_volume * 100.0)),
+			"背景音　%d%%" % int(round(settings_ambient_volume * 100.0)),
 			"返回"
 		]
 	if main_menu_page == "new_confirm":
@@ -4003,19 +4186,29 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		var y := fmod(float(i * 97 + 31), viewport.y)
 		var size := 2.0 if i % 4 else 4.0
 		draw_rect(Rect2(_pixel_snap(Vector2(x, y)), Vector2.ONE * size), Color(0.24, 0.70, 0.57, 0.10 if i % 3 else 0.18))
-	var glow_center := Vector2(viewport.x * 0.5, viewport.y * 0.22)
-	draw_circle(glow_center, minf(230.0, viewport.y * 0.32), Color(0.05, 0.25, 0.21, 0.20))
 	var compact := viewport.y < 500.0
-	var logo_size := minf(96.0, viewport.y * 0.25) if compact else minf(270.0, viewport.y * 0.38)
-	var logo_rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - logo_size * 0.5, 8.0)), Vector2.ONE * logo_size)
-	if splash_logo != null:
-		draw_texture_rect(splash_logo, logo_rect, false)
-	var title := "Game: Super boring fungi"
-	var title_size := fallback_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20)
-	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - title_size.x * 0.5, viewport.y * (0.29 if compact else 0.405))), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, COLOR_HYPHA)
-	var subtitle := "第一章 · 实验室培养"
-	var subtitle_size := fallback_font.get_string_size(subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
-	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - subtitle_size.x * 0.5, viewport.y * (0.35 if compact else 0.445))), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	if main_menu_page == "settings":
+		# 设置页使用紧凑标题，避免八个选项在低分辨率下与主菜单 Logo 重叠。
+		var settings_title := "设置 · 像素实验室星云"
+		var settings_title_size := fallback_font.get_string_size(settings_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18)
+		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - settings_title_size.x * 0.5, 38.0)), settings_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLOR_HYPHA)
+		var settings_subtitle := "五路音量独立调节 · 0% 即静音"
+		var settings_subtitle_size := fallback_font.get_string_size(settings_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
+		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - settings_subtitle_size.x * 0.5, 62.0)), settings_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		draw_line(Vector2(viewport.x * 0.5 - 110.0, 72.0), Vector2(viewport.x * 0.5 + 110.0, 72.0), Color(0.24, 0.70, 0.57, 0.42), 2.0)
+	else:
+		var glow_center := Vector2(viewport.x * 0.5, viewport.y * 0.22)
+		draw_circle(glow_center, minf(230.0, viewport.y * 0.32), Color(0.05, 0.25, 0.21, 0.20))
+		var logo_size := minf(96.0, viewport.y * 0.25) if compact else minf(270.0, viewport.y * 0.38)
+		var logo_rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - logo_size * 0.5, 8.0)), Vector2.ONE * logo_size)
+		if splash_logo != null:
+			draw_texture_rect(splash_logo, logo_rect, false)
+		var title := "Game: Super boring fungi"
+		var title_size := fallback_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20)
+		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - title_size.x * 0.5, viewport.y * (0.29 if compact else 0.405))), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, COLOR_HYPHA)
+		var subtitle := "第一章 · 实验室培养"
+		var subtitle_size := fallback_font.get_string_size(subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
+		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - subtitle_size.x * 0.5, viewport.y * (0.35 if compact else 0.445))), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
 	var labels := _main_menu_labels()
 	for i in range(labels.size()):
@@ -4042,6 +4235,7 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 	for i in range(labels.size()):
 		if not _main_menu_button_rect(viewport, i).has_point(pos):
 			continue
+		_play_sound("ui_click")
 		if main_menu_page == "settings":
 			if i == 0:
 				settings_fullscreen = not settings_fullscreen
@@ -4051,7 +4245,10 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 				settings_pixel_cursor = not settings_pixel_cursor
 				_apply_settings()
 				_save_settings()
+			elif i >= 2 and i <= 6:
+				_cycle_audio_volume(i - 2)
 			else:
+				_play_sound("panel_close")
 				main_menu_page = "main"
 		elif main_menu_page == "new_confirm":
 			if i == 0:
@@ -4100,6 +4297,7 @@ func _start_game_from_menu() -> void:
 
 
 func _begin_new_culture() -> void:
+	_play_sound("core_build", 1.15)
 	_start_new_culture()
 	game_started = true
 	main_menu_active = false
@@ -4225,21 +4423,52 @@ func _load_settings() -> void:
 	if parsed is Dictionary:
 		settings_fullscreen = bool(parsed.get("fullscreen", false))
 		settings_pixel_cursor = bool(parsed.get("pixel_cursor", true))
+		settings_master_volume = clampf(float(parsed.get("master_volume", 0.80)), 0.0, 1.0)
+		settings_ui_volume = clampf(float(parsed.get("ui_volume", 0.75)), 0.0, 1.0)
+		settings_world_volume = clampf(float(parsed.get("world_volume", 0.65)), 0.0, 1.0)
+		settings_combat_volume = clampf(float(parsed.get("combat_volume", 0.70)), 0.0, 1.0)
+		settings_ambient_volume = clampf(float(parsed.get("ambient_volume", 0.35)), 0.0, 1.0)
 
 
 func _save_settings() -> void:
 	var file := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
 	if file:
-		file.store_string(JSON.stringify({"fullscreen": settings_fullscreen, "pixel_cursor": settings_pixel_cursor}))
+		file.store_string(JSON.stringify({
+			"fullscreen": settings_fullscreen,
+			"pixel_cursor": settings_pixel_cursor,
+			"master_volume": settings_master_volume,
+			"ui_volume": settings_ui_volume,
+			"world_volume": settings_world_volume,
+			"combat_volume": settings_combat_volume,
+			"ambient_volume": settings_ambient_volume
+		}))
 
 
 func _apply_settings() -> void:
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings_fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
-	if settings_pixel_cursor and cursor_texture != null:
-		Input.set_custom_mouse_cursor(cursor_texture, Input.CURSOR_ARROW, Vector2(4.0, 3.0))
-	else:
-		Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
+		if settings_pixel_cursor and cursor_texture != null:
+			Input.set_custom_mouse_cursor(cursor_texture, Input.CURSOR_ARROW, Vector2(4.0, 3.0))
+		else:
+			Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
+	if pixel_audio != null:
+		pixel_audio.configure(settings_master_volume, settings_ui_volume, settings_world_volume, settings_combat_volume, settings_ambient_volume)
+
+
+func _cycle_audio_volume(index: int) -> void:
+	match index:
+		0: settings_master_volume = _next_volume_step(settings_master_volume)
+		1: settings_ui_volume = _next_volume_step(settings_ui_volume)
+		2: settings_world_volume = _next_volume_step(settings_world_volume)
+		3: settings_combat_volume = _next_volume_step(settings_combat_volume)
+		4: settings_ambient_volume = _next_volume_step(settings_ambient_volume)
+	_apply_settings()
+	_save_settings()
+	_play_sound("ui_confirm", 0.85, true)
+
+
+func _next_volume_step(value: float) -> float:
+	return float((clampi(roundi(value * 4.0), 0, 4) + 1) % 5) / 4.0
 
 
 func _draw_dish_overview(viewport: Vector2) -> void:
@@ -5327,6 +5556,7 @@ func _claim_goal(goal_id: String) -> void:
 		mineral += float(reward.get("mineral", 0.0))
 		dna += int(reward.get("dna", 0))
 		goals_claimed[goal_id] = true
+		_play_sound("goal")
 		toast("目标奖励已领取：%s" % goal["reward_text"], 4.0)
 		return
 
@@ -5350,6 +5580,8 @@ func _goal_next_rect(panel: Rect2) -> Rect2:
 
 func _handle_goals_click(pos: Vector2) -> void:
 	var panel := _goals_panel_rect(get_viewport_rect().size)
+	if panel.has_point(pos):
+		_play_sound("ui_click", 0.72)
 	var close_rect := Rect2(panel.end - Vector2(54, panel.size.y - 20), Vector2(34, 28))
 	if close_rect.has_point(pos):
 		goals_open = false
@@ -5502,6 +5734,8 @@ func _scout_upgrade_button_rect(panel: Rect2, upgrade_id: String) -> Rect2:
 
 func _handle_upgrade_click(pos: Vector2) -> void:
 	var panel := _upgrade_panel_rect(get_viewport_rect().size)
+	if panel.has_point(pos):
+		_play_sound("ui_click", 0.72)
 	if _upgrade_close_rect(panel).has_point(pos):
 		upgrade_open = false
 		return
@@ -6276,6 +6510,11 @@ func _pause_menu_labels() -> Array[String]:
 		return [
 			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
 			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
+			"总音量　%d%%" % int(round(settings_master_volume * 100.0)),
+			"界面音效　%d%%" % int(round(settings_ui_volume * 100.0)),
+			"菌落音效　%d%%" % int(round(settings_world_volume * 100.0)),
+			"战斗音效　%d%%" % int(round(settings_combat_volume * 100.0)),
+			"背景音　%d%%" % int(round(settings_ambient_volume * 100.0)),
 			"返回"
 		]
 	if pause_menu_page == "restart_confirm":
@@ -6284,7 +6523,7 @@ func _pause_menu_labels() -> Array[String]:
 
 
 func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
-	var height := 410.0 if pause_menu_page == "main" else (300.0 if pause_menu_page == "settings" else 260.0)
+	var height := 410.0 if pause_menu_page == "main" else (480.0 if pause_menu_page == "settings" else 260.0)
 	var size := Vector2(minf(480.0, viewport.x - 40.0), minf(height, viewport.y - 40.0))
 	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
 
@@ -6293,7 +6532,7 @@ func _pause_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := _pause_menu_panel_rect(viewport)
 	var count := maxi(1, _pause_menu_labels().size())
 	var step := minf(54.0, (panel.size.y - 118.0) / float(count))
-	var size := Vector2(minf(330.0, panel.size.x - 48.0), clampf(step - 6.0, 30.0, 42.0))
+	var size := Vector2(minf(330.0, panel.size.x - 48.0), clampf(step - 4.0, 20.0, 42.0))
 	return Rect2(_pixel_snap(Vector2(panel.get_center().x - size.x * 0.5, panel.position.y + 72.0 + index * step)), size)
 
 
@@ -6333,6 +6572,7 @@ func _open_pause_menu() -> void:
 	if game_over or main_menu_active or offline_report_open or chapter_report_open:
 		return
 	pause_menu_open = true
+	_play_sound("panel_open")
 	pause_menu_page = "main"
 	pause_menu_notice = ""
 	selected_core = -1
@@ -6346,6 +6586,7 @@ func _close_pause_menu() -> void:
 	if game_over:
 		return
 	pause_menu_open = false
+	_play_sound("panel_close")
 	pause_menu_page = "main"
 	pause_menu_notice = ""
 	queue_redraw()
@@ -6357,6 +6598,7 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 	for i in range(labels.size()):
 		if not _pause_menu_button_rect(viewport, i).has_point(pos):
 			continue
+		_play_sound("ui_click")
 		if pause_menu_page == "settings":
 			if i == 0:
 				settings_fullscreen = not settings_fullscreen
@@ -6366,7 +6608,10 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 				settings_pixel_cursor = not settings_pixel_cursor
 				_apply_settings()
 				_save_settings()
+			elif i >= 2 and i <= 6:
+				_cycle_audio_volume(i - 2)
 			else:
+				_play_sound("panel_close")
 				pause_menu_page = "main"
 		elif pause_menu_page == "restart_confirm":
 			if i == 0:
@@ -6381,6 +6626,7 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 				0: _close_pause_menu()
 				1:
 					_save_game()
+					_play_sound("save")
 					pause_menu_notice = "培养记录已保存"
 				2:
 					pause_menu_page = "settings"
@@ -6501,6 +6747,7 @@ func _draw_offline_report(viewport: Vector2) -> void:
 
 
 func _close_offline_report() -> void:
+	_play_sound("panel_close")
 	offline_report_open = false
 	_update_chapter_flow(false)
 	queue_redraw()
@@ -6565,8 +6812,10 @@ func _draw_chapter_report(viewport: Vector2) -> void:
 
 func _handle_chapter_report_click(pos: Vector2) -> void:
 	if _chapter_report_button_rect(get_viewport_rect().size, 0).has_point(pos):
+		_play_sound("ui_click")
 		_close_chapter_report(false)
 	elif _chapter_report_button_rect(get_viewport_rect().size, 1).has_point(pos):
+		_play_sound("ui_click")
 		_close_chapter_report(true)
 
 
@@ -6604,6 +6853,10 @@ func _rounded_style(background: Color, border: Color, radius: int, border_width 
 func toast(message: String, seconds := 2.5) -> void:
 	toast_text = message
 	toast_time = seconds
+	for marker in ["不足", "需要先", "无法", "不能", "太近", "已达到", "队列已满", "请点击"]:
+		if message.contains(marker):
+			_play_sound("ui_error")
+			break
 
 
 func _save_game() -> void:
@@ -7351,6 +7604,7 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		"living_cores_after": _living_core_count()
 	}
 	offline_report_open = true
+	_play_sound("discovery", 0.9)
 	toast_text = ""
 	toast_time = 0.0
 	discovery_banner_time = 0.0
