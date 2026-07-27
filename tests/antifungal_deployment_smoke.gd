@@ -30,7 +30,7 @@ func _run() -> void:
 		return
 	if not _check(is_equal_approx(float(game.UNIT_ORGANIC_COSTS["antifungal"]), 18.0) and is_equal_approx(float(game.UNIT_MINERAL_COSTS["antifungal"]), 2.0) and is_equal_approx(float(game.UNIT_BUILD_SECONDS["antifungal"]), 58.0) and is_equal_approx(float(game.UNIT_MAX_BIOMASS["antifungal"]), 14.0), "antifungal production balance should match v0.29"):
 		return
-	if not _check(game._unit_filter_ids().has("antifungal") and game._unit_filter_ids().size() == 10, "antifungal pod should have its own unit filter"):
+	if not _check(game._unit_filter_ids().has("antifungal") and game._unit_filter_ids().size() == 11, "antifungal pod should have its own unit filter"):
 		return
 
 	var barracks_id: int = game.cores.size()

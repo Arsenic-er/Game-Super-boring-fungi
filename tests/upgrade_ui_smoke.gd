@@ -130,10 +130,15 @@ func _run() -> void:
 		quit(1)
 		return
 	var filter_rects: Array = game._unit_filter_rects()
-	if filter_rects.size() != 10 or (filter_rects.front()["rect"] as Rect2).position.x < game._resource_bar_rect().end.x or (filter_rects.back()["rect"] as Rect2).end.x >= game._minimap_rect().position.x:
-		push_error("UPGRADE_UI_FAIL: ten unit filters should fit between the resource bar and minimap")
+	if filter_rects.size() != 11 or (filter_rects.front()["rect"] as Rect2).position.x < game._resource_bar_rect().end.x or (filter_rects.back()["rect"] as Rect2).end.x >= game._minimap_rect().position.x:
+		push_error("UPGRADE_UI_FAIL: eleven unit filters should fit between the resource bar and minimap")
 		quit(1)
 		return
+	for index in range(1, filter_rects.size()):
+		if (filter_rects[index - 1]["rect"] as Rect2).intersects(filter_rects[index]["rect"] as Rect2):
+			push_error("UPGRADE_UI_FAIL: unit filters must not overlap")
+			quit(1)
+			return
 	game.show_status = false
 	game.selected_core = 0
 	game.mode = "place_barracks"
@@ -295,6 +300,6 @@ func _run() -> void:
 		push_error("UPGRADE_UI_FAIL: panel is unexpectedly small")
 		quit(1)
 		return
-	print("UPGRADE_UI_OK panel=", panel, " tabs=5 menus=session-rendered barracks_queue=rendered rally=rendered filters=10 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered sporefall=rendered offline_report=rendered chapter_flow=rendered goal_pages=4 expedition_units=2 dish_zoom=", game.camera_zoom)
+	print("UPGRADE_UI_OK panel=", panel, " tabs=5 menus=session-rendered barracks_queue=rendered rally=rendered filters=11 rival_fungus=rendered discovery_banner=rendered ecology_event=rendered sporefall=rendered offline_report=rendered chapter_flow=rendered goal_pages=4 expedition_units=2 dish_zoom=", game.camera_zoom)
 	game.queue_free()
 	quit(0)

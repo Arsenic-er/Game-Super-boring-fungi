@@ -19,6 +19,7 @@ func _run() -> void:
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
+	game.bacteria.clear()
 	while game.bacteria.size() < game.MAX_BACTERIA:
 		var index: int = game.bacteria.size()
 		var offset := Vector2(float(index % 21) * 4.0, float(index / 21) * 4.0)
@@ -32,17 +33,25 @@ func _run() -> void:
 	game.diet_levels["bacteria"] = 1
 	game.diet_levels["fungi"] = 1
 	game.diet_unit_unlocks["suppressor"] = true
+	game.diet_unit_unlocks["disperser"] = true
 	game.diet_unit_unlocks["antifungal"] = true
 	game.scout_upgrade_levels["vision"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	game.scout_upgrade_levels["speed"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	for i in range(game.MAX_EXPEDITION_SPORES):
-		var unit_type := "suppressor" if i < game.MAX_EXPEDITION_SPORES / 2 else "antifungal"
+		var unit_type := "suppressor" if i < 16 else ("antifungal" if i < 32 else "disperser")
 		game._spawn_expedition_spore(barracks_id, unit_type)
 		var deployed: Dictionary = game.expedition_units.back()
-		deployed["state"] = "deployed"
-		deployed["deploy_progress"] = game._deploy_seconds_for_unit(unit_type)
-		# 全部布在目标群远处，迫使细菌和敌方菌丝扫描全部对应部署中心。
-		deployed["pos"] = Vector2(-4200.0 + float(i % 16) * 45.0, 3000.0 + float(i / 16) * 45.0)
+		if unit_type == "disperser":
+			deployed["state"] = "attacking"
+			deployed["target_kind"] = "bacteria"
+			deployed["target_pos"] = Vector2(350.0, -92.0)
+			deployed["pos"] = Vector2(278.0, -92.0)
+			deployed["burst_cooldown"] = 0.0
+		else:
+			deployed["state"] = "deployed"
+			deployed["deploy_progress"] = game._deploy_seconds_for_unit(unit_type)
+			# Keep persistent zones far from the colony while measuring synchronized AoE bursts.
+			deployed["pos"] = Vector2(-4200.0 + float(i % 16) * 45.0, 3000.0 + float(i / 16) * 45.0)
 	game.ecology_events = [{
 		"id": 1,
 		"type": "toxin",
@@ -80,6 +89,10 @@ func _run() -> void:
 		if i % 12 == 0:
 			game._discover_feeders()
 	var elapsed_ms := float(Time.get_ticks_usec() - started) / 1000.0
+	if game.lifetime_disperser_best_hit < 400:
+		push_error("PERFORMANCE_FAIL: synchronized dispersers did not execute the intended dense AoE scan (best=%d)" % game.lifetime_disperser_best_hit)
+		quit(1)
+		return
 	if elapsed_ms > 3000.0:
 		push_error("PERFORMANCE_FAIL: 420-bacteria accelerated simulation took %.1f ms" % elapsed_ms)
 		quit(1)
@@ -95,6 +108,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=32 antifungal_zones=32 enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)
