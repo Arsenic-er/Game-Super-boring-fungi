@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.32.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.33.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -30,6 +30,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Telegraphing bacterial ecology events: contain a local bloom with predation or expedition spores, or survive a temporary toxin zone with antibiotics, detoxification, and repair reserves.
 - A fog-hidden rival fungus that consumes real organic resources, slowly extends its own hyphae, and damages player cores after physical contact.
 - Rival colonies now spend real organic reserves to hatch mobile guard spores. They patrol the enemy hyphal network, pursue nearby expedition spores, disengage beyond their leash, accept direct right-click focus-fire orders, and slowly decay when their parent core dies.
+- Selected foragers and fungi-specialist piercers can now receive a persistent square defense zone. They patrol within it, prioritize hostile guards before rival cores, abandon targets that leave the boundary, and resume the saved patrol after returning or repairing.
 - Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Fungi-diet progression also unlocks coil hunters: order them onto individual enemy hyphae to sever supply lines, make dependent branches fade over 90 seconds, and earn the new severing objective while the rival regrows from its surviving network.
 - Fungi-diet progression now adds reusable antifungal pods: unfold a 75 μm lockdown field to reduce rival nutrient absorption and regrowth to 35%, double the decay of severed hyphae, and complete a dedicated containment objective without dealing direct damage.
@@ -50,6 +51,8 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Top unit filters: select all units or all units of one unlocked role
 - Left drag: rectangular unit selection
 - Right click: issue movement, gathering, combat, hypha-severing, or deployable-zone orders
+- `Z` or the defense button: enter defense mode, then right-drag a square patrol zone
+- `C` or the clear button: remove the selected units' persistent defense zones
 - `R`: return selected expedition spores to their barracks
 - Right drag / middle drag: move the camera
 - Mouse wheel: zoom
@@ -79,7 +82,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.32.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.33.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -108,6 +111,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 带预警的细菌生态事件：通过捕食和体外部队压制局部暴发，或利用抗生素、解毒代谢和修复储备熬过临时毒素区。
 - 隐藏在探索黑幕后的竞争性真菌会消耗地图真实有机营养、缓慢延伸自己的菌丝，并在接触后侵染我方核心。
 - 竞争菌落现在会消耗真实有机储备孵化移动守卫孢子：它们沿敌方菌丝巡逻、追击附近的我方远征孢子、超出警戒范围后脱战返回；玩家可以右键集火，母体核心死亡后守卫会缓慢衰亡。
+- 已选中的游猎孢子和真菌专属穿壁孢子现在可以设置持久正方形防区：单位在区内巡逻、优先拦截敌方守卫再攻击竞争核心；目标越界后立即脱战，返巢修复后仍会继续执行已保存的防区任务。
 - 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 真菌食性还可解锁“缠丝猎手”：把它右键指派到一段敌方菌丝后可切断供给线，使依赖该段的远端分支在90秒内逐渐暗淡、失活；竞争菌仍会从幸存网络重新生长，并新增“断丝战术”目标。
 - 真菌食性新增可重复部署的“抗真菌囊体”：展开半径75 μm的封锁区，把竞争真菌的营养吸收和再扩张压至35%，令已切断菌丝以两倍速度衰败；封锁区不直接造成伤害，并配有独立长期目标。
@@ -125,6 +129,8 @@ The source code, visual assets, game design, text, and other repository contents
 - 顶部兵种筛选：选中全部单位或某一已解锁兵种
 - 左键拖动：矩形框选部队
 - 右键：下达移动、采集、战斗、切断敌方菌丝或部署区域囊体的命令
+- `Z` 或“设防”按钮：进入设防模式，再按住右键拖出正方形巡逻区
+- `C` 或“清除”按钮：移除所选单位的持久防区
 - `R`：让已选中的体外孢子返回所属兵营
 - 右键拖动 / 中键拖动：移动镜头
 - 鼠标滚轮：缩放

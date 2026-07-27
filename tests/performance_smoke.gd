@@ -104,6 +104,28 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: 420-bacteria accelerated simulation took %.1f ms" % elapsed_ms)
 		quit(1)
 		return
+	var defense_zone := Rect2(Vector2(240.0, -180.0), Vector2(120.0, 120.0))
+	game.selected_expedition_ids.clear()
+	for unit_index in range(game.expedition_units.size()):
+		var unit: Dictionary = game.expedition_units[unit_index]
+		unit["unit_type"] = "forager"
+		unit["pos"] = defense_zone.get_center() + Vector2(float(unit_index % 8) - 3.5, float(unit_index / 8) - 3.5) * 5.0
+		unit["state"] = "guarding"
+		unit["target_kind"] = ""
+		unit["defense_enabled"] = true
+		unit["defense_min"] = defense_zone.position
+		unit["defense_max"] = defense_zone.end
+		unit["defense_patrol_index"] = unit_index % 5
+		unit["search_cooldown"] = 0.0
+		game.selected_expedition_ids.append(int(unit["id"]))
+	var defense_started := Time.get_ticks_usec()
+	for i in range(120):
+		game._update_expedition_units(0.1, false)
+	var defense_ms := float(Time.get_ticks_usec() - defense_started) / 1000.0
+	if defense_ms > 2000.0:
+		push_error("PERFORMANCE_FAIL: 64 persistent defenders took %.1f ms" % defense_ms)
+		quit(1)
+		return
 	game.camera_zoom = 0.018
 	game.camera_center = Vector2.ZERO
 	var render_started := Time.get_ticks_usec()
@@ -115,6 +137,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " defenders=64 defense_ms=", "%.1f" % defense_ms, " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)

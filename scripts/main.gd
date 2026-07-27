@@ -177,6 +177,8 @@ const EXPEDITION_ATTACK_RATE := 0.060
 const EXPEDITION_SEARCH_RADIUS := 260.0
 const EXPEDITION_OPERATING_RADIUS := 280.0
 const EXPEDITION_ARRIVAL_DISTANCE := 10.0
+const DEFENSE_ZONE_MIN_SIDE := 80.0
+const DEFENSE_ZONE_MAX_SIDE := 900.0
 const EXPEDITION_RETREAT_FRACTION := 0.30
 const EXPEDITION_REPAIR_RATE := 0.080
 const EXPEDITION_BACTERIA_COUNTER_RATE := 0.025
@@ -318,6 +320,9 @@ var selection_start := Vector2.ZERO
 var selection_current := Vector2.ZERO
 var right_press_pos := Vector2.ZERO
 var right_dragged := false
+var defense_zone_drawing := false
+var defense_zone_start_world := Vector2.ZERO
+var defense_zone_current_world := Vector2.ZERO
 var selected_expedition_ids: Array = []
 var unit_selection_filter := "all"
 var toast_text := ""
@@ -1659,6 +1664,10 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"target_enemy_id": -1,
 		"target_enemy_hypha_id": -1,
 		"target_enemy_guard_id": -1,
+		"defense_enabled": false,
+		"defense_min": spawn_pos,
+		"defense_max": spawn_pos,
+		"defense_patrol_index": 0,
 		"deploy_progress": 0.0,
 		"burst_cooldown": DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0,
 		"burst_flash": 0.0,
@@ -1750,11 +1759,6 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		if not home.is_finite():
 			_mark_expedition_lost(unit, "失去全部菌落核心")
 			continue
-		# Rival guards are fully frozen during offline settlement. Preserve an
-		# in-flight command exactly so it is not moved or silently detached.
-		if offline_simulating and String(unit.get("target_kind", "")) == "enemy_guard":
-			surviving.append(unit)
-			continue
 		if not offline_simulating or offline_expedition_toxin_active:
 			var toxin_rate := _ecology_toxin_damage_rate_at(unit["pos"]) * 0.50
 			if toxin_rate > 0.0:
@@ -1765,6 +1769,13 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		if _should_expedition_retreat(unit) and state != "retreating" and state != "repairing" and state != "wounded":
 			_set_expedition_retreat(unit, "生物量过低")
 			state = "retreating"
+		# Offline settlement still applies capped toxin damage and low-biomass
+		# retreat, but does not advance mobile defense or guard combat commands.
+		if offline_simulating and (bool(unit.get("defense_enabled", false)) or String(unit.get("target_kind", "")) == "enemy_guard") and not ["returning", "retreating", "repairing", "wounded"].has(state):
+			surviving.append(unit)
+			continue
+		_enforce_defense_zone(unit)
+		state = String(unit.get("state", state))
 		if state == "returning" or state == "retreating":
 			_move_expedition_unit(unit, home, sim_delta)
 			if (unit["pos"] as Vector2).distance_to(home) <= EXPEDITION_ARRIVAL_DISTANCE:
@@ -1835,7 +1846,10 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		else:
 			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
 			if float(unit["search_cooldown"]) <= 0.0:
-				_acquire_expedition_target(unit)
+				if bool(unit.get("defense_enabled", false)):
+					_acquire_defense_target(unit)
+				else:
+					_acquire_expedition_target(unit)
 				unit["search_cooldown"] = _scout_search_cooldown() if String(unit.get("unit_type", "forager")) == "scout" else 2.0
 		if float(unit.get("biomass", 0.0)) <= 0.0005:
 			continue
@@ -2213,6 +2227,232 @@ func _update_expedition_hypha_attack(unit: Dictionary, sim_delta: float) -> void
 		unit["target_enemy_hypha_id"] = -1
 	elif not offline_simulating or offline_expedition_combat_active:
 		_damage_expedition_unit(unit, EXPEDITION_HYPHA_COUNTER_RATE * multiplier * sim_delta, "菌丝缠绕反击")
+
+
+func _defense_rect(unit: Dictionary) -> Rect2:
+	if not bool(unit.get("defense_enabled", false)):
+		return Rect2()
+	var minimum: Vector2 = unit.get("defense_min", unit.get("pos", Vector2.ZERO))
+	var maximum: Vector2 = unit.get("defense_max", minimum)
+	if not minimum.is_finite() or not maximum.is_finite():
+		return Rect2()
+	var position := Vector2(minf(minimum.x, maximum.x), minf(minimum.y, maximum.y))
+	var size := (maximum - minimum).abs()
+	if size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or size.y < DEFENSE_ZONE_MIN_SIDE - 0.01:
+		return Rect2()
+	return Rect2(position, size)
+
+
+func _defense_zone_within_operating_range(zone: Rect2, unit: Dictionary) -> bool:
+	var radius := _expedition_operating_radius(unit)
+	var points := [zone.position, Vector2(zone.end.x, zone.position.y), zone.end, Vector2(zone.position.x, zone.end.y), zone.get_center()]
+	for point_variant in points:
+		var point: Vector2 = point_variant
+		if _distance_to_colony(point) > radius + 0.01:
+			return false
+	return true
+
+
+func _unit_can_defend_fungi(unit: Dictionary) -> bool:
+	var unit_type := String(unit.get("unit_type", "forager"))
+	return unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0)
+
+
+func _square_defense_rect(start_world: Vector2, end_world: Vector2) -> Rect2:
+	var start := Vector2(clampf(start_world.x, -WORLD_HALF, WORLD_HALF), clampf(start_world.y, -WORLD_HALF, WORLD_HALF))
+	var finish := Vector2(clampf(end_world.x, -WORLD_HALF, WORLD_HALF), clampf(end_world.y, -WORLD_HALF, WORLD_HALF))
+	var delta := finish - start
+	var side := clampf(maxf(absf(delta.x), absf(delta.y)), DEFENSE_ZONE_MIN_SIDE, DEFENSE_ZONE_MAX_SIDE)
+	var direction := Vector2(-1.0 if delta.x < 0.0 else 1.0, -1.0 if delta.y < 0.0 else 1.0)
+	finish = start + direction * side
+	var position := Vector2(minf(start.x, finish.x), minf(start.y, finish.y))
+	position.x = clampf(position.x, -WORLD_HALF, WORLD_HALF - side)
+	position.y = clampf(position.y, -WORLD_HALF, WORLD_HALF - side)
+	return Rect2(position, Vector2.ONE * side)
+
+
+func _begin_defense_zone_mode() -> void:
+	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
+		return
+	if selected_expedition_ids.is_empty():
+		_play_sound("ui_error")
+		toast("请先选择可以出击的体外孢子", 2.2)
+		return
+	var eligible := 0
+	for unit in expedition_units:
+		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_defend_fungi(unit) and not _is_deployable_unit_type(String(unit.get("unit_type", "forager"))):
+			eligible += 1
+	if eligible == 0:
+		_play_sound("ui_error")
+		toast("当前选择中没有可执行真菌防御的单位", 2.5)
+		return
+	mode = "defense_zone"
+	defense_zone_drawing = false
+	_play_sound("ui_confirm")
+	toast("按住右键拖出正方形防区；Esc 取消", 3.0)
+
+
+func _clear_unit_defense(unit: Dictionary) -> void:
+	var was_enabled := bool(unit.get("defense_enabled", false))
+	unit["defense_enabled"] = false
+	if not was_enabled or ["returning", "retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+		return
+	unit["state"] = "idle"
+	unit["target_kind"] = ""
+	unit["target_enemy_id"] = -1
+	unit["target_enemy_hypha_id"] = -1
+	unit["target_enemy_guard_id"] = -1
+	unit["manual"] = false
+
+
+func _clear_selected_defense_zones() -> void:
+	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
+		return
+	var cleared := 0
+	for unit in expedition_units:
+		if selected_expedition_ids.has(int(unit.get("id", -1))) and bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
+			cleared += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	if cleared > 0:
+		_play_sound("ui_cancel")
+		toast("已清除 %d 个单位的防区" % cleared, 2.0)
+	else:
+		_play_sound("ui_error")
+		toast("所选单位没有已设置的防区", 1.8)
+
+
+func _assign_defense_zone(start_world: Vector2, end_world: Vector2) -> int:
+	var zone := _square_defense_rect(start_world, end_world)
+	var assigned := 0
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))) or not _unit_can_defend_fungi(unit) or _is_deployable_unit_type(String(unit.get("unit_type", "forager"))):
+			continue
+		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			continue
+		if not _defense_zone_within_operating_range(zone, unit):
+			continue
+		unit["defense_enabled"] = true
+		unit["defense_min"] = zone.position
+		unit["defense_max"] = zone.end
+		unit["defense_patrol_index"] = int(unit.get("id", 0)) % 5
+		unit["target_resource_id"] = -1
+		unit["target_enemy_id"] = -1
+		unit["target_enemy_hypha_id"] = -1
+		unit["target_enemy_guard_id"] = -1
+		_set_next_defense_patrol(unit)
+		assigned += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	if assigned > 0:
+		_play_sound("command", clampf(0.82 + assigned * 0.02, 0.82, 1.2))
+		toast("已为 %d 个单位设置持久防区" % assigned, 2.4)
+	else:
+		_play_sound("ui_error")
+		toast("防区超出菌落行动范围，或单位暂时无法执行", 2.8)
+	return assigned
+
+
+func _set_next_defense_patrol(unit: Dictionary) -> void:
+	var zone := _defense_rect(unit)
+	if zone.size.x <= 0.0:
+		_clear_unit_defense(unit)
+		return
+	var route: Array[Vector2] = [Vector2(0.5, 0.5), Vector2(0.2, 0.2), Vector2(0.8, 0.2), Vector2(0.8, 0.8), Vector2(0.2, 0.8)]
+	var patrol_index := posmod(int(unit.get("defense_patrol_index", 0)), route.size())
+	var point: Vector2 = zone.position + zone.size * route[patrol_index]
+	unit["defense_patrol_index"] = (patrol_index + 1) % route.size()
+	point = _clamp_expedition_command_target(point, _expedition_operating_radius(unit))
+	if not zone.grow(0.1).has_point(point):
+		point = zone.get_center()
+	unit["target_kind"] = "defense_patrol"
+	unit["target_pos"] = point
+	unit["target_resource_id"] = -1
+	unit["target_enemy_id"] = -1
+	unit["target_enemy_hypha_id"] = -1
+	unit["target_enemy_guard_id"] = -1
+	unit["state"] = "moving"
+	unit["manual"] = true
+	unit["command_until"] = sim_time + 3.0
+
+
+func _acquire_defense_target(unit: Dictionary) -> void:
+	var zone := _defense_rect(unit)
+	if zone.size.x <= 0.0 or not _unit_can_defend_fungi(unit):
+		_set_next_defense_patrol(unit)
+		return
+	var pos: Vector2 = unit["pos"]
+	var best_guard_index := -1
+	var best_distance := INF
+	for guard_index in range(enemy_guard_spores.size()):
+		var guard: Dictionary = enemy_guard_spores[guard_index]
+		var guard_pos: Vector2 = guard["pos"]
+		if not bool(guard.get("alive", true)) or not zone.grow(0.1).has_point(guard_pos) or not _is_world_explored(guard_pos) or _distance_to_colony(guard_pos) > _expedition_operating_radius(unit) + 0.01:
+			continue
+		var distance := pos.distance_squared_to(guard_pos)
+		if distance < best_distance:
+			best_distance = distance
+			best_guard_index = guard_index
+	if best_guard_index >= 0:
+		var guard: Dictionary = enemy_guard_spores[best_guard_index]
+		unit["target_kind"] = "enemy_guard"
+		unit["target_pos"] = guard["pos"]
+		unit["target_enemy_guard_id"] = int(guard.get("id", -1))
+		unit["target_enemy_id"] = -1
+		unit["state"] = "moving"
+		return
+	var best_enemy_index := -1
+	best_distance = INF
+	for enemy_index in range(enemy_fungi.size()):
+		var enemy: Dictionary = enemy_fungi[enemy_index]
+		var enemy_pos: Vector2 = enemy["pos"]
+		if not bool(enemy.get("alive", false)) or not zone.grow(0.1).has_point(enemy_pos) or not _is_world_explored(enemy_pos) or _distance_to_colony(enemy_pos) > _expedition_operating_radius(unit) + 0.01:
+			continue
+		var distance := pos.distance_squared_to(enemy_pos)
+		if distance < best_distance:
+			best_distance = distance
+			best_enemy_index = enemy_index
+	if best_enemy_index >= 0:
+		var enemy: Dictionary = enemy_fungi[best_enemy_index]
+		unit["target_kind"] = "enemy_fungus"
+		unit["target_pos"] = enemy["pos"]
+		unit["target_enemy_id"] = int(enemy.get("id", -1))
+		unit["target_enemy_guard_id"] = -1
+		unit["state"] = "moving"
+		return
+	_set_next_defense_patrol(unit)
+
+
+func _enforce_defense_zone(unit: Dictionary) -> void:
+	if not bool(unit.get("defense_enabled", false)):
+		return
+	var state := String(unit.get("state", "idle"))
+	if ["returning", "retreating", "repairing", "wounded"].has(state):
+		return
+	var zone := _defense_rect(unit)
+	if zone.size.x <= 0.0 or not _defense_zone_within_operating_range(zone, unit):
+		_clear_unit_defense(unit)
+		return
+	if not zone.grow(12.0).has_point(unit["pos"]):
+		_set_next_defense_patrol(unit)
+		return
+	var target_kind := String(unit.get("target_kind", ""))
+	if target_kind == "enemy_guard":
+		var guard_index := _enemy_guard_index_by_id(int(unit.get("target_enemy_guard_id", -1)))
+		var guard_pos: Vector2 = enemy_guard_spores[guard_index]["pos"] if guard_index >= 0 else Vector2.INF
+		if guard_index < 0 or not zone.grow(0.1).has_point(guard_pos) or _distance_to_colony(guard_pos) > _expedition_operating_radius(unit) + 0.01:
+			_set_next_defense_patrol(unit)
+	elif target_kind == "enemy_fungus":
+		var enemy_index := _enemy_fungus_index_by_id(int(unit.get("target_enemy_id", -1)))
+		var enemy_pos: Vector2 = enemy_fungi[enemy_index]["pos"] if enemy_index >= 0 else Vector2.INF
+		if enemy_index < 0 or not bool(enemy_fungi[enemy_index].get("alive", false)) or not zone.grow(0.1).has_point(enemy_pos) or _distance_to_colony(enemy_pos) > _expedition_operating_radius(unit) + 0.01:
+			_set_next_defense_patrol(unit)
+	elif target_kind == "defense_patrol":
+		if not zone.grow(0.1).has_point(unit.get("target_pos", zone.get_center())):
+			_set_next_defense_patrol(unit)
+	elif target_kind != "":
+		_set_next_defense_patrol(unit)
 
 
 func _acquire_expedition_target(unit: Dictionary) -> void:
@@ -2842,12 +3082,16 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
 		if target_kind == "friendly_barracks":
+			if bool(unit.get("defense_enabled", false)):
+				_clear_unit_defense(unit)
 			unit["home_core_id"] = friendly_barracks_id
 			_set_expedition_retreat(unit, "手动返巢")
 			commanded += 1
 			continue
 		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 			continue
+		if bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
 		var target := _clamp_expedition_command_target(requested_target, _expedition_operating_radius(unit))
 		var unit_target_kind := target_kind
 		var unit_resource_id := resource_id
@@ -2911,6 +3155,8 @@ func _order_selected_expedition_return() -> void:
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))) or bool(unit.get("lost", false)):
 			continue
+		if bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
 		_set_expedition_retreat(unit, "手动返巢")
 		ordered += 1
 	if ordered > 0:
@@ -3279,7 +3525,7 @@ func _update_bacteria(sim_delta: float) -> void:
 
 
 func _ecology_toxin_damage_rate_at(pos: Vector2) -> float:
-	if offline_simulating:
+	if offline_simulating and not offline_expedition_toxin_active:
 		return 0.0
 	var event := _current_ecology_event()
 	if event.is_empty() or String(event.get("phase", "warning")) != "active" or String(event.get("type", "")) != "toxin":
@@ -3636,6 +3882,10 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 	var filter_id := _unit_filter_at(pos)
 	if filter_id != "":
 		return "filter_" + filter_id
+	if not selected_expedition_ids.is_empty():
+		for index in range(2):
+			if _defense_zone_button_rect(viewport, index).has_point(pos):
+				return "defense_%d" % index
 	if _speed_button_at(pos) > 0.0:
 		return "speed"
 	for button in _current_menu_buttons():
@@ -3726,6 +3976,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		last_mouse = event.position
+		if defense_zone_drawing:
+			defense_zone_current_world = screen_to_world(event.position)
+			queue_redraw()
+			return
 		if left_selecting:
 			selection_current = event.position
 			if selection_start.distance_to(selection_current) > 8.0:
@@ -3752,6 +4006,25 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_button = MOUSE_BUTTON_MIDDLE if event.pressed else 0
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
+			if mode == "defense_zone":
+				if upgrade_open or goals_open:
+					mode = "normal"
+					defense_zone_drawing = false
+					return
+				if event.pressed:
+					defense_zone_drawing = true
+					defense_zone_start_world = screen_to_world(event.position)
+					defense_zone_current_world = defense_zone_start_world
+					right_press_pos = event.position
+				else:
+					if defense_zone_drawing and right_press_pos.distance_to(event.position) >= 8.0:
+						defense_zone_current_world = screen_to_world(event.position)
+						_assign_defense_zone(defense_zone_start_world, defense_zone_current_world)
+					else:
+						defense_zone_drawing = false
+						mode = "normal"
+						toast("已取消设置防区", 1.6)
+				return
 			if event.pressed:
 				dragging = true
 				drag_button = MOUSE_BUTTON_RIGHT
@@ -3783,7 +4056,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				left_dragged = false
 			return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_F5:
+		if event.keycode == KEY_Z:
+			_begin_defense_zone_mode()
+		elif event.keycode == KEY_C:
+			_clear_selected_defense_zones()
+		elif event.keycode == KEY_F5:
 			_save_game()
 			_play_sound("save")
 			toast("已保存", 2.0)
@@ -3793,6 +4070,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			upgrade_open = not upgrade_open
 			_play_sound("panel_open" if upgrade_open else "panel_close")
 			if upgrade_open:
+				mode = "normal"
+				defense_zone_drawing = false
 				goals_open = false
 				upgrade_core_id = selected_core if selected_core >= 0 else 0
 				selected_core = -1
@@ -3801,6 +4080,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			goals_open = not goals_open
 			_play_sound("panel_open" if goals_open else "panel_close")
 			if goals_open:
+				mode = "normal"
+				defense_zone_drawing = false
 				upgrade_open = false
 				selected_core = -1
 				selected_tip_valid = false
@@ -3814,6 +4095,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_play_sound("panel_close")
 				return
 			if selected_core >= 0 or selected_tip_valid or show_status or mode != "normal":
+				defense_zone_drawing = false
 				mode = "normal"
 				selected_core = -1
 				selected_tip_valid = false
@@ -3849,6 +4131,13 @@ func _handle_left_click(pos: Vector2) -> void:
 	if filter_hit != "":
 		_select_units_by_filter(filter_hit)
 		return
+	if not selected_expedition_ids.is_empty():
+		if _defense_zone_button_rect(get_viewport_rect().size, 0).has_point(pos):
+			_begin_defense_zone_mode()
+			return
+		if _defense_zone_button_rect(get_viewport_rect().size, 1).has_point(pos):
+			_clear_selected_defense_zones()
+			return
 	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
 		return
 	if _handle_fungal_incursion_click(pos):
@@ -4446,6 +4735,7 @@ func _draw() -> void:
 	_draw_expedition_units(viewport)
 	_draw_fungal_incursion_marker()
 	_draw_world_fog(viewport)
+	_draw_defense_zones()
 	_draw_barracks_placement_preview()
 	_draw_extension_preview()
 	_draw_expedition_selection()
@@ -4709,6 +4999,7 @@ func _start_new_culture() -> void:
 	selected_expedition_ids.clear()
 	unit_selection_filter = "all"
 	mode = "normal"
+	defense_zone_drawing = false
 	upgrade_open = false
 	goals_open = false
 	diet_detail_id = ""
@@ -5187,6 +5478,34 @@ func _draw_world_fog(viewport: Vector2) -> void:
 			)
 			var screen_top_left := world_to_screen(world_top_left)
 			draw_rect(Rect2(screen_top_left, fog_size), fog_color)
+
+
+func _draw_defense_zone_rect(zone: Rect2, preview: bool = false) -> void:
+	var top_left := _pixel_snap(world_to_screen(zone.position))
+	var bottom_right := _pixel_snap(world_to_screen(zone.end))
+	var screen_rect := Rect2(top_left, bottom_right - top_left).abs()
+	var border := Color(0.48, 1.0, 0.62, 0.94 if preview else 0.70)
+	draw_rect(screen_rect, Color(0.18, 0.88, 0.42, 0.09 if preview else 0.035))
+	draw_rect(screen_rect, border, false, 2.0 if preview else 1.0)
+	for point in [screen_rect.position, Vector2(screen_rect.end.x, screen_rect.position.y), screen_rect.end, Vector2(screen_rect.position.x, screen_rect.end.y)]:
+		draw_rect(Rect2(point - Vector2.ONE * 2.0, Vector2.ONE * 4.0), border)
+
+
+func _draw_defense_zones() -> void:
+	var drawn := {}
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))) or not bool(unit.get("defense_enabled", false)):
+			continue
+		var zone := _defense_rect(unit)
+		if zone.size.x <= 0.0:
+			continue
+		var key := "%d:%d:%d" % [roundi(zone.position.x), roundi(zone.position.y), roundi(zone.size.x)]
+		if drawn.has(key):
+			continue
+		drawn[key] = true
+		_draw_defense_zone_rect(zone)
+	if mode == "defense_zone" and defense_zone_drawing:
+		_draw_defense_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
 
 
 func _draw_expedition_selection() -> void:
@@ -6448,8 +6767,12 @@ func _draw_upgrade_placeholders(panel: Rect2, message: String) -> void:
 	draw_string(fallback_font, card.position + Vector2(26, 82), message, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
 
+func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
+	return Rect2(22.0 + 246.0 + index * 80.0, viewport.y - 80.0, 74.0, 22.0)
+
+
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
+	var text_value := "左键点击/拖框选兵　右键指令　Z 设防　C 清防　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
 	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 220.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
 		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
@@ -6458,6 +6781,7 @@ func _draw_help(viewport: Vector2) -> void:
 		var health_count := 0
 		var retreating := 0
 		var repairing := 0
+		var defending := 0
 		for unit in expedition_units:
 			if not selected_expedition_ids.has(int(unit.get("id", -1))):
 				continue
@@ -6465,15 +6789,22 @@ func _draw_help(viewport: Vector2) -> void:
 			health_total += clampf(float(unit.get("biomass", maximum)) / maximum, 0.0, 1.0)
 			health_count += 1
 			var state := String(unit.get("state", "idle"))
+			if bool(unit.get("defense_enabled", false)):
+				defending += 1
 			if state == "returning" or state == "retreating" or state == "wounded":
 				retreating += 1
 			elif state == "repairing":
 				repairing += 1
 		var average_health := health_total / maxf(1.0, float(health_count)) * 100.0
-		var rect := Rect2(22, viewport.y - 110, 300, 58)
+		var rect := Rect2(22, viewport.y - 134, 410, 82)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
-		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　返巢 %d　修复 %d" % [average_health, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　设防 %d　返巢 %d　修复 %d" % [average_health, defending, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		for button_index in range(2):
+			var button := _defense_zone_button_rect(viewport, button_index)
+			var active := button_index == 0 and mode == "defense_zone"
+			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), Color("7dff9f") if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
+			draw_string(fallback_font, button.position + Vector2(8, 16), "设防 Z" if button_index == 0 else "清除 C", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
 func _expedition_state_name(state: String) -> String:
@@ -6516,6 +6847,9 @@ func _draw_expedition_tooltip() -> bool:
 		"携带　有机 %.3f　矿物 %.3f" % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
 		"归属兵营　%s" % ("核心 %d" % (home_id + 1) if _expedition_home_is_barracks(unit) else "暂无可用兵营")
 	]
+	if bool(unit.get("defense_enabled", false)):
+		var zone := _defense_rect(unit)
+		lines.append("持久防区　%.0f × %.0f μm" % [zone.size.x / 2.0, zone.size.y / 2.0])
 	if unit_type == "suppressor":
 		var deploy_state := String(unit.get("state", "idle"))
 		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
@@ -7378,6 +7712,12 @@ func _save_game() -> void:
 			"target_enemy_id": int(unit.get("target_enemy_id", -1)),
 			"target_enemy_hypha_id": int(unit.get("target_enemy_hypha_id", -1)),
 			"target_enemy_guard_id": int(unit.get("target_enemy_guard_id", -1)),
+			"defense_enabled": bool(unit.get("defense_enabled", false)),
+			"defense_min_x": (unit.get("defense_min", unit_pos) as Vector2).x,
+			"defense_min_y": (unit.get("defense_min", unit_pos) as Vector2).y,
+			"defense_max_x": (unit.get("defense_max", unit_pos) as Vector2).x,
+			"defense_max_y": (unit.get("defense_max", unit_pos) as Vector2).y,
+			"defense_patrol_index": int(unit.get("defense_patrol_index", 0)),
 			"deploy_progress": float(unit.get("deploy_progress", 0.0)),
 			"burst_cooldown": float(unit.get("burst_cooldown", 0.0)),
 			"last_burst_hits": int(unit.get("last_burst_hits", 0)),
@@ -7942,6 +8282,18 @@ func _load_game() -> bool:
 			loaded_state = "idle"
 		var loaded_deploy_seconds := _deploy_seconds_for_unit(unit_type)
 		var loaded_burst_default := DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0
+		var loaded_defense_min := Vector2(float(item.get("defense_min_x", unit_pos.x)), float(item.get("defense_min_y", unit_pos.y)))
+		var loaded_defense_max := Vector2(float(item.get("defense_max_x", unit_pos.x)), float(item.get("defense_max_y", unit_pos.y)))
+		var loaded_defense_enabled := bool(item.get("defense_enabled", false))
+		if not loaded_defense_min.is_finite() or not loaded_defense_max.is_finite():
+			loaded_defense_enabled = false
+			loaded_defense_min = unit_pos
+			loaded_defense_max = unit_pos
+		loaded_defense_min = loaded_defense_min.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		loaded_defense_max = loaded_defense_max.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		var loaded_defense_size := (loaded_defense_max - loaded_defense_min).abs()
+		if loaded_defense_size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_defense_size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_defense_size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or loaded_defense_size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(loaded_defense_size.x - loaded_defense_size.y) > 0.1:
+			loaded_defense_enabled = false
 		expedition_units.append({
 			"id": unit_id,
 			"unit_type": unit_type,
@@ -7954,6 +8306,10 @@ func _load_game() -> bool:
 			"target_enemy_id": int(item.get("target_enemy_id", -1)),
 			"target_enemy_hypha_id": int(item.get("target_enemy_hypha_id", -1)),
 			"target_enemy_guard_id": int(item.get("target_enemy_guard_id", -1)),
+			"defense_enabled": loaded_defense_enabled,
+			"defense_min": loaded_defense_min,
+			"defense_max": loaded_defense_max,
+			"defense_patrol_index": clampi(int(item.get("defense_patrol_index", 0)), 0, 1000000),
 			"deploy_progress": clampf(float(item.get("deploy_progress", loaded_deploy_seconds if loaded_state == "deployed" else 0.0)), 0.0, loaded_deploy_seconds),
 			"burst_cooldown": clampf(float(item.get("burst_cooldown", loaded_burst_default)), 0.0, DISPERSER_BURST_COOLDOWN),
 			"burst_flash": 0.0,
@@ -7973,6 +8329,11 @@ func _load_game() -> bool:
 			"phase": float(item.get("phase", 0.0))
 		})
 		var loaded_unit: Dictionary = expedition_units.back()
+		if _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) or not _unit_can_defend_fungi(loaded_unit) or (bool(loaded_unit.get("defense_enabled", false)) and not _defense_zone_within_operating_range(_defense_rect(loaded_unit), loaded_unit)):
+			loaded_unit["defense_enabled"] = false
+		if not bool(loaded_unit.get("defense_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "defense_patrol":
+			loaded_unit["target_kind"] = ""
+			loaded_unit["state"] = "idle"
 		if not _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) and ["deploying", "deployed"].has(String(loaded_unit.get("state", "idle"))):
 			loaded_unit["state"] = "idle"
 			loaded_unit["target_kind"] = ""
@@ -7994,6 +8355,7 @@ func _load_game() -> bool:
 			loaded_unit["target_kind"] = ""
 			loaded_unit["target_enemy_guard_id"] = -1
 			loaded_unit["state"] = "idle"
+		_enforce_defense_zone(loaded_unit)
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
 	# v0.22 及更早存档没有章节字段：根据已完成的实际行为向前补齐，不回退玩家进度。
 	lifetime_expedition_units_built = maxi(lifetime_expedition_units_built, expedition_units.size())
