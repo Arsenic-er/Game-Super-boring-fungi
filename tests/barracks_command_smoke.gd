@@ -132,7 +132,7 @@ func _run() -> void:
 		return
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("BARRACKS_COMMAND_OK queue=3 rally_radius=", game.BARRACKS_RALLY_RADIUS, " filters=8 save=compatible")
+	print("BARRACKS_COMMAND_OK queue=3 rally_radius=", game.BARRACKS_RALLY_RADIUS, " filters=9 save=compatible")
 	game.queue_free()
 	quit(0)
 

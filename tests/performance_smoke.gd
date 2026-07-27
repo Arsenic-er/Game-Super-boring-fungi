@@ -30,10 +30,16 @@ func _run() -> void:
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(300.0, -120.0), "barracks"))
 	game.diet_levels["bacteria"] = 1
+	game.diet_unit_unlocks["suppressor"] = true
 	game.scout_upgrade_levels["vision"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	game.scout_upgrade_levels["speed"] = game.MAX_SCOUT_UPGRADE_LEVEL
 	for i in range(game.MAX_EXPEDITION_SPORES):
-		game._spawn_expedition_spore(barracks_id, "scout" if i % 8 == 0 else "forager")
+		game._spawn_expedition_spore(barracks_id, "suppressor")
+		var suppressor: Dictionary = game.expedition_units.back()
+		suppressor["state"] = "deployed"
+		suppressor["deploy_progress"] = game.SUPPRESSOR_DEPLOY_SECONDS
+		# 全部布在细菌群远处，迫使每个细菌扫描所有64个部署中心。
+		suppressor["pos"] = Vector2(-4200.0 + float(i % 16) * 45.0, 3000.0 + float(i / 16) * 45.0)
 	game.ecology_events = [{
 		"id": 1,
 		"type": "toxin",
@@ -86,6 +92,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " expedition=", game.expedition_units.size(), " enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=", game.expedition_units.size(), " enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)

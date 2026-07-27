@@ -261,7 +261,7 @@ func _run() -> void:
 	game.lifetime_bacteria_births = 25
 	game.lifetime_bacteria_consumed = 25
 	game.bacteria_components["trap"] = 3
-	if not _check(game._goal_definitions().size() == 17 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist") and game._goal_progress_text("rival_colony") == "0 / 1" and game._goal_progress_text("hypha_severing") == "0 / 3" and game._goal_progress_text("sporefall_guard") == "0 / 3", "Long-term goals should include bacteria ecology, evolution, exploration, supply, suppression, event-response, rival-fungus, hypha-severing, and recurring-sporefall goals"):
+	if not _check(game._goal_definitions().size() == 18 and game._goal_complete("bacterial_bloom") and game._goal_complete("bacteria_control") and game._goal_complete("first_structure") and game._goal_complete("bacteria_specialist") and game._goal_progress_text("suppression_field") == "0 / 1" and game._goal_progress_text("rival_colony") == "0 / 1" and game._goal_progress_text("hypha_severing") == "0 / 3" and game._goal_progress_text("sporefall_guard") == "0 / 3", "Long-term goals should include bacteria ecology, evolution, exploration, supply, suppression, event-response, suppressor-field, rival-fungus, hypha-severing, and recurring-sporefall goals"):
 		return
 	var before_specialist_mineral: float = game.mineral
 	game._claim_goal("bacteria_specialist")

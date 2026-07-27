@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.27.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.28.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -22,6 +22,8 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - DNA production, reversible evolution choices, structure upgrades, survival upgrades, diet paths, and long-term goals with different rewards.
 - Core biomass, toxin pressure, gradual recovery, dying orphaned hyphae, and network rescue by another living core.
 - Barracks cores and several expedition-spore roles for gathering, transport, mineral collection, and bacteria-focused combat.
+- Bacteria-diet progression now unlocks reusable suppressor pods: right-click a position to move, unfold for four seconds, and establish a 70 μm front-line zone that reduces bacterial absorption and division speed to 30%.
+- Local bacterial blooms can now be solved without killing every target: keep all but three event bacteria inside suppressor zones for twelve uninterrupted seconds, then claim the new specialist objective reward.
 - Persistent fog of war on both the culture view and minimap, plus fast scout spores that automatically reveal hidden resource regions.
 - Permanent anomaly discoveries, exploration notifications, expedition supply and suppression goals, and independent scout vision and movement upgrades.
 - Telegraphing bacterial ecology events: contain a local bloom with predation or expedition spores, or survive a temporary toxin zone with antibiotics, detoxification, and repair reserves.
@@ -43,7 +45,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Left click: inspect a core, choose actions, or select expedition spores
 - Top unit filters: select all units or all units of one unlocked role
 - Left drag: rectangular unit selection
-- Right click: issue a movement, gathering, bacteria-attack, rival-core attack, or enemy-hypha severing order
+- Right click: issue movement, gathering, combat, hypha-severing, or suppressor-deployment orders
 - `R`: return selected expedition spores to their barracks
 - Right drag / middle drag: move the camera
 - Mouse wheel: zoom
@@ -73,7 +75,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.27.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.28.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -91,6 +93,8 @@ The source code, visual assets, game design, text, and other repository contents
 - DNA 生产、可逆进化、结构升级、生存升级、食性路线，以及奖励各不相同的长期目标。
 - 核心生物量、毒素压力、缓慢恢复、孤立菌丝死亡，以及其他活核心重新连接后的网络救援。
 - 兵营核心与多种游猎孢子，分别负责采集、运输、矿物收集和针对细菌的战斗。
+- 细菌食性新增可重复部署的“抑菌囊体”：右键指定阵地、展开4秒后建立半径70 μm的前沿抑菌区，把范围内细菌的吸收和分裂速度压至30%。
+- 局部细菌暴发新增非击杀解法：让除最多3个以外的事件细菌连续12秒处于部署区内，即可完成静菌封锁并领取专属长期目标奖励。
 - 可视化兵营生产队列、每座兵营独立集结点、遵守营养消耗的自动补员，以及按兵种快速筛选部队。
 - 体外孢子现在具有按兵种区分的三位小数生物量、反击与毒素伤害、低生物量自动撤退、兵营缓慢免费修复、失活和自动补员闭环。
 - 清除初始竞争菌落后会开启可重复的“竞争孢子雨”：经过长时间冷却和可定位的落点预警后生成逐轮增强的幼体菌落，击退后获得重复奖励。
@@ -112,7 +116,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 左键：查看核心、选择操作或选中游猎孢子
 - 顶部兵种筛选：选中全部单位或某一已解锁兵种
 - 左键拖动：矩形框选部队
-- 右键：下达移动、采集、攻击细菌、攻击竞争核心或切断敌方菌丝的命令
+- 右键：下达移动、采集、战斗、切断敌方菌丝或部署抑菌囊体的命令
 - `R`：让已选中的体外孢子返回所属兵营
 - 右键拖动 / 中键拖动：移动镜头
 - 鼠标滚轮：缩放

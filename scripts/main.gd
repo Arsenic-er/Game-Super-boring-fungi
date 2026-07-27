@@ -168,22 +168,27 @@ const EXPEDITION_HYPHA_CUT_RATE := 0.060
 const EXPEDITION_HYPHA_COUNTER_RATE := 0.024
 const ENEMY_HYPHA_DISCONNECTED_DECAY_SECONDS := 90.0
 const ENEMY_HYPHA_PARENT_MATCH_DISTANCE := 18.0
+const SUPPRESSOR_DEPLOY_SECONDS := 4.0
+const SUPPRESSOR_ZONE_RADIUS := 140.0
+const SUPPRESSOR_BACTERIA_MULTIPLIER := 0.30
+const BLOOM_CONTAINMENT_HOLD_SECONDS := 12.0
 const BARRACK_UNIT_IDS := ["forager", "carrier", "chelator", "scout"]
-const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "piercer": "穿壁孢子", "coil": "缠丝猎手"}
+const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "suppressor": "抑菌囊体", "piercer": "穿壁孢子", "coil": "缠丝猎手"}
 const BARRACK_UNIT_DESCRIPTIONS := {
 	"forager": "通用采集与自卫单位",
 	"carrier": "低速、大容量有机营养运输",
 	"chelator": "专门寻找并运输矿物离子",
 	"scout": "高速移动并自动揭开周围探索黑幕",
 	"lytic": "细菌食性专属的高速裂菌单位",
+	"suppressor": "细菌食性专属；展开可重部署的前沿抑菌区",
 	"piercer": "真菌食性专属的敌方核心攻击单位",
 	"coil": "真菌食性专属；切断菌丝并使断联分支衰败"
 }
 const BARRACK_UNIT_UNLOCK_COSTS := {"carrier": 3, "chelator": 4, "scout": 5}
-const UNIT_ORGANIC_COSTS := {"forager": 8.0, "carrier": 14.0, "chelator": 10.0, "scout": 6.0, "lytic": 12.0, "piercer": 13.0, "coil": 15.0}
-const UNIT_MINERAL_COSTS := {"forager": 0.250, "carrier": 0.500, "chelator": 1.000, "scout": 0.400, "lytic": 0.750, "piercer": 1.250, "coil": 1.500}
-const UNIT_BUILD_SECONDS := {"forager": 30.0, "carrier": 50.0, "chelator": 42.0, "scout": 24.0, "lytic": 40.0, "piercer": 46.0, "coil": 52.0}
-const UNIT_MAX_BIOMASS := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "piercer": 14.0, "coil": 11.0}
+const UNIT_ORGANIC_COSTS := {"forager": 8.0, "carrier": 14.0, "chelator": 10.0, "scout": 6.0, "lytic": 12.0, "suppressor": 11.0, "piercer": 13.0, "coil": 15.0}
+const UNIT_MINERAL_COSTS := {"forager": 0.250, "carrier": 0.500, "chelator": 1.000, "scout": 0.400, "lytic": 0.750, "suppressor": 0.750, "piercer": 1.250, "coil": 1.500}
+const UNIT_BUILD_SECONDS := {"forager": 30.0, "carrier": 50.0, "chelator": 42.0, "scout": 24.0, "lytic": 40.0, "suppressor": 38.0, "piercer": 46.0, "coil": 52.0}
+const UNIT_MAX_BIOMASS := {"forager": 12.0, "carrier": 18.0, "chelator": 13.0, "scout": 8.0, "lytic": 10.0, "suppressor": 12.0, "piercer": 14.0, "coil": 11.0}
 const DIET_SPECIAL_UNITS := {
 	"animal": [
 		{"id": "animal_attach", "name": "捕食附着体", "desc": "附着动物组织并建立消化点", "available": false, "requirement": "等待小型动物生态"},
@@ -197,7 +202,7 @@ const DIET_SPECIAL_UNITS := {
 	],
 	"bacteria": [
 		{"id": "lytic", "name": "裂菌孢子", "desc": "高速追猎细菌，击杀后携带营养返巢", "available": true, "cost": 4},
-		{"id": "suppressor", "name": "抑菌囊体", "desc": "部署范围抑菌区，降低吸收与分裂", "available": false, "requirement": "等待范围部署系统"},
+		{"id": "suppressor", "name": "抑菌囊体", "desc": "右键部署前沿抑菌区，可收拢后重新定位", "available": true, "cost": 5},
 		{"id": "disperser", "name": "溶菌散播体", "desc": "对密集细菌群释放范围裂解酶", "available": false, "requirement": "等待范围部署系统"}
 	],
 	"fungi": [
@@ -303,9 +308,10 @@ var lifetime_expedition_bacteria_killed := 0
 var lifetime_expedition_units_lost := 0
 var lifetime_expedition_units_repaired := 0
 var lifetime_enemy_hyphae_severed := 0
+var lifetime_suppressed_blooms_contained := 0
 var goals_claimed := {}
 var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
-var diet_unit_unlocks := {"lytic": false, "piercer": false, "coil": false}
+var diet_unit_unlocks := {"lytic": false, "suppressor": false, "piercer": false, "coil": false}
 var scout_upgrade_levels := {"vision": 0, "speed": 0}
 var splash_active := true
 var splash_time := 0.0
@@ -500,6 +506,9 @@ func _make_bacterium(pos: Vector2) -> Dictionary:
 		"contact_cooldown": rng.randf_range(0.0, BACTERIA_CONTACT_SCAN_SECONDS),
 		"in_contact": false,
 		"suppressed": false,
+		"suppressed_by_antibiotic": false,
+		"suppressed_by_deployment": false,
+		"suppression_multiplier": 1.0,
 		"colony_distance": INF,
 		"contact_point": Vector2.ZERO,
 		"event_id": -1,
@@ -1159,6 +1168,8 @@ func _available_barracks_units() -> Array:
 			available.append(unit_id)
 	if int(diet_levels.get("bacteria", 0)) > 0 and bool(diet_unit_unlocks.get("lytic", false)):
 		available.append("lytic")
+	if int(diet_levels.get("bacteria", 0)) > 0 and bool(diet_unit_unlocks.get("suppressor", false)):
+		available.append("suppressor")
 	if int(diet_levels.get("fungi", 0)) > 0 and bool(diet_unit_unlocks.get("piercer", false)):
 		available.append("piercer")
 	if int(diet_levels.get("fungi", 0)) > 0 and bool(diet_unit_unlocks.get("coil", false)):
@@ -1287,6 +1298,7 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"target_resource_id": -1,
 		"target_enemy_id": -1,
 		"target_enemy_hypha_id": -1,
+		"deploy_progress": 0.0,
 		"cargo_organic": 0.0,
 		"cargo_mineral": 0.0,
 		"biomass": maximum_biomass,
@@ -1414,6 +1426,9 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 					unit["state"] = "attacking_fungus"
 				elif target_kind == "enemy_hypha":
 					unit["state"] = "attacking_hypha"
+				elif target_kind == "deploy_zone" and String(unit.get("unit_type", "forager")) == "suppressor":
+					unit["state"] = "deploying"
+					unit["deploy_progress"] = 0.0
 				else:
 					unit["state"] = "guarding" if bool(unit.get("manual", false)) else "idle"
 		elif state == "gathering":
@@ -1424,6 +1439,10 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 			_update_expedition_fungus_attack(unit, sim_delta)
 		elif state == "attacking_hypha":
 			_update_expedition_hypha_attack(unit, sim_delta)
+		elif state == "deploying":
+			_update_suppressor_deployment(unit, sim_delta)
+		elif state == "deployed":
+			pass
 		else:
 			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
 			if float(unit["search_cooldown"]) <= 0.0:
@@ -1461,6 +1480,7 @@ func _set_expedition_retreat(unit: Dictionary, reason: String) -> void:
 	unit["target_resource_id"] = -1
 	unit["target_enemy_id"] = -1
 	unit["target_enemy_hypha_id"] = -1
+	unit["deploy_progress"] = 0.0
 	unit["manual"] = true
 	var home := _expedition_home_position(unit)
 	if home.is_finite():
@@ -1516,6 +1536,17 @@ func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
 		lifetime_expedition_units_repaired += 1
 
 
+func _update_suppressor_deployment(unit: Dictionary, sim_delta: float) -> void:
+	if String(unit.get("unit_type", "forager")) != "suppressor":
+		unit["state"] = "idle"
+		return
+	unit["deploy_progress"] = minf(SUPPRESSOR_DEPLOY_SECONDS, float(unit.get("deploy_progress", 0.0)) + sim_delta)
+	if float(unit["deploy_progress"]) >= SUPPRESSOR_DEPLOY_SECONDS - 0.0005:
+		unit["deploy_progress"] = SUPPRESSOR_DEPLOY_SECONDS
+		unit["state"] = "deployed"
+		unit["target_kind"] = "deploy_zone"
+
+
 func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) -> void:
 	var speed := EXPEDITION_MOVE_SPEED
 	match String(unit.get("unit_type", "forager")):
@@ -1523,6 +1554,7 @@ func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) 
 		"chelator": speed = 42.0
 		"scout": speed = _scout_move_speed()
 		"lytic": speed = 54.0
+		"suppressor": speed = 38.0
 		"piercer": speed = 48.0
 		"coil": speed = 52.0
 	if String(unit.get("state", "idle")) == "retreating":
@@ -1672,6 +1704,8 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 	var best_pos := pos
 	var best_distance := INF
 	var unit_type := String(unit.get("unit_type", "forager"))
+	if unit_type == "suppressor":
+		return
 	if unit_type == "scout":
 		var scout_target := _nearest_unexplored_scout_target(pos)
 		if scout_target.is_finite():
@@ -2153,14 +2187,14 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 
 
 func _unit_filter_ids() -> Array:
-	return ["all", "forager", "carrier", "chelator", "scout", "lytic", "piercer", "coil"]
+	return ["all", "forager", "carrier", "chelator", "scout", "lytic", "suppressor", "piercer", "coil"]
 
 
 func _unit_filter_rects() -> Array:
 	var viewport := get_viewport_rect().size
 	var ids := _unit_filter_ids()
-	var width := 34.0
-	var gap := 4.0
+	var width := 30.0
+	var gap := 3.0
 	var total_width := ids.size() * width + (ids.size() - 1) * gap
 	var start_x := maxf(390.0, minf(740.0, viewport.x - total_width - 242.0))
 	var rects: Array = []
@@ -2275,7 +2309,14 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		var unit_resource_id := resource_id
 		var unit_enemy_id := enemy_id
 		var unit_enemy_hypha_id := enemy_hypha_id
-		if target.distance_to(requested_target) > 0.01:
+		var unit_type := String(unit.get("unit_type", "forager"))
+		if unit_type == "suppressor":
+			unit_target_kind = "deploy_zone"
+			unit_resource_id = -1
+			unit_enemy_id = -1
+			unit_enemy_hypha_id = -1
+			unit["deploy_progress"] = 0.0
+		elif target.distance_to(requested_target) > 0.01:
 			unit_target_kind = "ground"
 			unit_resource_id = -1
 			unit_enemy_id = -1
@@ -2443,7 +2484,9 @@ func _begin_ecology_event() -> void:
 		"phase": "warning",
 		"remaining": ECOLOGY_EVENT_WARNING_SECONDS,
 		"anchor_core_id": anchor_id,
-		"spawned": 0
+		"spawned": 0,
+		"control_progress": 0.0,
+		"controlled_by_suppressor": false
 	}
 	next_ecology_event_id += 1
 	lifetime_ecology_events_seen += 1
@@ -2477,6 +2520,17 @@ func _count_event_bacteria(event_id: int) -> int:
 	return count
 
 
+func _count_event_uncontrolled_bacteria(event_id: int) -> int:
+	var count := 0
+	var suppressor_centers := _active_suppressor_centers()
+	for bacterium in bacteria:
+		if int(bacterium.get("event_id", -1)) != event_id:
+			continue
+		if suppressor_centers.is_empty() or _suppressor_multiplier_at(bacterium["pos"], suppressor_centers) >= 0.999:
+			count += 1
+	return count
+
+
 func _release_event_bacteria(event_id: int) -> void:
 	for bacterium in bacteria:
 		if int(bacterium.get("event_id", -1)) == event_id:
@@ -2493,7 +2547,7 @@ func _activate_ecology_event(event: Dictionary) -> bool:
 		event["phase"] = "active"
 		event["remaining"] = ECOLOGY_BLOOM_ACTIVE_SECONDS
 		var spawned := _spawn_bloom_bacteria(event)
-		_show_ecology_banner("局部细菌暴发", "%d 个高活性细菌出现；将数量压至 3 个以下可提前控制。" % spawned, 7.0)
+		_show_ecology_banner("局部细菌暴发", "%d 个高活性细菌出现；消灭至3个以下，或用抑菌区封锁12秒。" % spawned, 7.0)
 	else:
 		event["phase"] = "active"
 		event["remaining"] = ECOLOGY_TOXIN_ACTIVE_SECONDS
@@ -2506,6 +2560,8 @@ func _finish_ecology_event(event: Dictionary, contained: bool) -> void:
 	_release_event_bacteria(event_id)
 	if contained:
 		lifetime_ecology_events_contained += 1
+		if bool(event.get("controlled_by_suppressor", false)):
+			lifetime_suppressed_blooms_contained += 1
 		_show_ecology_banner("生态事件已应对", "%s 已平息；长期目标进度已更新。" % _ecology_event_name(String(event.get("type", "bloom"))), 7.0)
 	else:
 		_show_ecology_banner("暴发期结束", "高活性阶段已经结束，但残余细菌仍留在培养皿中。", 6.0)
@@ -2533,10 +2589,39 @@ func _update_ecology_events(sim_delta: float) -> void:
 		var population := _count_event_bacteria(int(event.get("id", -1)))
 		if int(event.get("spawned", 0)) > 0 and population <= 3:
 			_finish_ecology_event(event, true)
-		elif float(event["remaining"]) <= 0.0:
+			return
+		var uncontrolled := _count_event_uncontrolled_bacteria(int(event.get("id", -1)))
+		if int(event.get("spawned", 0)) > 0 and uncontrolled <= 3:
+			event["control_progress"] = minf(BLOOM_CONTAINMENT_HOLD_SECONDS, float(event.get("control_progress", 0.0)) + sim_delta)
+			if float(event["control_progress"]) >= BLOOM_CONTAINMENT_HOLD_SECONDS - 0.0005:
+				event["controlled_by_suppressor"] = true
+				_finish_ecology_event(event, true)
+				return
+		else:
+			event["control_progress"] = 0.0
+		if float(event["remaining"]) <= 0.0:
 			_finish_ecology_event(event, false)
 	elif float(event["remaining"]) <= 0.0:
 		_finish_ecology_event(event, _living_core_count() > 0)
+
+
+func _active_suppressor_centers() -> Array:
+	var centers: Array = []
+	if _diet_efficiency("bacteria") <= 0.0 or not bool(diet_unit_unlocks.get("suppressor", false)):
+		return centers
+	for unit in expedition_units:
+		if String(unit.get("unit_type", "forager")) == "suppressor" and String(unit.get("state", "idle")) == "deployed" and float(unit.get("biomass", 0.0)) > 0.0005:
+			centers.append(unit["pos"])
+	return centers
+
+
+func _suppressor_multiplier_at(pos: Vector2, centers: Array = []) -> float:
+	var active_centers := centers if not centers.is_empty() else _active_suppressor_centers()
+	var radius_squared := SUPPRESSOR_ZONE_RADIUS * SUPPRESSOR_ZONE_RADIUS
+	for center_variant in active_centers:
+		if pos.distance_squared_to(center_variant) <= radius_squared:
+			return SUPPRESSOR_BACTERIA_MULTIPLIER
+	return 1.0
 
 
 func _update_bacteria(sim_delta: float) -> void:
@@ -2547,13 +2632,19 @@ func _update_bacteria(sim_delta: float) -> void:
 	var birth_slots := maxi(0, MAX_BACTERIA - bacteria.size())
 	var bacteria_efficiency := _diet_efficiency("bacteria")
 	var antibiotic_radius := _antibiotic_radius()
+	var suppressor_centers := _active_suppressor_centers()
 	for bacterium in bacteria:
 		var pos: Vector2 = bacterium["pos"]
 		var biomass := float(bacterium.get("biomass", 1.0))
 		if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
 			surviving.append(bacterium)
 			continue
+		# 部署区随单位状态即时刷新；核心接触和抗生素距离仍使用低频缓存。
+		var suppressor_multiplier := _suppressor_multiplier_at(pos, suppressor_centers)
+		bacterium["suppressed_by_deployment"] = suppressor_multiplier < 0.999
 		# 捕食器和抗生素共用一次菌落距离查询，并缓存结果。
+		if antibiotic_radius <= 0.0:
+			bacterium["suppressed_by_antibiotic"] = false
 		if bacteria_efficiency > 0.0 or antibiotic_radius > 0.0:
 			bacterium["contact_cooldown"] = maxf(0.0, float(bacterium.get("contact_cooldown", 0.0)) - sim_delta)
 			if float(bacterium["contact_cooldown"]) <= 0.0:
@@ -2562,12 +2653,16 @@ func _update_bacteria(sim_delta: float) -> void:
 				bacterium["colony_distance"] = colony_distance
 				bacterium["contact_point"] = colony_source["point"]
 				bacterium["in_contact"] = bacteria_efficiency > 0.0 and colony_distance <= _bacteria_capture_radius()
-				bacterium["suppressed"] = antibiotic_radius > 0.0 and colony_distance <= antibiotic_radius
+				bacterium["suppressed_by_antibiotic"] = antibiotic_radius > 0.0 and colony_distance <= antibiotic_radius
 				bacterium["contact_cooldown"] = BACTERIA_CONTACT_SCAN_SECONDS
 		else:
 			bacterium["in_contact"] = false
-			bacterium["suppressed"] = false
-		var bacteria_rate_multiplier := _antibiotic_bacteria_multiplier() if bool(bacterium.get("suppressed", false)) else 1.0
+			bacterium["suppressed_by_antibiotic"] = false
+		var antibiotic_suppressed := bool(bacterium.get("suppressed_by_antibiotic", false))
+		bacterium["suppressed"] = antibiotic_suppressed or bool(bacterium["suppressed_by_deployment"])
+		var antibiotic_multiplier := _antibiotic_bacteria_multiplier() if antibiotic_suppressed else 1.0
+		bacterium["suppression_multiplier"] = minf(antibiotic_multiplier, suppressor_multiplier)
+		var bacteria_rate_multiplier := clampf(float(bacterium.get("suppression_multiplier", 1.0)), 0.0, 1.0) if bool(bacterium.get("suppressed", false)) else 1.0
 		var resource := _resource_by_id(int(bacterium.get("resource_id", -1)))
 		if resource.is_empty() or not bool(resource.get("alive", false)) or int(resource.get("kind", -1)) != 0 or pos.distance_to(resource["pos"]) > BACTERIA_ABSORB_RADIUS:
 			bacterium["seek_cooldown"] = maxf(0.0, float(bacterium.get("seek_cooldown", 0.0)) - sim_delta)
@@ -3915,7 +4010,7 @@ func _start_new_culture() -> void:
 	for survival_id in SURVIVAL_IDS:
 		survival_levels[survival_id] = 0
 	barracks_unit_unlocks = {"forager": true, "carrier": false, "chelator": false, "scout": false}
-	diet_unit_unlocks = {"lytic": false, "piercer": false, "coil": false}
+	diet_unit_unlocks = {"lytic": false, "suppressor": false, "piercer": false, "coil": false}
 	lifetime_organic_absorbed = 0.0
 	lifetime_mineral_absorbed = 0.0
 	lifetime_dna_produced = 0
@@ -3927,6 +4022,7 @@ func _start_new_culture() -> void:
 	lifetime_expedition_units_lost = 0
 	lifetime_expedition_units_repaired = 0
 	lifetime_enemy_hyphae_severed = 0
+	lifetime_suppressed_blooms_contained = 0
 	goals_claimed = {}
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = 0
@@ -4103,6 +4199,30 @@ func _draw_bacteria(viewport: Vector2) -> void:
 
 func _draw_expedition_units(viewport: Vector2) -> void:
 	var command_color := Color(0.38, 1.0, 0.56, 0.90)
+	var hovered_unit_id := _expedition_unit_at_screen(last_mouse)
+	for unit in expedition_units:
+		if String(unit.get("unit_type", "forager")) != "suppressor":
+			continue
+		var zone_state := String(unit.get("state", "idle"))
+		if zone_state != "deployed" and zone_state != "deploying":
+			continue
+		var zone_center := _pixel_snap(world_to_screen(unit["pos"]))
+		if zone_center.x < -20.0 or zone_center.y < -20.0 or zone_center.x > viewport.x + 20.0 or zone_center.y > viewport.y + 20.0:
+			continue
+		var selected_zone := selected_expedition_ids.has(int(unit.get("id", -1))) or hovered_unit_id == int(unit.get("id", -1))
+		if zone_state == "deployed":
+			if camera_zoom < 0.09:
+				draw_rect(Rect2(zone_center - Vector2.ONE, Vector2(3, 3)), Color("86e7b8"))
+			else:
+				var radius := SUPPRESSOR_ZONE_RADIUS * camera_zoom
+				draw_circle(zone_center, radius, Color(0.24, 0.78, 0.58, 0.07 if not selected_zone else 0.13))
+				var dot_color := Color(0.45, 0.96, 0.72, 0.46 if not selected_zone else 0.82)
+				for dot in range(32):
+					var dot_pos := _pixel_snap(zone_center + Vector2.from_angle(TAU * float(dot) / 32.0) * radius)
+					draw_rect(Rect2(dot_pos - Vector2.ONE, Vector2(2, 2)), dot_color)
+		else:
+			var progress := clampf(float(unit.get("deploy_progress", 0.0)) / SUPPRESSOR_DEPLOY_SECONDS, 0.0, 1.0)
+			draw_arc(zone_center, 11.0, -PI * 0.5, -PI * 0.5 + TAU * progress, 16, Color("86e7b8"), 2.0, false)
 	for unit in expedition_units:
 		var unit_id := int(unit.get("id", -1))
 		var unit_type := String(unit.get("unit_type", "forager"))
@@ -4125,9 +4245,12 @@ func _draw_expedition_units(viewport: Vector2) -> void:
 		if float(unit.get("damage_flash", 0.0)) > 0.0:
 			body_color = body_color.lerp(Color("ff5f6d"), 0.62)
 		draw_rect(Rect2(p + tail_offset - Vector2(2, 1), Vector2(4, 2)), body_color.darkened(0.35))
-		var body_size := 8.0 if unit_type == "carrier" else 6.0
+		var body_size := 8.0 if unit_type == "carrier" or (unit_type == "suppressor" and String(unit.get("state", "idle")) == "deployed") else 6.0
 		draw_rect(Rect2(p - Vector2.ONE * body_size * 0.5, Vector2.ONE * body_size), body_color)
 		draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), body_color.lightened(0.42))
+		if unit_type == "suppressor":
+			draw_rect(Rect2(p + Vector2(-4, -4), Vector2(2, 2)), Color("ff91b8"))
+			draw_rect(Rect2(p + Vector2(3, 3), Vector2(2, 2)), Color("ff91b8"))
 		draw_rect(Rect2(p + Vector2(1, -2), Vector2(1, 1)), Color("ffffff"))
 		if float(unit.get("cargo_organic", 0.0)) > 0.0005:
 			draw_rect(Rect2(p + Vector2(4, 2), Vector2(3, 3)), COLOR_ORGANIC)
@@ -4202,6 +4325,8 @@ func _unit_color(unit_type: String) -> Color:
 		return Color("5edcf5")
 	if unit_type == "lytic":
 		return COLOR_BACTERIA
+	if unit_type == "suppressor":
+		return Color("86e7b8")
 	if unit_type == "piercer":
 		return Color("ff936d")
 	if unit_type == "coil":
@@ -4477,7 +4602,7 @@ func _draw_hud(viewport: Vector2) -> void:
 
 
 func _draw_unit_filter_bar() -> void:
-	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "piercer": "穿", "coil": "缠"}
+	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "piercer": "穿", "coil": "缠"}
 	for item in _unit_filter_rects():
 		var filter_id := String(item["id"])
 		var rect: Rect2 = item["rect"]
@@ -4719,7 +4844,11 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(12, 23), "%s · %s" % [_ecology_event_name(event_type), phase_text], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
 	var detail := "点击定位　%02d:%02d" % [seconds_left / 60, seconds_left % 60]
 	if not warning and event_type == "bloom":
-		detail = "局部细菌 %d　%02d:%02d" % [_count_event_bacteria(int(event.get("id", -1))), seconds_left / 60, seconds_left % 60]
+		var event_id := int(event.get("id", -1))
+		var total := _count_event_bacteria(event_id)
+		var uncontrolled := _count_event_uncontrolled_bacteria(event_id)
+		var hold := floori(float(event.get("control_progress", 0.0)))
+		detail = "未控 %d/%d　维持 %d/12秒" % [uncontrolled, total, hold]
 	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
@@ -4885,6 +5014,7 @@ func _goal_definitions() -> Array:
 		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
 		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"},
 		{"id": "ecology_response", "title": "生态应答", "desc": "成功应对1次细菌生态事件", "reward": {"dna": 2, "mineral": 2.0}, "reward_text": "DNA +2　矿物 +2.000"},
+		{"id": "suppression_field", "title": "静菌封锁", "desc": "用抑菌囊体控制1次细菌暴发", "reward": {"dna": 2, "organic": 15.0}, "reward_text": "DNA +2　有机 +15.000"},
 		{"id": "rival_colony", "title": "竞争者清除", "desc": "使1座竞争性真菌核心失活", "reward": {"dna": 4, "mineral": 3.0}, "reward_text": "DNA +4　矿物 +3.000"},
 		{"id": "hypha_severing", "title": "断丝战术", "desc": "累计切断3段敌方菌丝", "reward": {"dna": 2, "organic": 10.0}, "reward_text": "DNA +2　有机 +10.000"},
 		{"id": "sporefall_guard", "title": "孢子雨守卫", "desc": "击退3轮竞争孢子雨", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"}
@@ -4928,6 +5058,8 @@ func _goal_complete(goal_id: String) -> bool:
 			return lifetime_expedition_bacteria_killed >= 10
 		"ecology_response":
 			return lifetime_ecology_events_contained >= 1
+		"suppression_field":
+			return lifetime_suppressed_blooms_contained >= 1
 		"rival_colony":
 			return lifetime_enemy_fungi_defeated >= 1
 		"hypha_severing":
@@ -4967,6 +5099,8 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "%d / 10" % mini(lifetime_expedition_bacteria_killed, 10)
 		"ecology_response":
 			return "%d / 1" % mini(lifetime_ecology_events_contained, 1)
+		"suppression_field":
+			return "%d / 1" % mini(lifetime_suppressed_blooms_contained, 1)
 		"rival_colony":
 			return "%d / 1" % mini(lifetime_enemy_fungi_defeated, 1)
 		"hypha_severing":
@@ -5512,6 +5646,8 @@ func _expedition_state_name(state: String) -> String:
 		"attacking": return "猎食细菌"
 		"attacking_fungus": return "攻击竞争真菌"
 		"attacking_hypha": return "切断敌方菌丝"
+		"deploying": return "展开抑菌囊体"
+		"deployed": return "抑菌区已展开"
 		"returning": return "返巢卸载"
 		"retreating": return "负伤撤退"
 		"repairing": return "兵营修复"
@@ -5542,6 +5678,14 @@ func _draw_expedition_tooltip() -> bool:
 		"携带　有机 %.3f　矿物 %.3f" % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
 		"归属兵营　%s" % ("核心 %d" % (home_id + 1) if _expedition_home_is_barracks(unit) else "暂无可用兵营")
 	]
+	if unit_type == "suppressor":
+		var deploy_state := String(unit.get("state", "idle"))
+		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
+		if deploy_state == "deploying":
+			detail = "展开 %.1f / %.1f 秒　·　范围 70 μm" % [float(unit.get("deploy_progress", 0.0)), SUPPRESSOR_DEPLOY_SECONDS]
+		elif deploy_state == "deployed":
+			detail = "抑菌半径 70 μm　·　细菌吸收与分裂速度 30%"
+		lines.append(detail)
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
@@ -5573,6 +5717,9 @@ func _draw_bacteria_tooltip() -> void:
 		"分裂营养 %.3f / %.3f" % [stored, BACTERIA_DIVISION_NUTRIENT],
 		"自身基因组复制　不消耗真菌 DNA"
 	]
+	if bool(bacterium.get("suppressed", false)):
+		var source_text := "前沿抑菌囊体" if bool(bacterium.get("suppressed_by_deployment", false)) else "核心抗生素"
+		lines.append("受%s抑制　代谢速度 %.0f%%" % [source_text, float(bacterium.get("suppression_multiplier", 1.0)) * 100.0])
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
@@ -6329,6 +6476,7 @@ func _save_game() -> void:
 			"target_resource_id": int(unit.get("target_resource_id", -1)),
 			"target_enemy_id": int(unit.get("target_enemy_id", -1)),
 			"target_enemy_hypha_id": int(unit.get("target_enemy_hypha_id", -1)),
+			"deploy_progress": float(unit.get("deploy_progress", 0.0)),
 			"cargo_organic": float(unit.get("cargo_organic", 0.0)),
 			"cargo_mineral": float(unit.get("cargo_mineral", 0.0)),
 			"biomass": float(unit.get("biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))),
@@ -6388,7 +6536,9 @@ func _save_game() -> void:
 			"phase": String(event.get("phase", "warning")),
 			"remaining": float(event.get("remaining", 0.0)),
 			"anchor_core_id": int(event.get("anchor_core_id", 0)),
-			"spawned": int(event.get("spawned", 0))
+			"spawned": int(event.get("spawned", 0)),
+			"control_progress": float(event.get("control_progress", 0.0)),
+			"controlled_by_suppressor": bool(event.get("controlled_by_suppressor", false))
 		})
 	var incursion_pos: Vector2 = fungal_incursion.get("pos", Vector2.INF)
 	var incursion_data := {
@@ -6427,6 +6577,7 @@ func _save_game() -> void:
 		"lifetime_ecology_events_contained": lifetime_ecology_events_contained,
 		"lifetime_enemy_fungi_defeated": lifetime_enemy_fungi_defeated,
 		"lifetime_enemy_hyphae_severed": lifetime_enemy_hyphae_severed,
+		"lifetime_suppressed_blooms_contained": lifetime_suppressed_blooms_contained,
 		"lifetime_fungal_incursions_defeated": lifetime_fungal_incursions_defeated,
 		"fungal_incursion": incursion_data,
 		"chapter_task_index": chapter_task_index,
@@ -6503,7 +6654,7 @@ func _load_game() -> bool:
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = clampi(int(saved_scout_upgrades.get(scout_upgrade_id, 0)), 0, MAX_SCOUT_UPGRADE_LEVEL)
 	var saved_diet_unit_unlocks: Dictionary = parsed.get("diet_unit_unlocks", {})
-	for special_unit_id in ["lytic", "piercer", "coil"]:
+	for special_unit_id in ["lytic", "suppressor", "piercer", "coil"]:
 		diet_unit_unlocks[special_unit_id] = bool(saved_diet_unit_unlocks.get(special_unit_id, false))
 	lifetime_organic_absorbed = float(parsed.get("lifetime_organic_absorbed", 0.0))
 	lifetime_mineral_absorbed = float(parsed.get("lifetime_mineral_absorbed", 0.0))
@@ -6517,6 +6668,7 @@ func _load_game() -> bool:
 	lifetime_ecology_events_contained = maxi(0, int(parsed.get("lifetime_ecology_events_contained", 0)))
 	lifetime_enemy_fungi_defeated = maxi(0, int(parsed.get("lifetime_enemy_fungi_defeated", 0)))
 	lifetime_enemy_hyphae_severed = maxi(0, int(parsed.get("lifetime_enemy_hyphae_severed", 0)))
+	lifetime_suppressed_blooms_contained = maxi(0, int(parsed.get("lifetime_suppressed_blooms_contained", 0)))
 	lifetime_fungal_incursions_defeated = maxi(0, int(parsed.get("lifetime_fungal_incursions_defeated", 0)))
 	chapter_task_index = maxi(0, int(parsed.get("chapter_task_index", 0)))
 	core_selected_once = bool(parsed.get("core_selected_once", false))
@@ -6659,7 +6811,9 @@ func _load_game() -> bool:
 			"phase": event_phase,
 			"remaining": clampf(float(item.get("remaining", 0.0)), 0.0, ECOLOGY_BLOOM_ACTIVE_SECONDS),
 			"anchor_core_id": clampi(int(item.get("anchor_core_id", 0)), 0, maxi(0, cores.size() - 1)),
-			"spawned": clampi(int(item.get("spawned", 0)), 0, ECOLOGY_BLOOM_SPAWN_COUNT)
+			"spawned": clampi(int(item.get("spawned", 0)), 0, ECOLOGY_BLOOM_SPAWN_COUNT),
+			"control_progress": clampf(float(item.get("control_progress", 0.0)), 0.0, BLOOM_CONTAINMENT_HOLD_SECONDS),
+			"controlled_by_suppressor": bool(item.get("controlled_by_suppressor", false))
 		})
 		next_ecology_event_id = maxi(next_ecology_event_id, event_id + 1)
 	enemy_fungi.clear()
@@ -6796,7 +6950,7 @@ func _load_game() -> bool:
 		var saved_maximum := maxf(0.001, float(item.get("max_biomass", maximum)))
 		var health_fraction := clampf(float(item.get("biomass", saved_maximum)) / saved_maximum, 0.0, 1.0)
 		var loaded_state := String(item.get("state", "idle"))
-		if not ["idle", "guarding", "moving", "gathering", "attacking", "attacking_fungus", "attacking_hypha", "returning", "retreating", "repairing", "wounded"].has(loaded_state):
+		if not ["idle", "guarding", "moving", "gathering", "attacking", "attacking_fungus", "attacking_hypha", "deploying", "deployed", "returning", "retreating", "repairing", "wounded"].has(loaded_state):
 			loaded_state = "idle"
 		expedition_units.append({
 			"id": unit_id,
@@ -6809,6 +6963,7 @@ func _load_game() -> bool:
 			"target_resource_id": int(item.get("target_resource_id", -1)),
 			"target_enemy_id": int(item.get("target_enemy_id", -1)),
 			"target_enemy_hypha_id": int(item.get("target_enemy_hypha_id", -1)),
+			"deploy_progress": clampf(float(item.get("deploy_progress", SUPPRESSOR_DEPLOY_SECONDS if loaded_state == "deployed" else 0.0)), 0.0, SUPPRESSOR_DEPLOY_SECONDS),
 			"cargo_organic": clampf(float(item.get("cargo_organic", 0.0)), 0.0, 9.0),
 			"cargo_mineral": clampf(float(item.get("cargo_mineral", 0.0)), 0.0, 9.0),
 			"biomass": maximum * health_fraction,
@@ -6824,6 +6979,10 @@ func _load_game() -> bool:
 			"phase": float(item.get("phase", 0.0))
 		})
 		var loaded_unit: Dictionary = expedition_units.back()
+		if String(loaded_unit.get("unit_type", "forager")) != "suppressor" and ["deploying", "deployed"].has(String(loaded_unit.get("state", "idle"))):
+			loaded_unit["state"] = "idle"
+			loaded_unit["target_kind"] = ""
+			loaded_unit["deploy_progress"] = 0.0
 		if String(loaded_unit.get("state", "idle")) == "repairing" or String(loaded_unit.get("state", "idle")) == "retreating" or String(loaded_unit.get("state", "idle")) == "wounded":
 			if float(loaded_unit.get("biomass", maximum)) >= maximum - 0.0005:
 				loaded_unit["state"] = "idle"
