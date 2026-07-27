@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.31.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.32.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -29,6 +29,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Permanent anomaly discoveries, exploration notifications, expedition supply and suppression goals, and independent scout vision and movement upgrades.
 - Telegraphing bacterial ecology events: contain a local bloom with predation or expedition spores, or survive a temporary toxin zone with antibiotics, detoxification, and repair reserves.
 - A fog-hidden rival fungus that consumes real organic resources, slowly extends its own hyphae, and damages player cores after physical contact.
+- Rival colonies now spend real organic reserves to hatch mobile guard spores. They patrol the enemy hyphal network, pursue nearby expedition spores, disengage beyond their leash, accept direct right-click focus-fire orders, and slowly decay when their parent core dies.
 - Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Fungi-diet progression also unlocks coil hunters: order them onto individual enemy hyphae to sever supply lines, make dependent branches fade over 90 seconds, and earn the new severing objective while the rival regrows from its surviving network.
 - Fungi-diet progression now adds reusable antifungal pods: unfold a 75 μm lockdown field to reduce rival nutrient absorption and regrowth to 35%, double the decay of severed hyphae, and complete a dedicated containment objective without dealing direct damage.
@@ -78,7 +79,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.31.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.32.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -106,6 +107,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 异常资源区会触发永久发现记录与提示；新增远征补给、细菌压制目标，以及独立的嗅营感知和运动升级。
 - 带预警的细菌生态事件：通过捕食和体外部队压制局部暴发，或利用抗生素、解毒代谢和修复储备熬过临时毒素区。
 - 隐藏在探索黑幕后的竞争性真菌会消耗地图真实有机营养、缓慢延伸自己的菌丝，并在接触后侵染我方核心。
+- 竞争菌落现在会消耗真实有机储备孵化移动守卫孢子：它们沿敌方菌丝巡逻、追击附近的我方远征孢子、超出警戒范围后脱战返回；玩家可以右键集火，母体核心死亡后守卫会缓慢衰亡。
 - 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 真菌食性还可解锁“缠丝猎手”：把它右键指派到一段敌方菌丝后可切断供给线，使依赖该段的远端分支在90秒内逐渐暗淡、失活；竞争菌仍会从幸存网络重新生长，并新增“断丝战术”目标。
 - 真菌食性新增可重复部署的“抗真菌囊体”：展开半径75 μm的封锁区，把竞争真菌的营养吸收和再扩张压至35%，令已切断菌丝以两倍速度衰败；封锁区不直接造成伤害，并配有独立长期目标。

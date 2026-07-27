@@ -111,7 +111,7 @@ func _run() -> void:
 	active_id = int(game.fungal_incursion["enemy_id"])
 	active_index = game._enemy_fungus_index_by_id(active_id)
 	active = game.enemy_fungi[active_index]
-	if not _check(is_equal_approx(float(active["max_biomass"]), 37.2) and is_equal_approx(float(active["attack_multiplier"]), 0.85) and is_equal_approx(float(active["organic_reserve"]), 16.0), "wave 3 scaling should match the bounded formulas"):
+	if not _check(is_equal_approx(float(active["max_biomass"]), 37.2) and is_equal_approx(float(active["attack_multiplier"]), 0.85) and is_equal_approx(float(active["organic_reserve"]), 10.0) and game._enemy_guard_count_for_fungus(active_id) == 3, "wave 3 scaling should pay the real organic cost of its three starting guards"):
 		return
 	var dna_before: int = game.dna
 	reward_organic_before = game.organic

@@ -78,6 +78,12 @@ func _run() -> void:
 			"viability": 1.0
 		})
 		game.next_enemy_hypha_id += 1
+	game.enemy_guard_spores.clear()
+	while game.enemy_guard_spores.size() < game.MAX_ENEMY_GUARD_SPORES:
+		var guard_index: int = game.enemy_guard_spores.size()
+		var guard: Dictionary = game._make_enemy_guard(int(enemy["id"]), (enemy["pos"] as Vector2) + Vector2.from_angle(float(guard_index) * 0.41) * 80.0)
+		game.enemy_guard_spores.append(guard)
+		game.next_enemy_guard_id += 1
 	var started := Time.get_ticks_usec()
 	# 120次批量更新相当于约2秒的60×压力负载。
 	for i in range(120):
@@ -85,6 +91,7 @@ func _run() -> void:
 		game._update_expedition_units(1.0)
 		game._update_ecology_events(1.0)
 		game._update_enemy_fungi(1.0)
+		game._update_enemy_guard_spores(1.0)
 		game._update_core_hazards(1.0)
 		if i % 12 == 0:
 			game._discover_feeders()
@@ -108,6 +115,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)
