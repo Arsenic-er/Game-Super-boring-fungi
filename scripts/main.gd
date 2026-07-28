@@ -1668,6 +1668,10 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"defense_min": spawn_pos,
 		"defense_max": spawn_pos,
 		"defense_patrol_index": 0,
+		"harvest_enabled": false,
+		"harvest_min": spawn_pos,
+		"harvest_max": spawn_pos,
+		"harvest_patrol_index": 0,
 		"deploy_progress": 0.0,
 		"burst_cooldown": DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0,
 		"burst_flash": 0.0,
@@ -1775,6 +1779,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 			surviving.append(unit)
 			continue
 		_enforce_defense_zone(unit)
+		_enforce_harvest_zone(unit)
 		state = String(unit.get("state", state))
 		if state == "returning" or state == "retreating":
 			_move_expedition_unit(unit, home, sim_delta)
@@ -1846,7 +1851,9 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		else:
 			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
 			if float(unit["search_cooldown"]) <= 0.0:
-				if bool(unit.get("defense_enabled", false)):
+				if bool(unit.get("harvest_enabled", false)):
+					_acquire_harvest_target(unit)
+				elif bool(unit.get("defense_enabled", false)):
 					_acquire_defense_target(unit)
 				else:
 					_acquire_expedition_target(unit)
@@ -2003,8 +2010,16 @@ func _expedition_cargo_capacity(unit: Dictionary) -> float:
 func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
 	var resource := _resource_by_id(int(unit.get("target_resource_id", -1)))
 	var expected_kind := 1 if String(unit.get("unit_type", "forager")) == "chelator" else 0
-	if resource.is_empty() or not bool(resource.get("alive", false)) or int(resource.get("kind", -1)) != expected_kind:
-		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) > 0.0 else "idle"
+	var harvest_zone := _harvest_rect(unit)
+	var resource_valid := not resource.is_empty() and bool(resource.get("alive", false)) and int(resource.get("kind", -1)) == expected_kind
+	if resource_valid and bool(unit.get("harvest_enabled", false)):
+		resource_valid = harvest_zone.grow(0.1).has_point(resource["pos"]) and _is_world_explored(resource["pos"]) and _distance_to_colony(resource["pos"]) <= _expedition_operating_radius(unit) + 0.01
+	if not resource_valid:
+		unit["target_resource_id"] = -1
+		if bool(unit.get("harvest_enabled", false)):
+			_acquire_harvest_target(unit)
+		else:
+			unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) > 0.0 else "idle"
 		return
 	var carried := float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0))
 	var capacity_left := _expedition_cargo_capacity(unit) - carried
@@ -2018,7 +2033,11 @@ func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
 	if float(resource["amount"]) <= 0.0005:
 		resource["amount"] = 0.0
 		resource["alive"] = false
-		unit["state"] = "returning"
+		unit["target_resource_id"] = -1
+		if bool(unit.get("harvest_enabled", false)) and carried + taken < _expedition_cargo_capacity(unit) - 0.0005:
+			_acquire_harvest_target(unit)
+		else:
+			unit["state"] = "returning"
 
 
 func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
@@ -2258,6 +2277,28 @@ func _unit_can_defend_fungi(unit: Dictionary) -> bool:
 	return unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0)
 
 
+func _unit_can_harvest(unit: Dictionary) -> bool:
+	return ["forager", "carrier", "chelator"].has(String(unit.get("unit_type", "forager")))
+
+
+func _harvest_resource_kind(unit: Dictionary) -> int:
+	return 1 if String(unit.get("unit_type", "forager")) == "chelator" else 0
+
+
+func _harvest_rect(unit: Dictionary) -> Rect2:
+	if not bool(unit.get("harvest_enabled", false)):
+		return Rect2()
+	var minimum: Vector2 = unit.get("harvest_min", unit.get("pos", Vector2.ZERO))
+	var maximum: Vector2 = unit.get("harvest_max", minimum)
+	if not minimum.is_finite() or not maximum.is_finite():
+		return Rect2()
+	var position := Vector2(minf(minimum.x, maximum.x), minf(minimum.y, maximum.y))
+	var size := (maximum - minimum).abs()
+	if size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or size.y < DEFENSE_ZONE_MIN_SIDE - 0.01:
+		return Rect2()
+	return Rect2(position, size)
+
+
 func _square_defense_rect(start_world: Vector2, end_world: Vector2) -> Rect2:
 	var start := Vector2(clampf(start_world.x, -WORLD_HALF, WORLD_HALF), clampf(start_world.y, -WORLD_HALF, WORLD_HALF))
 	var finish := Vector2(clampf(end_world.x, -WORLD_HALF, WORLD_HALF), clampf(end_world.y, -WORLD_HALF, WORLD_HALF))
@@ -2269,6 +2310,213 @@ func _square_defense_rect(start_world: Vector2, end_world: Vector2) -> Rect2:
 	position.x = clampf(position.x, -WORLD_HALF, WORLD_HALF - side)
 	position.y = clampf(position.y, -WORLD_HALF, WORLD_HALF - side)
 	return Rect2(position, Vector2.ONE * side)
+
+
+func _begin_harvest_zone_mode() -> void:
+	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
+		return
+	if selected_expedition_ids.is_empty():
+		_play_sound("ui_error")
+		toast("请先选择游猎、囊载或螯合孢子", 2.2)
+		return
+	var eligible := 0
+	for unit in expedition_units:
+		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_harvest(unit) and not ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			eligible += 1
+	if eligible == 0:
+		_play_sound("ui_error")
+		toast("当前选择中没有可执行资源采集的单位", 2.5)
+		return
+	mode = "harvest_zone"
+	defense_zone_drawing = false
+	_play_sound("ui_confirm")
+	toast("按住右键拖出正方形采区；Esc 取消", 3.0)
+
+
+func _clear_unit_harvest(unit: Dictionary) -> void:
+	var was_enabled := bool(unit.get("harvest_enabled", false))
+	unit["harvest_enabled"] = false
+	if not was_enabled or ["returning", "retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+		return
+	unit["state"] = "idle"
+	unit["target_kind"] = ""
+	unit["target_resource_id"] = -1
+	unit["manual"] = false
+
+
+func _clear_selected_persistent_orders() -> void:
+	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
+		return
+	var cleared := 0
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))):
+			continue
+		var had_order := bool(unit.get("defense_enabled", false)) or bool(unit.get("harvest_enabled", false))
+		if bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
+		if bool(unit.get("harvest_enabled", false)):
+			_clear_unit_harvest(unit)
+		if had_order:
+			cleared += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	if cleared > 0:
+		_play_sound("ui_cancel")
+		toast("已清除 %d 个单位的持久命令" % cleared, 2.0)
+	else:
+		_play_sound("ui_error")
+		toast("所选单位没有已设置的防区或采区", 1.8)
+
+
+func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
+	var zone := _square_defense_rect(start_world, end_world)
+	var assigned := 0
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))) or not _unit_can_harvest(unit):
+			continue
+		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			continue
+		if not _defense_zone_within_operating_range(zone, unit):
+			continue
+		if bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
+		unit["harvest_enabled"] = true
+		unit["harvest_min"] = zone.position
+		unit["harvest_max"] = zone.end
+		unit["harvest_patrol_index"] = int(unit.get("id", 0)) % 5
+		unit["target_resource_id"] = -1
+		unit["target_enemy_id"] = -1
+		unit["target_enemy_hypha_id"] = -1
+		unit["target_enemy_guard_id"] = -1
+		_acquire_harvest_target(unit)
+		assigned += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	if assigned > 0:
+		_play_sound("command", clampf(0.82 + assigned * 0.02, 0.82, 1.2))
+		toast("已为 %d 个单位设置持久采区" % assigned, 2.4)
+	else:
+		_play_sound("ui_error")
+		toast("采区超出菌落行动范围，或单位暂时无法执行", 2.8)
+	return assigned
+
+
+func _set_next_harvest_patrol(unit: Dictionary) -> void:
+	var zone := _harvest_rect(unit)
+	if zone.size.x <= 0.0:
+		_clear_unit_harvest(unit)
+		return
+	var route: Array[Vector2] = [Vector2(0.5, 0.5), Vector2(0.2, 0.2), Vector2(0.8, 0.2), Vector2(0.8, 0.8), Vector2(0.2, 0.8)]
+	var patrol_index := posmod(int(unit.get("harvest_patrol_index", 0)), route.size())
+	var point: Vector2 = zone.position + zone.size * route[patrol_index]
+	unit["harvest_patrol_index"] = (patrol_index + 1) % route.size()
+	point = _clamp_expedition_command_target(point, _expedition_operating_radius(unit))
+	if not zone.grow(0.1).has_point(point):
+		point = zone.get_center()
+	unit["target_kind"] = "harvest_patrol"
+	unit["target_pos"] = point
+	unit["target_resource_id"] = -1
+	unit["state"] = "moving"
+	unit["manual"] = true
+	unit["command_until"] = sim_time + 3.0
+
+
+func _resource_claim_count(resource_id: int, excluding_unit_id: int) -> int:
+	var claims := 0
+	for candidate in expedition_units:
+		if int(candidate.get("id", -1)) == excluding_unit_id:
+			continue
+		if int(candidate.get("target_resource_id", -1)) == resource_id and ["moving", "gathering"].has(String(candidate.get("state", "idle"))):
+			claims += 1
+	return claims
+
+
+func _best_harvest_resource(unit: Dictionary) -> Dictionary:
+	var zone := _harvest_rect(unit)
+	if zone.size.x <= 0.0:
+		return {}
+	var kind := _harvest_resource_kind(unit)
+	var pos: Vector2 = unit["pos"]
+	var unit_id := int(unit.get("id", -1))
+	var minimum_cell := _resource_cell(zone.position)
+	var maximum_cell := _resource_cell(zone.end)
+	var best: Dictionary = {}
+	var best_claims := 1000000
+	var best_distance := INF
+	var best_amount := -1.0
+	var best_id := 1000000000
+	for cell_y in range(minimum_cell.y, maximum_cell.y + 1):
+		for cell_x in range(minimum_cell.x, maximum_cell.x + 1):
+			var ids: Array = resource_grid.get(Vector2i(cell_x, cell_y), [])
+			for resource_id_variant in ids:
+				var resource := _resource_by_id(int(resource_id_variant))
+				if resource.is_empty() or not bool(resource.get("alive", false)) or int(resource.get("kind", -1)) != kind or float(resource.get("amount", 0.0)) <= 0.0005:
+					continue
+				var resource_pos: Vector2 = resource["pos"]
+				if not zone.grow(0.1).has_point(resource_pos) or not _is_world_explored(resource_pos) or _distance_to_colony(resource_pos) > _expedition_operating_radius(unit) + 0.01:
+					continue
+				var resource_id := int(resource.get("id", -1))
+				var claims := _resource_claim_count(resource_id, unit_id)
+				var distance := pos.distance_squared_to(resource_pos)
+				var amount := float(resource.get("amount", 0.0))
+				var better := claims < best_claims or (claims == best_claims and (distance < best_distance - 0.001 or (is_equal_approx(distance, best_distance) and (amount > best_amount + 0.0005 or (is_equal_approx(amount, best_amount) and resource_id < best_id)))))
+				if better:
+					best = resource
+					best_claims = claims
+					best_distance = distance
+					best_amount = amount
+					best_id = resource_id
+	return best
+
+
+func _acquire_harvest_target(unit: Dictionary) -> void:
+	if not bool(unit.get("harvest_enabled", false)) or not _unit_can_harvest(unit):
+		return
+	var carried := float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0))
+	if carried >= _expedition_cargo_capacity(unit) - 0.0005:
+		unit["state"] = "returning"
+		unit["target_kind"] = "home"
+		unit["target_resource_id"] = -1
+		return
+	var resource := _best_harvest_resource(unit)
+	if not resource.is_empty():
+		unit["target_kind"] = "resource"
+		unit["target_pos"] = resource["pos"]
+		unit["target_resource_id"] = int(resource["id"])
+		unit["state"] = "moving"
+		unit["manual"] = true
+		return
+	if carried > 0.0005:
+		unit["state"] = "returning"
+		unit["target_kind"] = "home"
+		unit["target_resource_id"] = -1
+	else:
+		_set_next_harvest_patrol(unit)
+
+
+func _enforce_harvest_zone(unit: Dictionary) -> void:
+	if not bool(unit.get("harvest_enabled", false)):
+		return
+	var state := String(unit.get("state", "idle"))
+	if ["returning", "retreating", "repairing", "wounded"].has(state):
+		return
+	var zone := _harvest_rect(unit)
+	if zone.size.x <= 0.0 or not _unit_can_harvest(unit) or not _defense_zone_within_operating_range(zone, unit):
+		_clear_unit_harvest(unit)
+		return
+	if not zone.grow(12.0).has_point(unit["pos"]):
+		_set_next_harvest_patrol(unit)
+		return
+	var target_kind := String(unit.get("target_kind", ""))
+	if target_kind == "resource":
+		var resource := _resource_by_id(int(unit.get("target_resource_id", -1)))
+		if resource.is_empty() or not bool(resource.get("alive", false)) or int(resource.get("kind", -1)) != _harvest_resource_kind(unit) or not zone.grow(0.1).has_point(resource.get("pos", Vector2.INF)) or not _is_world_explored(resource.get("pos", Vector2.INF)) or _distance_to_colony(resource.get("pos", Vector2.INF)) > _expedition_operating_radius(unit) + 0.01:
+			_acquire_harvest_target(unit)
+	elif target_kind == "harvest_patrol":
+		if not zone.grow(0.1).has_point(unit.get("target_pos", zone.get_center())):
+			_set_next_harvest_patrol(unit)
+	elif target_kind != "":
+		_acquire_harvest_target(unit)
 
 
 func _begin_defense_zone_mode() -> void:
@@ -2306,21 +2554,7 @@ func _clear_unit_defense(unit: Dictionary) -> void:
 
 
 func _clear_selected_defense_zones() -> void:
-	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
-		return
-	var cleared := 0
-	for unit in expedition_units:
-		if selected_expedition_ids.has(int(unit.get("id", -1))) and bool(unit.get("defense_enabled", false)):
-			_clear_unit_defense(unit)
-			cleared += 1
-	mode = "normal"
-	defense_zone_drawing = false
-	if cleared > 0:
-		_play_sound("ui_cancel")
-		toast("已清除 %d 个单位的防区" % cleared, 2.0)
-	else:
-		_play_sound("ui_error")
-		toast("所选单位没有已设置的防区", 1.8)
+	_clear_selected_persistent_orders()
 
 
 func _assign_defense_zone(start_world: Vector2, end_world: Vector2) -> int:
@@ -2333,6 +2567,8 @@ func _assign_defense_zone(start_world: Vector2, end_world: Vector2) -> int:
 			continue
 		if not _defense_zone_within_operating_range(zone, unit):
 			continue
+		if bool(unit.get("harvest_enabled", false)):
+			_clear_unit_harvest(unit)
 		unit["defense_enabled"] = true
 		unit["defense_min"] = zone.position
 		unit["defense_max"] = zone.end
@@ -3084,21 +3320,31 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		if target_kind == "friendly_barracks":
 			if bool(unit.get("defense_enabled", false)):
 				_clear_unit_defense(unit)
+			if bool(unit.get("harvest_enabled", false)):
+				_clear_unit_harvest(unit)
 			unit["home_core_id"] = friendly_barracks_id
 			_set_expedition_retreat(unit, "手动返巢")
 			commanded += 1
 			continue
 		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 			continue
+		var target := _clamp_expedition_command_target(requested_target, _expedition_operating_radius(unit))
+		var unit_type := String(unit.get("unit_type", "forager"))
+		# A visible in-range resource click is a gathering order, not a generic move.
+		# Gathering roles reject incompatible nutrient kinds without losing a saved zone.
+		if target_kind == "resource" and target.distance_to(requested_target) <= 0.01 and _unit_can_harvest(unit):
+			var commanded_resource := _resource_by_id(resource_id)
+			if commanded_resource.is_empty() or int(commanded_resource.get("kind", -1)) != _harvest_resource_kind(unit):
+				continue
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
-		var target := _clamp_expedition_command_target(requested_target, _expedition_operating_radius(unit))
+		if bool(unit.get("harvest_enabled", false)):
+			_clear_unit_harvest(unit)
 		var unit_target_kind := target_kind
 		var unit_resource_id := resource_id
 		var unit_enemy_id := enemy_id
 		var unit_enemy_hypha_id := enemy_hypha_id
 		var unit_enemy_guard_id := enemy_guard_id
-		var unit_type := String(unit.get("unit_type", "forager"))
 		if _is_deployable_unit_type(unit_type):
 			unit_target_kind = "deploy_zone"
 			unit_resource_id = -1
@@ -3121,10 +3367,10 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		elif target_kind == "enemy_hypha" and not (String(unit.get("unit_type", "forager")) == "coil" and _diet_efficiency("fungi") > 0.0):
 			unit_target_kind = "ground"
 			unit_enemy_hypha_id = -1
-		elif String(unit.get("unit_type", "forager")) == "scout" and (target_kind == "resource" or target_kind == "bacteria"):
+		elif unit_type == "scout" and target_kind == "bacteria":
 			unit_target_kind = "ground"
 			unit_resource_id = -1
-		elif unit_type == "disperser" and target_kind == "resource":
+		elif target_kind == "resource" and not _unit_can_harvest(unit):
 			unit_target_kind = "ground"
 			unit_resource_id = -1
 		unit["manual"] = true
@@ -3145,7 +3391,7 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		toast("已向 %d 个体外单位下达指令" % commanded, 1.8)
 	elif not selected_expedition_ids.is_empty():
 		_play_sound("ui_error")
-		toast("重伤或修复中的单位暂时不能出击", 2.5)
+		toast("重伤、修复中或食性不匹配的单位无法执行", 2.5)
 
 
 func _order_selected_expedition_return() -> void:
@@ -3157,6 +3403,8 @@ func _order_selected_expedition_return() -> void:
 			continue
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
+		if bool(unit.get("harvest_enabled", false)):
+			_clear_unit_harvest(unit)
 		_set_expedition_retreat(unit, "手动返巢")
 		ordered += 1
 	if ordered > 0:
@@ -3883,9 +4131,9 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 	if filter_id != "":
 		return "filter_" + filter_id
 	if not selected_expedition_ids.is_empty():
-		for index in range(2):
+		for index in range(3):
 			if _defense_zone_button_rect(viewport, index).has_point(pos):
-				return "defense_%d" % index
+				return "persistent_order_%d" % index
 	if _speed_button_at(pos) > 0.0:
 		return "speed"
 	for button in _current_menu_buttons():
@@ -4006,7 +4254,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_button = MOUSE_BUTTON_MIDDLE if event.pressed else 0
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
-			if mode == "defense_zone":
+			if mode == "defense_zone" or mode == "harvest_zone":
 				if upgrade_open or goals_open:
 					mode = "normal"
 					defense_zone_drawing = false
@@ -4019,11 +4267,15 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					if defense_zone_drawing and right_press_pos.distance_to(event.position) >= 8.0:
 						defense_zone_current_world = screen_to_world(event.position)
-						_assign_defense_zone(defense_zone_start_world, defense_zone_current_world)
+						if mode == "harvest_zone":
+							_assign_harvest_zone(defense_zone_start_world, defense_zone_current_world)
+						else:
+							_assign_defense_zone(defense_zone_start_world, defense_zone_current_world)
 					else:
+						var cancelled_mode := mode
 						defense_zone_drawing = false
 						mode = "normal"
-						toast("已取消设置防区", 1.6)
+						toast("已取消设置采区" if cancelled_mode == "harvest_zone" else "已取消设置防区", 1.6)
 				return
 			if event.pressed:
 				dragging = true
@@ -4058,8 +4310,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_Z:
 			_begin_defense_zone_mode()
+		elif event.keycode == KEY_X:
+			_begin_harvest_zone_mode()
 		elif event.keycode == KEY_C:
-			_clear_selected_defense_zones()
+			_clear_selected_persistent_orders()
 		elif event.keycode == KEY_F5:
 			_save_game()
 			_play_sound("save")
@@ -4136,7 +4390,10 @@ func _handle_left_click(pos: Vector2) -> void:
 			_begin_defense_zone_mode()
 			return
 		if _defense_zone_button_rect(get_viewport_rect().size, 1).has_point(pos):
-			_clear_selected_defense_zones()
+			_begin_harvest_zone_mode()
+			return
+		if _defense_zone_button_rect(get_viewport_rect().size, 2).has_point(pos):
+			_clear_selected_persistent_orders()
 			return
 	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
 		return
@@ -4735,7 +4992,7 @@ func _draw() -> void:
 	_draw_expedition_units(viewport)
 	_draw_fungal_incursion_marker()
 	_draw_world_fog(viewport)
-	_draw_defense_zones()
+	_draw_persistent_zones()
 	_draw_barracks_placement_preview()
 	_draw_extension_preview()
 	_draw_expedition_selection()
@@ -5491,21 +5748,39 @@ func _draw_defense_zone_rect(zone: Rect2, preview: bool = false) -> void:
 		draw_rect(Rect2(point - Vector2.ONE * 2.0, Vector2.ONE * 4.0), border)
 
 
-func _draw_defense_zones() -> void:
+func _draw_harvest_zone_rect(zone: Rect2, preview: bool = false) -> void:
+	var top_left := _pixel_snap(world_to_screen(zone.position))
+	var bottom_right := _pixel_snap(world_to_screen(zone.end))
+	var screen_rect := Rect2(top_left, bottom_right - top_left).abs()
+	var border := Color(1.0, 0.72, 0.28, 0.96 if preview else 0.72)
+	var corner := Color(0.38, 0.88, 1.0, 0.96 if preview else 0.78)
+	draw_rect(screen_rect, Color(0.95, 0.51, 0.16, 0.10 if preview else 0.04))
+	draw_rect(screen_rect, border, false, 2.0 if preview else 1.0)
+	for point in [screen_rect.position, Vector2(screen_rect.end.x, screen_rect.position.y), screen_rect.end, Vector2(screen_rect.position.x, screen_rect.end.y)]:
+		draw_rect(Rect2(point - Vector2.ONE * 2.0, Vector2.ONE * 4.0), corner)
+
+
+func _draw_persistent_zones() -> void:
 	var drawn := {}
 	for unit in expedition_units:
-		if not selected_expedition_ids.has(int(unit.get("id", -1))) or not bool(unit.get("defense_enabled", false)):
+		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
-		var zone := _defense_rect(unit)
-		if zone.size.x <= 0.0:
-			continue
-		var key := "%d:%d:%d" % [roundi(zone.position.x), roundi(zone.position.y), roundi(zone.size.x)]
-		if drawn.has(key):
-			continue
-		drawn[key] = true
-		_draw_defense_zone_rect(zone)
+		if bool(unit.get("defense_enabled", false)):
+			var zone := _defense_rect(unit)
+			var key := "d:%d:%d:%d" % [roundi(zone.position.x), roundi(zone.position.y), roundi(zone.size.x)]
+			if zone.size.x > 0.0 and not drawn.has(key):
+				drawn[key] = true
+				_draw_defense_zone_rect(zone)
+		if bool(unit.get("harvest_enabled", false)):
+			var harvest_zone := _harvest_rect(unit)
+			var harvest_key := "h:%d:%d:%d" % [roundi(harvest_zone.position.x), roundi(harvest_zone.position.y), roundi(harvest_zone.size.x)]
+			if harvest_zone.size.x > 0.0 and not drawn.has(harvest_key):
+				drawn[harvest_key] = true
+				_draw_harvest_zone_rect(harvest_zone)
 	if mode == "defense_zone" and defense_zone_drawing:
 		_draw_defense_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
+	elif mode == "harvest_zone" and defense_zone_drawing:
+		_draw_harvest_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
 
 
 func _draw_expedition_selection() -> void:
@@ -6772,8 +7047,8 @@ func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
 
 
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令　Z 设防　C 清防　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
-	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 220.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
+	var text_value := "左键点击/拖框选兵　右键指令　Z 设防　X 采区　C 清令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
+	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 280.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
 		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
 		var selected_text := "%s筛选　已选 %d / %d" % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
@@ -6782,6 +7057,7 @@ func _draw_help(viewport: Vector2) -> void:
 		var retreating := 0
 		var repairing := 0
 		var defending := 0
+		var harvesting := 0
 		for unit in expedition_units:
 			if not selected_expedition_ids.has(int(unit.get("id", -1))):
 				continue
@@ -6791,20 +7067,24 @@ func _draw_help(viewport: Vector2) -> void:
 			var state := String(unit.get("state", "idle"))
 			if bool(unit.get("defense_enabled", false)):
 				defending += 1
+			if bool(unit.get("harvest_enabled", false)):
+				harvesting += 1
 			if state == "returning" or state == "retreating" or state == "wounded":
 				retreating += 1
 			elif state == "repairing":
 				repairing += 1
 		var average_health := health_total / maxf(1.0, float(health_count)) * 100.0
-		var rect := Rect2(22, viewport.y - 134, 410, 82)
+		var rect := Rect2(22, viewport.y - 134, 560, 82)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
-		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　设防 %d　返巢 %d　修复 %d" % [average_health, defending, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		for button_index in range(2):
+		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　防区 %d　采区 %d　返巢 %d　修复 %d" % [average_health, defending, harvesting, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_labels := ["设防 Z", "采区 X", "清令 C"]
+		for button_index in range(3):
 			var button := _defense_zone_button_rect(viewport, button_index)
-			var active := button_index == 0 and mode == "defense_zone"
-			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), Color("7dff9f") if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
-			draw_string(fallback_font, button.position + Vector2(8, 16), "设防 Z" if button_index == 0 else "清除 C", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+			var active := (button_index == 0 and mode == "defense_zone") or (button_index == 1 and mode == "harvest_zone")
+			var active_border := Color("7dff9f") if button_index == 0 else Color("ffb94e")
+			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), active_border if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
+			draw_string(fallback_font, button.position + Vector2(8, 16), String(button_labels[button_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
 func _expedition_state_name(state: String) -> String:
@@ -6850,6 +7130,10 @@ func _draw_expedition_tooltip() -> bool:
 	if bool(unit.get("defense_enabled", false)):
 		var zone := _defense_rect(unit)
 		lines.append("持久防区　%.0f × %.0f μm" % [zone.size.x / 2.0, zone.size.y / 2.0])
+	if bool(unit.get("harvest_enabled", false)):
+		var harvest_zone := _harvest_rect(unit)
+		var harvest_kind := "矿物" if _harvest_resource_kind(unit) == 1 else "有机"
+		lines.append("持久采区　%s　%.0f × %.0f μm" % [harvest_kind, harvest_zone.size.x / 2.0, harvest_zone.size.y / 2.0])
 	if unit_type == "suppressor":
 		var deploy_state := String(unit.get("state", "idle"))
 		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
@@ -7718,6 +8002,12 @@ func _save_game() -> void:
 			"defense_max_x": (unit.get("defense_max", unit_pos) as Vector2).x,
 			"defense_max_y": (unit.get("defense_max", unit_pos) as Vector2).y,
 			"defense_patrol_index": int(unit.get("defense_patrol_index", 0)),
+			"harvest_enabled": bool(unit.get("harvest_enabled", false)),
+			"harvest_min_x": (unit.get("harvest_min", unit_pos) as Vector2).x,
+			"harvest_min_y": (unit.get("harvest_min", unit_pos) as Vector2).y,
+			"harvest_max_x": (unit.get("harvest_max", unit_pos) as Vector2).x,
+			"harvest_max_y": (unit.get("harvest_max", unit_pos) as Vector2).y,
+			"harvest_patrol_index": int(unit.get("harvest_patrol_index", 0)),
 			"deploy_progress": float(unit.get("deploy_progress", 0.0)),
 			"burst_cooldown": float(unit.get("burst_cooldown", 0.0)),
 			"last_burst_hits": int(unit.get("last_burst_hits", 0)),
@@ -8282,6 +8572,7 @@ func _load_game() -> bool:
 			loaded_state = "idle"
 		var loaded_deploy_seconds := _deploy_seconds_for_unit(unit_type)
 		var loaded_burst_default := DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0
+		var loaded_conflicting_orders := bool(item.get("defense_enabled", false)) and bool(item.get("harvest_enabled", false))
 		var loaded_defense_min := Vector2(float(item.get("defense_min_x", unit_pos.x)), float(item.get("defense_min_y", unit_pos.y)))
 		var loaded_defense_max := Vector2(float(item.get("defense_max_x", unit_pos.x)), float(item.get("defense_max_y", unit_pos.y)))
 		var loaded_defense_enabled := bool(item.get("defense_enabled", false))
@@ -8294,6 +8585,21 @@ func _load_game() -> bool:
 		var loaded_defense_size := (loaded_defense_max - loaded_defense_min).abs()
 		if loaded_defense_size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_defense_size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_defense_size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or loaded_defense_size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(loaded_defense_size.x - loaded_defense_size.y) > 0.1:
 			loaded_defense_enabled = false
+		var loaded_harvest_min := Vector2(float(item.get("harvest_min_x", unit_pos.x)), float(item.get("harvest_min_y", unit_pos.y)))
+		var loaded_harvest_max := Vector2(float(item.get("harvest_max_x", unit_pos.x)), float(item.get("harvest_max_y", unit_pos.y)))
+		var loaded_harvest_enabled := bool(item.get("harvest_enabled", false))
+		if not loaded_harvest_min.is_finite() or not loaded_harvest_max.is_finite():
+			loaded_harvest_enabled = false
+			loaded_harvest_min = unit_pos
+			loaded_harvest_max = unit_pos
+		loaded_harvest_min = loaded_harvest_min.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		loaded_harvest_max = loaded_harvest_max.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		var loaded_harvest_size := (loaded_harvest_max - loaded_harvest_min).abs()
+		if loaded_harvest_size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_harvest_size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_harvest_size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or loaded_harvest_size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(loaded_harvest_size.x - loaded_harvest_size.y) > 0.1:
+			loaded_harvest_enabled = false
+		if loaded_conflicting_orders:
+			loaded_defense_enabled = false
+			loaded_harvest_enabled = false
 		expedition_units.append({
 			"id": unit_id,
 			"unit_type": unit_type,
@@ -8310,6 +8616,10 @@ func _load_game() -> bool:
 			"defense_min": loaded_defense_min,
 			"defense_max": loaded_defense_max,
 			"defense_patrol_index": clampi(int(item.get("defense_patrol_index", 0)), 0, 1000000),
+			"harvest_enabled": loaded_harvest_enabled,
+			"harvest_min": loaded_harvest_min,
+			"harvest_max": loaded_harvest_max,
+			"harvest_patrol_index": clampi(int(item.get("harvest_patrol_index", 0)), 0, 1000000),
 			"deploy_progress": clampf(float(item.get("deploy_progress", loaded_deploy_seconds if loaded_state == "deployed" else 0.0)), 0.0, loaded_deploy_seconds),
 			"burst_cooldown": clampf(float(item.get("burst_cooldown", loaded_burst_default)), 0.0, DISPERSER_BURST_COOLDOWN),
 			"burst_flash": 0.0,
@@ -8331,9 +8641,21 @@ func _load_game() -> bool:
 		var loaded_unit: Dictionary = expedition_units.back()
 		if _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) or not _unit_can_defend_fungi(loaded_unit) or (bool(loaded_unit.get("defense_enabled", false)) and not _defense_zone_within_operating_range(_defense_rect(loaded_unit), loaded_unit)):
 			loaded_unit["defense_enabled"] = false
+		if not _unit_can_harvest(loaded_unit) or (bool(loaded_unit.get("harvest_enabled", false)) and not _defense_zone_within_operating_range(_harvest_rect(loaded_unit), loaded_unit)):
+			loaded_unit["harvest_enabled"] = false
 		if not bool(loaded_unit.get("defense_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "defense_patrol":
 			loaded_unit["target_kind"] = ""
 			loaded_unit["state"] = "idle"
+		if not bool(loaded_unit.get("harvest_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "harvest_patrol":
+			loaded_unit["target_kind"] = ""
+			loaded_unit["state"] = "idle"
+		if bool(loaded_unit.get("harvest_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "resource":
+			var loaded_resource := _resource_by_id(int(loaded_unit.get("target_resource_id", -1)))
+			var loaded_zone := _harvest_rect(loaded_unit)
+			if loaded_resource.is_empty() or not bool(loaded_resource.get("alive", false)) or int(loaded_resource.get("kind", -1)) != _harvest_resource_kind(loaded_unit) or not loaded_zone.grow(0.1).has_point(loaded_resource.get("pos", Vector2.INF)):
+				loaded_unit["target_kind"] = ""
+				loaded_unit["target_resource_id"] = -1
+				loaded_unit["state"] = "idle"
 		if not _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) and ["deploying", "deployed"].has(String(loaded_unit.get("state", "idle"))):
 			loaded_unit["state"] = "idle"
 			loaded_unit["target_kind"] = ""
@@ -8356,6 +8678,7 @@ func _load_game() -> bool:
 			loaded_unit["target_enemy_guard_id"] = -1
 			loaded_unit["state"] = "idle"
 		_enforce_defense_zone(loaded_unit)
+		_enforce_harvest_zone(loaded_unit)
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
 	# v0.22 及更早存档没有章节字段：根据已完成的实际行为向前补齐，不回退玩家进度。
 	lifetime_expedition_units_built = maxi(lifetime_expedition_units_built, expedition_units.size())

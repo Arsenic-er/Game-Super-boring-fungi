@@ -126,6 +126,34 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: 64 persistent defenders took %.1f ms" % defense_ms)
 		quit(1)
 		return
+	game.resources.clear()
+	game.resource_grid.clear()
+	var harvest_zone := Rect2(Vector2(220.0, -200.0), Vector2(160.0, 160.0))
+	for resource_index in range(96):
+		var resource_pos := harvest_zone.position + Vector2(10.0 + float(resource_index % 12) * 12.0, 10.0 + float(resource_index / 12) * 18.0)
+		game._add_resource(resource_pos, 0, 100.0)
+	game._reveal_exploration(harvest_zone.get_center(), 180.0)
+	for unit_index in range(game.expedition_units.size()):
+		var unit: Dictionary = game.expedition_units[unit_index]
+		unit["state"] = "guarding"
+		unit["target_kind"] = ""
+		unit["target_resource_id"] = -1
+		unit["defense_enabled"] = false
+		unit["harvest_enabled"] = true
+		unit["harvest_min"] = harvest_zone.position
+		unit["harvest_max"] = harvest_zone.end
+		unit["harvest_patrol_index"] = unit_index % 5
+		unit["cargo_organic"] = 0.0
+		unit["cargo_mineral"] = 0.0
+		unit["search_cooldown"] = 0.0
+	var harvest_started := Time.get_ticks_usec()
+	for i in range(120):
+		game._update_expedition_units(0.1, false)
+	var harvest_ms := float(Time.get_ticks_usec() - harvest_started) / 1000.0
+	if harvest_ms > 2500.0:
+		push_error("PERFORMANCE_FAIL: 64 persistent gatherers took %.1f ms" % harvest_ms)
+		quit(1)
+		return
 	game.camera_zoom = 0.018
 	game.camera_center = Vector2.ZERO
 	var render_started := Time.get_ticks_usec()
@@ -137,6 +165,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " defenders=64 defense_ms=", "%.1f" % defense_ms, " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " defenders=64 defense_ms=", "%.1f" % defense_ms, " gatherers=64 harvest_ms=", "%.1f" % harvest_ms, " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)
