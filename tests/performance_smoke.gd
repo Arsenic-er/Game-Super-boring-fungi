@@ -154,6 +154,65 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: 64 persistent gatherers took %.1f ms" % harvest_ms)
 		quit(1)
 		return
+	game.bacteria.clear()
+	var purge_zone := Rect2(Vector2(220.0, -200.0), Vector2(160.0, 160.0))
+	while game.bacteria.size() < game.MAX_BACTERIA:
+		var bacteria_index: int = game.bacteria.size()
+		var bacteria_pos := purge_zone.position + Vector2(8.0 + float(bacteria_index % 21) * 7.0, 8.0 + float(bacteria_index / 21) * 7.0)
+		game.bacteria.append(game._make_bacterium(bacteria_pos))
+	game._reveal_exploration(purge_zone.get_center(), 180.0)
+	for unit_index in range(game.expedition_units.size()):
+		var unit: Dictionary = game.expedition_units[unit_index]
+		var purge_type := "lytic" if unit_index < 32 else "disperser"
+		unit["unit_type"] = purge_type
+		unit["pos"] = purge_zone.get_center() + Vector2(float(unit_index % 8) - 3.5, float(unit_index / 8) - 3.5) * 4.0
+		unit["state"] = "guarding"
+		unit["target_kind"] = ""
+		unit["defense_enabled"] = false
+		unit["harvest_enabled"] = false
+		unit["purge_enabled"] = true
+		unit["purge_min"] = purge_zone.position
+		unit["purge_max"] = purge_zone.end
+		unit["purge_patrol_index"] = unit_index % 5
+		unit["cargo_organic"] = 0.0
+		unit["cargo_mineral"] = 0.0
+		unit["burst_cooldown"] = 0.0
+		unit["search_cooldown"] = 0.0
+	var purge_started := Time.get_ticks_usec()
+	for i in range(120):
+		game._update_expedition_units(0.1, false)
+	var purge_ms := float(Time.get_ticks_usec() - purge_started) / 1000.0
+	if purge_ms > 3000.0:
+		push_error("PERFORMANCE_FAIL: 64 purge hunters against 420 bacteria took %.1f ms" % purge_ms)
+		quit(1)
+		return
+	game.bacteria.clear()
+	for bacteria_index in range(game.MAX_BACTERIA):
+		var bacteria_pos := Vector2(300.0 + float(bacteria_index % 21) * 3.0, -180.0 + float(bacteria_index / 21) * 3.0)
+		game.bacteria.append(game._make_bacterium(bacteria_pos))
+	game._reveal_exploration(Vector2(350.0, -150.0), 220.0)
+	for unit_index in range(game.expedition_units.size()):
+		var unit: Dictionary = game.expedition_units[unit_index]
+		var shifted_zone := Rect2(Vector2(220.0 + float(unit_index), -200.0), Vector2(160.0, 160.0))
+		unit["unit_type"] = "disperser"
+		unit["pos"] = shifted_zone.get_center()
+		unit["state"] = "guarding"
+		unit["target_kind"] = ""
+		unit["defense_enabled"] = false
+		unit["harvest_enabled"] = false
+		unit["purge_enabled"] = true
+		unit["purge_min"] = shifted_zone.position
+		unit["purge_max"] = shifted_zone.end
+		unit["cargo_organic"] = 0.0
+		unit["cargo_mineral"] = 0.0
+		unit["biomass"] = unit["max_biomass"]
+	var unique_purge_started := Time.get_ticks_usec()
+	game._update_expedition_units(0.1, false)
+	var unique_purge_ms := float(Time.get_ticks_usec() - unique_purge_started) / 1000.0
+	if unique_purge_ms > 500.0:
+		push_error("PERFORMANCE_FAIL: 64 unique purge zones against 420 bacteria took %.1f ms" % unique_purge_ms)
+		quit(1)
+		return
 	game.camera_zoom = 0.018
 	game.camera_center = Vector2.ZERO
 	var render_started := Time.get_ticks_usec()
@@ -165,6 +224,6 @@ func _run() -> void:
 		push_error("PERFORMANCE_FAIL: full-dish fog render took %.1f ms" % render_ms)
 		quit(1)
 		return
-	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " defenders=64 defense_ms=", "%.1f" % defense_ms, " gatherers=64 harvest_ms=", "%.1f" % harvest_ms, " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
+	print("PERFORMANCE_OK bacteria=", game.bacteria.size(), " suppressor_zones=16 antifungal_zones=16 disperser_bursts=32 best_aoe_hit=", game.lifetime_disperser_best_hit, " enemy_hyphae=", game.enemy_hyphae.size(), " enemy_guards=", game.enemy_guard_spores.size(), " defenders=64 defense_ms=", "%.1f" % defense_ms, " gatherers=64 harvest_ms=", "%.1f" % harvest_ms, " purge_units=64 purge_ms=", "%.1f" % purge_ms, " unique_purge_ms=", "%.1f" % unique_purge_ms, " ecology_event=1 explored=", game.explored_cells.size(), " updates=120 elapsed_ms=", "%.1f" % elapsed_ms, " fog_render_ms=", "%.1f" % render_ms)
 	game.queue_free()
 	quit(0)

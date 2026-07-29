@@ -201,6 +201,7 @@ const DISPERSER_BURST_COOLDOWN := 6.0
 const DISPERSER_BURST_DAMAGE := 0.600
 const DISPERSER_CARGO_FRACTION := 0.25
 const DISPERSER_COUNTER_MULTIPLIER := 0.35
+const PURGE_DENSITY_CELL_SIZE := 20.0
 const BLOOM_CONTAINMENT_HOLD_SECONDS := 12.0
 const BARRACK_UNIT_IDS := ["forager", "carrier", "chelator", "scout"]
 const BARRACK_UNIT_NAMES := {"forager": "游猎孢子", "carrier": "囊载孢子", "chelator": "螯合孢子", "scout": "嗅营孢子", "lytic": "裂菌孢子", "suppressor": "抑菌囊体", "disperser": "溶菌散播体", "piercer": "穿壁孢子", "coil": "缠丝猎手", "antifungal": "抗真菌囊体"}
@@ -270,6 +271,8 @@ var feeders: Array = []
 var bacteria: Array = []
 var expedition_units: Array = []
 var next_expedition_id := 1
+var purge_density_grid: Dictionary = {}
+var purge_claim_cache: Dictionary = {}
 var enemy_fungi: Array = []
 var enemy_hyphae: Array = []
 var enemy_guard_spores: Array = []
@@ -1672,6 +1675,10 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"harvest_min": spawn_pos,
 		"harvest_max": spawn_pos,
 		"harvest_patrol_index": 0,
+		"purge_enabled": false,
+		"purge_min": spawn_pos,
+		"purge_max": spawn_pos,
+		"purge_patrol_index": 0,
 		"deploy_progress": 0.0,
 		"burst_cooldown": DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0,
 		"burst_flash": 0.0,
@@ -1752,6 +1759,8 @@ func _cycle_barracks_auto_target(core_id: int) -> void:
 
 
 func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = true) -> void:
+	_rebuild_purge_density_grid()
+	_rebuild_purge_claim_cache()
 	var surviving: Array = []
 	for unit in expedition_units:
 		var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
@@ -1775,11 +1784,12 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 			state = "retreating"
 		# Offline settlement still applies capped toxin damage and low-biomass
 		# retreat, but does not advance mobile defense or guard combat commands.
-		if offline_simulating and (bool(unit.get("defense_enabled", false)) or String(unit.get("target_kind", "")) == "enemy_guard") and not ["returning", "retreating", "repairing", "wounded"].has(state):
+		if offline_simulating and (bool(unit.get("defense_enabled", false)) or String(unit.get("target_kind", "")) == "enemy_guard" or (bool(unit.get("purge_enabled", false)) and not offline_expedition_combat_active)) and not ["returning", "retreating", "repairing", "wounded"].has(state):
 			surviving.append(unit)
 			continue
 		_enforce_defense_zone(unit)
 		_enforce_harvest_zone(unit)
+		_enforce_purge_zone(unit)
 		state = String(unit.get("state", state))
 		if state == "returning" or state == "retreating":
 			_move_expedition_unit(unit, home, sim_delta)
@@ -1851,7 +1861,9 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		else:
 			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
 			if float(unit["search_cooldown"]) <= 0.0:
-				if bool(unit.get("harvest_enabled", false)):
+				if bool(unit.get("purge_enabled", false)):
+					_acquire_purge_target(unit)
+				elif bool(unit.get("harvest_enabled", false)):
 					_acquire_harvest_target(unit)
 				elif bool(unit.get("defense_enabled", false)):
 					_acquire_defense_target(unit)
@@ -2052,11 +2064,17 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 	var target: Vector2 = unit.get("target_pos", unit["pos"])
 	var index := _nearest_bacterium_index(target, 18.0)
 	if index < 0:
-		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
+		if bool(unit.get("purge_enabled", false)):
+			_acquire_purge_target(unit)
+		else:
+			unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 		return
 	var bacterium: Dictionary = bacteria[index]
 	if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
-		unit["state"] = "idle"
+		if bool(unit.get("purge_enabled", false)):
+			_acquire_purge_target(unit)
+		else:
+			unit["state"] = "idle"
 		return
 	var attack_rate := 0.150 if String(unit.get("unit_type", "forager")) == "lytic" else EXPEDITION_ATTACK_RATE
 	var attack := minf(float(bacterium.get("biomass", 1.0)), attack_rate * _diet_efficiency("bacteria") * sim_delta)
@@ -2068,7 +2086,10 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 		bacteria.remove_at(index)
 		lifetime_bacteria_consumed += 1
 		lifetime_expedition_bacteria_killed += 1
-		unit["state"] = "returning" if float(unit["cargo_organic"]) > 0.0 else "idle"
+		if bool(unit.get("purge_enabled", false)) and float(unit.get("cargo_organic", 0.0)) < _expedition_cargo_capacity(unit) - 0.0005:
+			_acquire_purge_target(unit)
+		else:
+			unit["state"] = "returning" if float(unit["cargo_organic"]) > 0.0 else "idle"
 	elif not offline_simulating or offline_expedition_combat_active:
 		var resistance := 0.70 if String(unit.get("unit_type", "forager")) == "lytic" else 1.0
 		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * float(bacterium.get("biomass", 1.0)) * resistance * sim_delta
@@ -2098,9 +2119,12 @@ func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
 	var surviving_biomass := 0.0
 	var radius_squared := DISPERSER_BURST_RADIUS * DISPERSER_BURST_RADIUS
 	var burst_damage := DISPERSER_BURST_DAMAGE * efficiency
+	var purge_zone := _purge_rect(unit)
 	for index in range(bacteria.size() - 1, -1, -1):
 		var bacterium: Dictionary = bacteria[index]
 		if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
+			continue
+		if bool(unit.get("purge_enabled", false)) and not _purge_candidate_allowed(unit, purge_zone, bacterium):
 			continue
 		if target.distance_squared_to(bacterium["pos"]) > radius_squared:
 			continue
@@ -2122,13 +2146,19 @@ func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
 	lifetime_disperser_best_hit = maxi(lifetime_disperser_best_hit, hit_count)
 	unit["cargo_organic"] = minf(_expedition_cargo_capacity(unit), float(unit.get("cargo_organic", 0.0)) + total_damage * DISPERSER_CARGO_FRACTION)
 	if hit_count <= 0:
-		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
+		if bool(unit.get("purge_enabled", false)):
+			_acquire_purge_target(unit)
+		else:
+			unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 		return
 	if not offline_simulating or offline_expedition_combat_active:
 		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * surviving_biomass * DISPERSER_COUNTER_MULTIPLIER
 		_damage_expedition_unit(unit, counter_damage, "范围裂解反击")
 	if killed_count > 0 and surviving_biomass <= 0.0005:
-		unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
+		if bool(unit.get("purge_enabled", false)) and float(unit.get("cargo_organic", 0.0)) < _expedition_cargo_capacity(unit) - 0.0005:
+			_acquire_purge_target(unit)
+		else:
+			unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 
 
 func _update_expedition_guard_attack(unit: Dictionary, sim_delta: float) -> void:
@@ -2351,11 +2381,13 @@ func _clear_selected_persistent_orders() -> void:
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
-		var had_order := bool(unit.get("defense_enabled", false)) or bool(unit.get("harvest_enabled", false))
+		var had_order := bool(unit.get("defense_enabled", false)) or bool(unit.get("harvest_enabled", false)) or bool(unit.get("purge_enabled", false))
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
 		if bool(unit.get("harvest_enabled", false)):
 			_clear_unit_harvest(unit)
+		if bool(unit.get("purge_enabled", false)):
+			_clear_unit_purge(unit)
 		if had_order:
 			cleared += 1
 	mode = "normal"
@@ -2365,7 +2397,7 @@ func _clear_selected_persistent_orders() -> void:
 		toast("已清除 %d 个单位的持久命令" % cleared, 2.0)
 	else:
 		_play_sound("ui_error")
-		toast("所选单位没有已设置的防区或采区", 1.8)
+		toast("所选单位没有已设置的防区、采区或猎区", 1.8)
 
 
 func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
@@ -2380,6 +2412,8 @@ func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
 			continue
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
+		if bool(unit.get("purge_enabled", false)):
+			_clear_unit_purge(unit)
 		unit["harvest_enabled"] = true
 		unit["harvest_min"] = zone.position
 		unit["harvest_max"] = zone.end
@@ -2519,6 +2553,280 @@ func _enforce_harvest_zone(unit: Dictionary) -> void:
 		_acquire_harvest_target(unit)
 
 
+func _unit_can_purge(unit: Dictionary) -> bool:
+	return _diet_efficiency("bacteria") > 0.0 and ["forager", "lytic", "disperser"].has(String(unit.get("unit_type", "forager")))
+
+
+func _purge_rect(unit: Dictionary) -> Rect2:
+	if not bool(unit.get("purge_enabled", false)):
+		return Rect2()
+	var minimum: Vector2 = unit.get("purge_min", unit.get("pos", Vector2.ZERO))
+	var maximum: Vector2 = unit.get("purge_max", minimum)
+	if not minimum.is_finite() or not maximum.is_finite():
+		return Rect2()
+	var position := Vector2(minf(minimum.x, maximum.x), minf(minimum.y, maximum.y))
+	var size := (maximum - minimum).abs()
+	if size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or size.y < DEFENSE_ZONE_MIN_SIDE - 0.01:
+		return Rect2()
+	return Rect2(position, size)
+
+
+func _begin_purge_zone_mode() -> void:
+	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
+		return
+	var eligible := 0
+	for unit in expedition_units:
+		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_purge(unit) and not ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			eligible += 1
+	if eligible == 0:
+		_play_sound("ui_error")
+		toast("请先选择可猎食细菌的游猎、裂菌或溶菌单位", 2.6)
+		return
+	mode = "purge_zone"
+	defense_zone_drawing = false
+	_play_sound("ui_confirm")
+	toast("按住右键拖出正方形细菌清剿区；Esc 取消", 3.0)
+
+
+func _clear_unit_purge(unit: Dictionary) -> void:
+	var was_enabled := bool(unit.get("purge_enabled", false))
+	unit["purge_enabled"] = false
+	if not was_enabled or ["returning", "retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+		return
+	unit["state"] = "idle"
+	unit["target_kind"] = ""
+	unit["target_enemy_id"] = -1
+	unit["target_enemy_hypha_id"] = -1
+	unit["target_enemy_guard_id"] = -1
+	unit["manual"] = false
+
+
+func _assign_purge_zone(start_world: Vector2, end_world: Vector2) -> int:
+	var zone := _square_defense_rect(start_world, end_world)
+	var assigned := 0
+	_rebuild_purge_density_grid(true)
+	_rebuild_purge_claim_cache()
+	for unit in expedition_units:
+		if not selected_expedition_ids.has(int(unit.get("id", -1))) or not _unit_can_purge(unit):
+			continue
+		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			continue
+		if not _defense_zone_within_operating_range(zone, unit):
+			continue
+		if bool(unit.get("defense_enabled", false)):
+			_clear_unit_defense(unit)
+		if bool(unit.get("harvest_enabled", false)):
+			_clear_unit_harvest(unit)
+		unit["target_kind"] = ""
+		unit["purge_enabled"] = true
+		unit["purge_min"] = zone.position
+		unit["purge_max"] = zone.end
+		unit["purge_patrol_index"] = int(unit.get("id", 0)) % 5
+		unit["target_resource_id"] = -1
+		unit["target_enemy_id"] = -1
+		unit["target_enemy_hypha_id"] = -1
+		unit["target_enemy_guard_id"] = -1
+		_acquire_purge_target(unit)
+		assigned += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	if assigned > 0:
+		_play_sound("command", clampf(0.84 + assigned * 0.02, 0.84, 1.2))
+		toast("已为 %d 个单位设置持久细菌清剿区" % assigned, 2.5)
+	else:
+		_play_sound("ui_error")
+		toast("清剿区超出菌落行动范围，或单位暂时无法执行", 2.8)
+	return assigned
+
+
+func _set_next_purge_patrol(unit: Dictionary) -> void:
+	var zone := _purge_rect(unit)
+	if zone.size.x <= 0.0:
+		_clear_unit_purge(unit)
+		return
+	var route: Array[Vector2] = [Vector2(0.5, 0.5), Vector2(0.2, 0.2), Vector2(0.8, 0.2), Vector2(0.8, 0.8), Vector2(0.2, 0.8)]
+	var patrol_index := posmod(int(unit.get("purge_patrol_index", 0)), route.size())
+	var point: Vector2 = zone.position + zone.size * route[patrol_index]
+	unit["purge_patrol_index"] = (patrol_index + 1) % route.size()
+	point = _clamp_expedition_command_target(point, _expedition_operating_radius(unit))
+	if not zone.grow(0.1).has_point(point):
+		point = zone.get_center()
+	unit["target_kind"] = "purge_patrol"
+	unit["target_pos"] = point
+	unit["state"] = "moving"
+	unit["manual"] = true
+	unit["command_until"] = sim_time + 3.0
+
+
+func _purge_candidate_allowed(unit: Dictionary, zone: Rect2, bacterium: Dictionary) -> bool:
+	var bacterium_pos: Vector2 = bacterium.get("pos", Vector2.INF)
+	if not bacterium_pos.is_finite() or not zone.grow(0.1).has_point(bacterium_pos) or not _is_world_explored(bacterium_pos):
+		return false
+	if _distance_to_colony(bacterium_pos) > _expedition_operating_radius(unit) + 0.01:
+		return false
+	return not offline_simulating or int(bacterium.get("event_id", -1)) < 0
+
+
+func _rebuild_purge_claim_cache() -> void:
+	purge_claim_cache.clear()
+	for candidate in expedition_units:
+		if not bool(candidate.get("purge_enabled", false)) or String(candidate.get("target_kind", "")) != "bacteria" or not ["moving", "attacking"].has(String(candidate.get("state", "idle"))):
+			continue
+		var target_pos: Vector2 = candidate.get("target_pos", Vector2.INF)
+		if target_pos.is_finite():
+			purge_claim_cache[target_pos] = int(purge_claim_cache.get(target_pos, 0)) + 1
+
+
+func _release_purge_claim(unit: Dictionary) -> void:
+	if String(unit.get("target_kind", "")) != "bacteria":
+		return
+	var target_pos: Vector2 = unit.get("target_pos", Vector2.INF)
+	if not target_pos.is_finite() or not purge_claim_cache.has(target_pos):
+		return
+	var remaining := int(purge_claim_cache[target_pos]) - 1
+	if remaining > 0:
+		purge_claim_cache[target_pos] = remaining
+	else:
+		purge_claim_cache.erase(target_pos)
+
+
+func _reserve_purge_claim(target_pos: Vector2) -> void:
+	purge_claim_cache[target_pos] = int(purge_claim_cache.get(target_pos, 0)) + 1
+
+
+func _purge_density_cell(pos: Vector2) -> Vector2i:
+	return Vector2i(floori(pos.x / PURGE_DENSITY_CELL_SIZE), floori(pos.y / PURGE_DENSITY_CELL_SIZE))
+
+
+func _rebuild_purge_density_grid(force: bool = false) -> void:
+	purge_density_grid.clear()
+	var needed := force
+	if not needed:
+		for unit in expedition_units:
+			if bool(unit.get("purge_enabled", false)) and String(unit.get("unit_type", "forager")) == "disperser":
+				needed = true
+				break
+	if not needed:
+		return
+	for bacterium in bacteria:
+		if offline_simulating and int(bacterium.get("event_id", -1)) >= 0:
+			continue
+		var bacterium_pos: Vector2 = bacterium.get("pos", Vector2.INF)
+		if not bacterium_pos.is_finite() or not _is_world_explored(bacterium_pos):
+			continue
+		var cell := _purge_density_cell(bacterium_pos)
+		purge_density_grid[cell] = int(purge_density_grid.get(cell, 0)) + 1
+
+
+func _purge_grid_density(zone: Rect2, target_pos: Vector2) -> int:
+	if purge_density_grid.is_empty() and not bacteria.is_empty():
+		_rebuild_purge_density_grid(true)
+	var query_min := target_pos - Vector2.ONE * DISPERSER_BURST_RADIUS
+	var query_max := target_pos + Vector2.ONE * DISPERSER_BURST_RADIUS
+	query_min.x = maxf(query_min.x, zone.position.x)
+	query_min.y = maxf(query_min.y, zone.position.y)
+	query_max.x = minf(query_max.x, zone.end.x)
+	query_max.y = minf(query_max.y, zone.end.y)
+	if query_min.x > query_max.x or query_min.y > query_max.y:
+		return 0
+	var min_cell := _purge_density_cell(query_min)
+	var max_cell := _purge_density_cell(query_max)
+	var density := 0
+	var radius_with_cell_margin := DISPERSER_BURST_RADIUS + PURGE_DENSITY_CELL_SIZE * 0.72
+	var radius_squared := radius_with_cell_margin * radius_with_cell_margin
+	for cell_y in range(min_cell.y, max_cell.y + 1):
+		for cell_x in range(min_cell.x, max_cell.x + 1):
+			var cell := Vector2i(cell_x, cell_y)
+			var count := int(purge_density_grid.get(cell, 0))
+			if count <= 0:
+				continue
+			var cell_center := (Vector2(cell) + Vector2.ONE * 0.5) * PURGE_DENSITY_CELL_SIZE
+			if target_pos.distance_squared_to(cell_center) <= radius_squared:
+				density += count
+	return density
+
+
+func _best_purge_target(unit: Dictionary) -> Dictionary:
+	var zone := _purge_rect(unit)
+	if zone.size.x <= 0.0:
+		return {}
+	var unit_pos: Vector2 = unit["pos"]
+	var disperser := String(unit.get("unit_type", "forager")) == "disperser"
+	var best: Dictionary = {}
+	var best_density := -1
+	var best_claims := 1000000
+	var best_distance := INF
+	for bacterium in bacteria:
+		if not _purge_candidate_allowed(unit, zone, bacterium):
+			continue
+		var target_pos: Vector2 = bacterium["pos"]
+		var claims := int(purge_claim_cache.get(target_pos, 0))
+		var distance := unit_pos.distance_squared_to(target_pos)
+		var density := _purge_grid_density(zone, target_pos) if disperser else 0
+		var better := false
+		if disperser:
+			better = density > best_density or (density == best_density and (claims < best_claims or (claims == best_claims and distance < best_distance)))
+		else:
+			better = claims < best_claims or (claims == best_claims and distance < best_distance)
+		if better:
+			best = bacterium
+			best_density = density
+			best_claims = claims
+			best_distance = distance
+	return best
+
+
+func _acquire_purge_target(unit: Dictionary) -> void:
+	if not bool(unit.get("purge_enabled", false)) or not _unit_can_purge(unit):
+		return
+	_release_purge_claim(unit)
+	var carried := float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0))
+	if carried >= _expedition_cargo_capacity(unit) - 0.0005:
+		unit["state"] = "returning"
+		unit["target_kind"] = "home"
+		return
+	var target := _best_purge_target(unit)
+	if not target.is_empty():
+		unit["target_kind"] = "bacteria"
+		unit["target_pos"] = target["pos"]
+		_reserve_purge_claim(target["pos"])
+		unit["state"] = "moving"
+		unit["manual"] = true
+		if String(unit.get("unit_type", "forager")) == "disperser":
+			unit["burst_cooldown"] = maxf(float(unit.get("burst_cooldown", 0.0)), DISPERSER_WINDUP_SECONDS)
+		return
+	if carried > 0.0005:
+		unit["state"] = "returning"
+		unit["target_kind"] = "home"
+	else:
+		_set_next_purge_patrol(unit)
+
+
+func _enforce_purge_zone(unit: Dictionary) -> void:
+	if not bool(unit.get("purge_enabled", false)):
+		return
+	var state := String(unit.get("state", "idle"))
+	if ["returning", "retreating", "repairing", "wounded"].has(state):
+		return
+	var zone := _purge_rect(unit)
+	if zone.size.x <= 0.0 or not _unit_can_purge(unit) or not _defense_zone_within_operating_range(zone, unit):
+		_clear_unit_purge(unit)
+		return
+	if not zone.grow(12.0).has_point(unit["pos"]):
+		_set_next_purge_patrol(unit)
+		return
+	var target_kind := String(unit.get("target_kind", ""))
+	if target_kind == "bacteria":
+		var index := _nearest_bacterium_index(unit.get("target_pos", unit["pos"]), 18.0)
+		if index < 0 or not _purge_candidate_allowed(unit, zone, bacteria[index]):
+			_acquire_purge_target(unit)
+	elif target_kind == "purge_patrol":
+		if not zone.grow(0.1).has_point(unit.get("target_pos", zone.get_center())):
+			_set_next_purge_patrol(unit)
+	elif target_kind != "" or state == "moving" or state == "attacking":
+		_acquire_purge_target(unit)
+
+
 func _begin_defense_zone_mode() -> void:
 	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
 		return
@@ -2569,6 +2877,8 @@ func _assign_defense_zone(start_world: Vector2, end_world: Vector2) -> int:
 			continue
 		if bool(unit.get("harvest_enabled", false)):
 			_clear_unit_harvest(unit)
+		if bool(unit.get("purge_enabled", false)):
+			_clear_unit_purge(unit)
 		unit["defense_enabled"] = true
 		unit["defense_min"] = zone.position
 		unit["defense_max"] = zone.end
@@ -3322,6 +3632,8 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 				_clear_unit_defense(unit)
 			if bool(unit.get("harvest_enabled", false)):
 				_clear_unit_harvest(unit)
+			if bool(unit.get("purge_enabled", false)):
+				_clear_unit_purge(unit)
 			unit["home_core_id"] = friendly_barracks_id
 			_set_expedition_retreat(unit, "手动返巢")
 			commanded += 1
@@ -3340,6 +3652,8 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			_clear_unit_defense(unit)
 		if bool(unit.get("harvest_enabled", false)):
 			_clear_unit_harvest(unit)
+		if bool(unit.get("purge_enabled", false)):
+			_clear_unit_purge(unit)
 		var unit_target_kind := target_kind
 		var unit_resource_id := resource_id
 		var unit_enemy_id := enemy_id
@@ -3405,6 +3719,8 @@ func _order_selected_expedition_return() -> void:
 			_clear_unit_defense(unit)
 		if bool(unit.get("harvest_enabled", false)):
 			_clear_unit_harvest(unit)
+		if bool(unit.get("purge_enabled", false)):
+			_clear_unit_purge(unit)
 		_set_expedition_retreat(unit, "手动返巢")
 		ordered += 1
 	if ordered > 0:
@@ -4254,7 +4570,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_button = MOUSE_BUTTON_MIDDLE if event.pressed else 0
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
-			if mode == "defense_zone" or mode == "harvest_zone":
+			if mode == "defense_zone" or mode == "harvest_zone" or mode == "purge_zone":
 				if upgrade_open or goals_open:
 					mode = "normal"
 					defense_zone_drawing = false
@@ -4269,13 +4585,16 @@ func _unhandled_input(event: InputEvent) -> void:
 						defense_zone_current_world = screen_to_world(event.position)
 						if mode == "harvest_zone":
 							_assign_harvest_zone(defense_zone_start_world, defense_zone_current_world)
+						elif mode == "purge_zone":
+							_assign_purge_zone(defense_zone_start_world, defense_zone_current_world)
 						else:
 							_assign_defense_zone(defense_zone_start_world, defense_zone_current_world)
 					else:
 						var cancelled_mode := mode
 						defense_zone_drawing = false
 						mode = "normal"
-						toast("已取消设置采区" if cancelled_mode == "harvest_zone" else "已取消设置防区", 1.6)
+						var cancel_label := "采区" if cancelled_mode == "harvest_zone" else ("猎区" if cancelled_mode == "purge_zone" else "防区")
+						toast("已取消设置%s" % cancel_label, 1.6)
 				return
 			if event.pressed:
 				dragging = true
@@ -4312,6 +4631,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_begin_defense_zone_mode()
 		elif event.keycode == KEY_X:
 			_begin_harvest_zone_mode()
+		elif event.keycode == KEY_V:
+			_begin_purge_zone_mode()
 		elif event.keycode == KEY_C:
 			_clear_selected_persistent_orders()
 		elif event.keycode == KEY_F5:
@@ -4393,6 +4714,9 @@ func _handle_left_click(pos: Vector2) -> void:
 			_begin_harvest_zone_mode()
 			return
 		if _defense_zone_button_rect(get_viewport_rect().size, 2).has_point(pos):
+			_begin_purge_zone_mode()
+			return
+		if _defense_zone_button_rect(get_viewport_rect().size, 3).has_point(pos):
 			_clear_selected_persistent_orders()
 			return
 	if show_status and selected_core >= 0 and _handle_barracks_status_click(pos):
@@ -5760,6 +6084,18 @@ func _draw_harvest_zone_rect(zone: Rect2, preview: bool = false) -> void:
 		draw_rect(Rect2(point - Vector2.ONE * 2.0, Vector2.ONE * 4.0), corner)
 
 
+func _draw_purge_zone_rect(zone: Rect2, preview: bool = false) -> void:
+	var top_left := _pixel_snap(world_to_screen(zone.position))
+	var bottom_right := _pixel_snap(world_to_screen(zone.end))
+	var screen_rect := Rect2(top_left, bottom_right - top_left).abs()
+	var border := Color(1.0, 0.34, 0.48, 0.96 if preview else 0.74)
+	var corner := Color(1.0, 0.72, 0.38, 0.96 if preview else 0.80)
+	draw_rect(screen_rect, Color(0.94, 0.15, 0.32, 0.10 if preview else 0.04))
+	draw_rect(screen_rect, border, false, 2.0 if preview else 1.0)
+	for point in [screen_rect.position, Vector2(screen_rect.end.x, screen_rect.position.y), screen_rect.end, Vector2(screen_rect.position.x, screen_rect.end.y)]:
+		draw_rect(Rect2(point - Vector2.ONE * 2.0, Vector2.ONE * 4.0), corner)
+
+
 func _draw_persistent_zones() -> void:
 	var drawn := {}
 	for unit in expedition_units:
@@ -5777,10 +6113,18 @@ func _draw_persistent_zones() -> void:
 			if harvest_zone.size.x > 0.0 and not drawn.has(harvest_key):
 				drawn[harvest_key] = true
 				_draw_harvest_zone_rect(harvest_zone)
+		if bool(unit.get("purge_enabled", false)):
+			var purge_zone := _purge_rect(unit)
+			var purge_key := "p:%d:%d:%d" % [roundi(purge_zone.position.x), roundi(purge_zone.position.y), roundi(purge_zone.size.x)]
+			if purge_zone.size.x > 0.0 and not drawn.has(purge_key):
+				drawn[purge_key] = true
+				_draw_purge_zone_rect(purge_zone)
 	if mode == "defense_zone" and defense_zone_drawing:
 		_draw_defense_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
 	elif mode == "harvest_zone" and defense_zone_drawing:
 		_draw_harvest_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
+	elif mode == "purge_zone" and defense_zone_drawing:
+		_draw_purge_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
 
 
 func _draw_expedition_selection() -> void:
@@ -7047,8 +7391,8 @@ func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
 
 
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令　Z 设防　X 采区　C 清令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
-	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 280.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
+	var text_value := "左键点击/拖框选兵　右键指令　Z 防区　X 采区　V 猎区　C 清令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
+	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 310.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
 		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
 		var selected_text := "%s筛选　已选 %d / %d" % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
@@ -7058,6 +7402,7 @@ func _draw_help(viewport: Vector2) -> void:
 		var repairing := 0
 		var defending := 0
 		var harvesting := 0
+		var purging := 0
 		for unit in expedition_units:
 			if not selected_expedition_ids.has(int(unit.get("id", -1))):
 				continue
@@ -7069,6 +7414,8 @@ func _draw_help(viewport: Vector2) -> void:
 				defending += 1
 			if bool(unit.get("harvest_enabled", false)):
 				harvesting += 1
+			if bool(unit.get("purge_enabled", false)):
+				purging += 1
 			if state == "returning" or state == "retreating" or state == "wounded":
 				retreating += 1
 			elif state == "repairing":
@@ -7077,13 +7424,13 @@ func _draw_help(viewport: Vector2) -> void:
 		var rect := Rect2(22, viewport.y - 134, 560, 82)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
-		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　防区 %d　采区 %d　返巢 %d　修复 %d" % [average_health, defending, harvesting, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		var button_labels := ["设防 Z", "采区 X", "清令 C"]
-		for button_index in range(3):
+		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　防 %d　采 %d　猎 %d　返 %d　修 %d" % [average_health, defending, harvesting, purging, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_labels := ["设防 Z", "采区 X", "猎区 V", "清令 C"]
+		var button_borders := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER, 0.82)]
+		for button_index in range(4):
 			var button := _defense_zone_button_rect(viewport, button_index)
-			var active := (button_index == 0 and mode == "defense_zone") or (button_index == 1 and mode == "harvest_zone")
-			var active_border := Color("7dff9f") if button_index == 0 else Color("ffb94e")
-			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), active_border if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
+			var active := (button_index == 0 and mode == "defense_zone") or (button_index == 1 and mode == "harvest_zone") or (button_index == 2 and mode == "purge_zone")
+			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), button_borders[button_index] if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
 			draw_string(fallback_font, button.position + Vector2(8, 16), String(button_labels[button_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 
 
@@ -7134,6 +7481,9 @@ func _draw_expedition_tooltip() -> bool:
 		var harvest_zone := _harvest_rect(unit)
 		var harvest_kind := "矿物" if _harvest_resource_kind(unit) == 1 else "有机"
 		lines.append("持久采区　%s　%.0f × %.0f μm" % [harvest_kind, harvest_zone.size.x / 2.0, harvest_zone.size.y / 2.0])
+	if bool(unit.get("purge_enabled", false)):
+		var purge_zone := _purge_rect(unit)
+		lines.append("细菌清剿区　%.0f × %.0f μm" % [purge_zone.size.x / 2.0, purge_zone.size.y / 2.0])
 	if unit_type == "suppressor":
 		var deploy_state := String(unit.get("state", "idle"))
 		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
@@ -8008,6 +8358,12 @@ func _save_game() -> void:
 			"harvest_max_x": (unit.get("harvest_max", unit_pos) as Vector2).x,
 			"harvest_max_y": (unit.get("harvest_max", unit_pos) as Vector2).y,
 			"harvest_patrol_index": int(unit.get("harvest_patrol_index", 0)),
+			"purge_enabled": bool(unit.get("purge_enabled", false)),
+			"purge_min_x": (unit.get("purge_min", unit_pos) as Vector2).x,
+			"purge_min_y": (unit.get("purge_min", unit_pos) as Vector2).y,
+			"purge_max_x": (unit.get("purge_max", unit_pos) as Vector2).x,
+			"purge_max_y": (unit.get("purge_max", unit_pos) as Vector2).y,
+			"purge_patrol_index": int(unit.get("purge_patrol_index", 0)),
 			"deploy_progress": float(unit.get("deploy_progress", 0.0)),
 			"burst_cooldown": float(unit.get("burst_cooldown", 0.0)),
 			"last_burst_hits": int(unit.get("last_burst_hits", 0)),
@@ -8572,7 +8928,7 @@ func _load_game() -> bool:
 			loaded_state = "idle"
 		var loaded_deploy_seconds := _deploy_seconds_for_unit(unit_type)
 		var loaded_burst_default := DISPERSER_WINDUP_SECONDS if unit_type == "disperser" else 0.0
-		var loaded_conflicting_orders := bool(item.get("defense_enabled", false)) and bool(item.get("harvest_enabled", false))
+		var loaded_persistent_order_count := int(bool(item.get("defense_enabled", false))) + int(bool(item.get("harvest_enabled", false))) + int(bool(item.get("purge_enabled", false)))
 		var loaded_defense_min := Vector2(float(item.get("defense_min_x", unit_pos.x)), float(item.get("defense_min_y", unit_pos.y)))
 		var loaded_defense_max := Vector2(float(item.get("defense_max_x", unit_pos.x)), float(item.get("defense_max_y", unit_pos.y)))
 		var loaded_defense_enabled := bool(item.get("defense_enabled", false))
@@ -8597,9 +8953,22 @@ func _load_game() -> bool:
 		var loaded_harvest_size := (loaded_harvest_max - loaded_harvest_min).abs()
 		if loaded_harvest_size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_harvest_size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_harvest_size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or loaded_harvest_size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(loaded_harvest_size.x - loaded_harvest_size.y) > 0.1:
 			loaded_harvest_enabled = false
-		if loaded_conflicting_orders:
+		var loaded_purge_min := Vector2(float(item.get("purge_min_x", unit_pos.x)), float(item.get("purge_min_y", unit_pos.y)))
+		var loaded_purge_max := Vector2(float(item.get("purge_max_x", unit_pos.x)), float(item.get("purge_max_y", unit_pos.y)))
+		var loaded_purge_enabled := bool(item.get("purge_enabled", false))
+		if not loaded_purge_min.is_finite() or not loaded_purge_max.is_finite():
+			loaded_purge_enabled = false
+			loaded_purge_min = unit_pos
+			loaded_purge_max = unit_pos
+		loaded_purge_min = loaded_purge_min.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		loaded_purge_max = loaded_purge_max.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		var loaded_purge_size := (loaded_purge_max - loaded_purge_min).abs()
+		if loaded_purge_size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_purge_size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or loaded_purge_size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or loaded_purge_size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(loaded_purge_size.x - loaded_purge_size.y) > 0.1:
+			loaded_purge_enabled = false
+		if loaded_persistent_order_count > 1:
 			loaded_defense_enabled = false
 			loaded_harvest_enabled = false
+			loaded_purge_enabled = false
 		expedition_units.append({
 			"id": unit_id,
 			"unit_type": unit_type,
@@ -8620,6 +8989,10 @@ func _load_game() -> bool:
 			"harvest_min": loaded_harvest_min,
 			"harvest_max": loaded_harvest_max,
 			"harvest_patrol_index": clampi(int(item.get("harvest_patrol_index", 0)), 0, 1000000),
+			"purge_enabled": loaded_purge_enabled,
+			"purge_min": loaded_purge_min,
+			"purge_max": loaded_purge_max,
+			"purge_patrol_index": clampi(int(item.get("purge_patrol_index", 0)), 0, 1000000),
 			"deploy_progress": clampf(float(item.get("deploy_progress", loaded_deploy_seconds if loaded_state == "deployed" else 0.0)), 0.0, loaded_deploy_seconds),
 			"burst_cooldown": clampf(float(item.get("burst_cooldown", loaded_burst_default)), 0.0, DISPERSER_BURST_COOLDOWN),
 			"burst_flash": 0.0,
@@ -8643,10 +9016,15 @@ func _load_game() -> bool:
 			loaded_unit["defense_enabled"] = false
 		if not _unit_can_harvest(loaded_unit) or (bool(loaded_unit.get("harvest_enabled", false)) and not _defense_zone_within_operating_range(_harvest_rect(loaded_unit), loaded_unit)):
 			loaded_unit["harvest_enabled"] = false
+		if not _unit_can_purge(loaded_unit) or (bool(loaded_unit.get("purge_enabled", false)) and not _defense_zone_within_operating_range(_purge_rect(loaded_unit), loaded_unit)):
+			loaded_unit["purge_enabled"] = false
 		if not bool(loaded_unit.get("defense_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "defense_patrol":
 			loaded_unit["target_kind"] = ""
 			loaded_unit["state"] = "idle"
 		if not bool(loaded_unit.get("harvest_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "harvest_patrol":
+			loaded_unit["target_kind"] = ""
+			loaded_unit["state"] = "idle"
+		if not bool(loaded_unit.get("purge_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "purge_patrol":
 			loaded_unit["target_kind"] = ""
 			loaded_unit["state"] = "idle"
 		if bool(loaded_unit.get("harvest_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "resource":
@@ -8679,6 +9057,7 @@ func _load_game() -> bool:
 			loaded_unit["state"] = "idle"
 		_enforce_defense_zone(loaded_unit)
 		_enforce_harvest_zone(loaded_unit)
+		_enforce_purge_zone(loaded_unit)
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
 	# v0.22 及更早存档没有章节字段：根据已完成的实际行为向前补齐，不回退玩家进度。
 	lifetime_expedition_units_built = maxi(lifetime_expedition_units_built, expedition_units.size())
