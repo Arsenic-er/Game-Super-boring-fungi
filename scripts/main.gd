@@ -356,6 +356,9 @@ var lifetime_antifungal_assisted_kills := 0
 var lifetime_disperser_bacteria_killed := 0
 var lifetime_disperser_best_hit := 0
 var goals_claimed := {}
+var barracks_directive_ever_set := false
+var tracked_goal_id := "first_hypha"
+var tracked_goal_completion_notified := false
 var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
 var diet_unit_unlocks := {"lytic": false, "suppressor": false, "disperser": false, "piercer": false, "coil": false, "antifungal": false}
 var scout_upgrade_levels := {"vision": 0, "speed": 0}
@@ -1440,6 +1443,7 @@ func _process(delta: float) -> void:
 	if ecology_banner_time > 0.0:
 		ecology_banner_time -= delta
 	_update_chapter_flow()
+	_update_tracked_goal_notification()
 	queue_redraw()
 
 
@@ -1940,6 +1944,7 @@ func _assign_barracks_directive(core_id: int, directive_type: String, start_worl
 	core["directive_unit"] = unit_type
 	core["directive_min"] = zone.position
 	core["directive_max"] = zone.end
+	barracks_directive_ever_set = true
 	if directive_type == "purge":
 		_rebuild_purge_density_grid(true)
 		_rebuild_purge_claim_cache()
@@ -4664,7 +4669,11 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 			return "goal_prev"
 		if _goal_next_rect(goals_panel).has_point(pos):
 			return "goal_next"
-		for index in range(GOALS_PER_PAGE):
+		var first_goal := goal_page * GOALS_PER_PAGE
+		var visible_goal_count := mini(GOALS_PER_PAGE, maxi(0, _goal_definitions().size() - first_goal))
+		for index in range(visible_goal_count):
+			if _goal_track_button_rect(goals_panel, index).has_point(pos):
+				return "goal_track_%d" % index
 			if _goal_button_rect(goals_panel, index).has_point(pos):
 				return "goal_%d" % index
 		return ""
@@ -4674,6 +4683,8 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 		return "upgrade"
 	if _goals_hud_rect().has_point(pos):
 		return "goals"
+	if _goal_tracker_hud_rect(viewport).has_point(pos):
+		return "goal_tracker"
 	var filter_id := _unit_filter_at(pos)
 	if filter_id != "":
 		return "filter_" + filter_id
@@ -4889,6 +4900,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			goals_open = not goals_open
 			_play_sound("panel_open" if goals_open else "panel_close")
 			if goals_open:
+				_focus_tracked_goal_page()
 				mode = "normal"
 				defense_zone_drawing = false
 				upgrade_open = false
@@ -4966,6 +4978,15 @@ func _handle_left_click(pos: Vector2) -> void:
 		_clamp_camera()
 		toast("镜头已定位到生态事件区域", 2.0)
 		return
+	if _goal_tracker_hud_rect(get_viewport_rect().size).has_point(pos):
+		_play_sound("panel_open")
+		goals_open = true
+		upgrade_open = false
+		_focus_tracked_goal_page()
+		selected_core = -1
+		selected_tip_valid = false
+		show_status = false
+		return
 	if _upgrade_hud_rect().has_point(pos):
 		_play_sound("panel_open")
 		upgrade_open = true
@@ -4977,6 +4998,7 @@ func _handle_left_click(pos: Vector2) -> void:
 	if _goals_hud_rect().has_point(pos):
 		_play_sound("panel_open")
 		goals_open = true
+		_focus_tracked_goal_page()
 		upgrade_open = false
 		selected_core = -1
 		selected_tip_valid = false
@@ -5565,6 +5587,8 @@ func _draw() -> void:
 							_draw_bacteria_tooltip()
 	if show_status and selected_core >= 0:
 		_draw_status_panel(viewport)
+	if not upgrade_open and not goals_open:
+		_draw_goal_tracker_tooltip(viewport)
 	if upgrade_open:
 		_draw_upgrade_panel(viewport)
 	if goals_open:
@@ -5845,6 +5869,9 @@ func _start_new_culture() -> void:
 	lifetime_disperser_bacteria_killed = 0
 	lifetime_disperser_best_hit = 0
 	goals_claimed = {}
+	barracks_directive_ever_set = false
+	tracked_goal_id = "first_hypha"
+	tracked_goal_completion_notified = false
 	for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 		scout_upgrade_levels[scout_upgrade_id] = 0
 	ecology_events.clear()
@@ -6590,6 +6617,7 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_speed_controls(viewport)
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
+	_draw_goal_tracker_hud(viewport)
 	_draw_ecology_event_hud(viewport)
 	_draw_fungal_incursion_hud(viewport)
 	_draw_chapter_guidance(viewport)
@@ -6830,6 +6858,54 @@ func _draw_goals_hud(_viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(13, 21), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MINERAL)
 
 
+func _goal_tracker_hud_rect(viewport: Vector2) -> Rect2:
+	var left := 150.0
+	var right := viewport.x - 242.0
+	return Rect2(left, 116.0, minf(480.0, maxf(160.0, right - left)), 32.0)
+
+
+func _draw_goal_tracker_hud(viewport: Vector2) -> void:
+	var rect := _goal_tracker_hud_rect(viewport)
+	var goal := _goal_definition(tracked_goal_id)
+	var hovered := rect.has_point(last_mouse)
+	if goal.is_empty():
+		var empty_text := "全部目标已完成" if _all_goals_claimed() else "未追踪目标 · 点击打开"
+		draw_style_box(_rounded_style(Color(0.035, 0.075, 0.105, 0.95), Color(COLOR_BORDER, 0.72), 7, 1), rect)
+		draw_string(fallback_font, rect.position + Vector2(12, 21), empty_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, UI_FONT_SIZE, COLOR_MUTED)
+		return
+	var goal_id := String(goal["id"])
+	var complete := _goal_complete(goal_id)
+	var fraction := _goal_progress_fraction(goal_id)
+	var accent := Color("7dff9f") if complete else Color(COLOR_MINERAL)
+	var background := Color(0.045, 0.16, 0.13, 0.97) if complete else Color(0.035, 0.085, 0.13, 0.96)
+	draw_style_box(_rounded_style(background.lightened(0.025) if hovered else background, Color(accent, 0.94 if hovered else 0.72), 7, 2 if hovered else 1), rect)
+	var inner := rect.grow(-3.0)
+	draw_rect(Rect2(inner.position + Vector2(0.0, inner.size.y - 4.0), Vector2(inner.size.x, 4.0)), Color(0.01, 0.035, 0.055, 0.92))
+	draw_rect(Rect2(inner.position + Vector2(0.0, inner.size.y - 4.0), Vector2(inner.size.x * fraction, 4.0)), Color(accent, 0.88))
+	var label := "可领取｜%s｜%s" % [String(goal["title"]), String(goal["reward_text"])] if complete else "追踪｜%s｜%s" % [String(goal["title"]), _goal_progress_text(goal_id)]
+	draw_string(fallback_font, rect.position + Vector2(11, 20), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 22.0, UI_FONT_SIZE, accent if complete else COLOR_TEXT)
+
+
+func _draw_goal_tracker_tooltip(viewport: Vector2) -> void:
+	var tracker := _goal_tracker_hud_rect(viewport)
+	var goal := _goal_definition(tracked_goal_id)
+	if goal.is_empty() or not tracker.has_point(last_mouse) or offline_report_open or chapter_report_open or pause_menu_open:
+		return
+	var goal_id := String(goal["id"])
+	var lines := [String(goal["title"]), String(goal["desc"]), "进度：%s" % _goal_progress_text(goal_id), "奖励：%s" % String(goal["reward_text"]), "点击打开目标面板"]
+	var width := 0.0
+	for line in lines:
+		width = maxf(width, fallback_font.get_string_size(String(line), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
+	var size := Vector2(width + 28.0, 18.0 + lines.size() * 22.0)
+	var tip_pos := Vector2(tracker.position.x, tracker.end.y + 8.0)
+	tip_pos.x = clampf(tip_pos.x, 12.0, viewport.x - size.x - 12.0)
+	tip_pos.y = clampf(tip_pos.y, 70.0, viewport.y - size.y - 12.0)
+	var tip := Rect2(_pixel_snap(tip_pos), size)
+	draw_style_box(_rounded_style(Color(0.018, 0.055, 0.085, 0.99), Color(COLOR_MINERAL, 0.88), 8, 2), tip)
+	for index in range(lines.size()):
+		draw_string(fallback_font, tip.position + Vector2(14, 24 + index * 22), String(lines[index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if index == 0 else COLOR_MUTED)
+
+
 func _ecology_event_hud_rect() -> Rect2:
 	var viewport := get_viewport_rect().size
 	return Rect2(viewport.x - 230.0, 202.0, 208.0, 66.0)
@@ -7019,6 +7095,7 @@ func _goal_definitions() -> Array:
 		{"id": "culture_survey", "title": "培养环境勘探", "desc": "永久记录3处异常资源区", "reward": {"dna": 2}, "reward_text": "DNA +2"},
 		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
 		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"},
+		{"id": "barracks_directive", "title": "自动菌落编制", "desc": "为任一兵营保存一次持续防区、采区或猎区", "reward": {"dna": 2, "mineral": 1.0}, "reward_text": "DNA +2　矿物 +1.000"},
 		{"id": "ecology_response", "title": "生态应答", "desc": "成功应对1次细菌生态事件", "reward": {"dna": 2, "mineral": 2.0}, "reward_text": "DNA +2　矿物 +2.000"},
 		{"id": "suppression_field", "title": "静菌封锁", "desc": "用抑菌囊体控制1次细菌暴发", "reward": {"dna": 2, "organic": 15.0}, "reward_text": "DNA +2　有机 +15.000"},
 		{"id": "disperser_burst", "title": "群落裂解", "desc": "单次范围裂解命中8个细菌", "reward": {"dna": 2, "organic": 20.0}, "reward_text": "DNA +2　有机 +20.000"},
@@ -7065,6 +7142,8 @@ func _goal_complete(goal_id: String) -> bool:
 			return lifetime_expedition_organic_returned >= 10.0 and lifetime_expedition_mineral_returned >= 0.5
 		"expedition_control":
 			return lifetime_expedition_bacteria_killed >= 10
+		"barracks_directive":
+			return barracks_directive_ever_set
 		"ecology_response":
 			return lifetime_ecology_events_contained >= 1
 		"suppression_field":
@@ -7112,6 +7191,8 @@ func _goal_progress_text(goal_id: String) -> String:
 			return "有机 %.3f/10.000　矿物 %.3f/0.500" % [minf(lifetime_expedition_organic_returned, 10.0), minf(lifetime_expedition_mineral_returned, 0.5)]
 		"expedition_control":
 			return "%d / 10" % mini(lifetime_expedition_bacteria_killed, 10)
+		"barracks_directive":
+			return "%d / 1" % int(barracks_directive_ever_set)
 		"ecology_response":
 			return "%d / 1" % mini(lifetime_ecology_events_contained, 1)
 		"suppression_field":
@@ -7129,6 +7210,119 @@ func _goal_progress_text(goal_id: String) -> String:
 		"sporefall_guard":
 			return "%d / 3" % mini(lifetime_fungal_incursions_defeated, 3)
 	return ""
+
+
+func _goal_progress_fraction(goal_id: String) -> float:
+	var value := 0.0
+	match goal_id:
+		"first_hypha": value = float(segments.size())
+		"mineral_trace": value = lifetime_mineral_absorbed
+		"second_core": value = float(cores.size()) / 2.0
+		"network_1mm": value = _total_hypha_length() / 2000.0
+		"primary_diet": value = float(diet_order.size())
+		"bacterial_bloom": value = float(lifetime_bacteria_births) / 25.0
+		"first_bacterium": value = float(lifetime_bacteria_consumed)
+		"bacteria_control": value = float(lifetime_bacteria_consumed) / 25.0
+		"first_structure": value = float(_total_structure_levels())
+		"bacteria_specialist": value = float(_max_bacteria_component_level()) / 3.0
+		"culture_survey": value = float(_discovered_hotspot_count()) / 3.0
+		"expedition_supply": value = minf(lifetime_expedition_organic_returned / 10.0, lifetime_expedition_mineral_returned / 0.5)
+		"expedition_control": value = float(lifetime_expedition_bacteria_killed) / 10.0
+		"barracks_directive": value = 1.0 if barracks_directive_ever_set else 0.0
+		"ecology_response": value = float(lifetime_ecology_events_contained)
+		"suppression_field": value = float(lifetime_suppressed_blooms_contained)
+		"disperser_burst": value = float(lifetime_disperser_best_hit) / 8.0
+		"rival_colony": value = float(lifetime_enemy_fungi_defeated)
+		"rival_guard": value = float(lifetime_enemy_guards_defeated) / 5.0
+		"hypha_severing": value = float(lifetime_enemy_hyphae_severed) / 3.0
+		"antifungal_lockdown": value = float(lifetime_antifungal_assisted_kills)
+		"sporefall_guard": value = float(lifetime_fungal_incursions_defeated) / 3.0
+	return clampf(value, 0.0, 1.0)
+
+
+func _goal_definition(goal_id: String) -> Dictionary:
+	for goal in _goal_definitions():
+		if String(goal["id"]) == goal_id:
+			return goal
+	return {}
+
+
+func _goal_index(goal_id: String) -> int:
+	var goals := _goal_definitions()
+	for index in range(goals.size()):
+		if String(goals[index]["id"]) == goal_id:
+			return index
+	return -1
+
+
+func _all_goals_claimed() -> bool:
+	for goal in _goal_definitions():
+		if not bool(goals_claimed.get(String(goal["id"]), false)):
+			return false
+	return true
+
+
+func _recommended_goal_id(after_goal_id: String = "") -> String:
+	var goals := _goal_definitions()
+	if goals.is_empty():
+		return ""
+	var after_index := _goal_index(after_goal_id)
+	var start := posmod(after_index + 1, goals.size()) if after_index >= 0 else 0
+	for prefer_complete in [true, false]:
+		for offset in range(goals.size()):
+			var index := posmod(start + offset, goals.size())
+			var goal_id := String(goals[index]["id"])
+			if bool(goals_claimed.get(goal_id, false)):
+				continue
+			if _goal_complete(goal_id) == bool(prefer_complete):
+				return goal_id
+	return ""
+
+
+func _normalize_tracked_goal_id(candidate: String, recommend_invalid: bool = true) -> String:
+	if candidate != "" and _goal_index(candidate) >= 0 and not bool(goals_claimed.get(candidate, false)):
+		return candidate
+	return _recommended_goal_id(candidate) if recommend_invalid else ""
+
+
+func _set_tracked_goal(goal_id: String) -> bool:
+	if goal_id == tracked_goal_id:
+		tracked_goal_id = ""
+		tracked_goal_completion_notified = false
+		_play_sound("ui_cancel")
+		toast("已取消目标追踪", 2.0)
+		return true
+	var goal := _goal_definition(goal_id)
+	if goal.is_empty() or bool(goals_claimed.get(goal_id, false)):
+		return false
+	tracked_goal_id = goal_id
+	tracked_goal_completion_notified = false
+	_play_sound("ui_confirm")
+	toast("正在追踪：%s" % String(goal["title"]), 2.2)
+	return true
+
+
+func _focus_tracked_goal_page() -> void:
+	var index := _goal_index(tracked_goal_id)
+	if index >= 0:
+		goal_page = int(index / GOALS_PER_PAGE)
+
+
+func _advance_tracked_goal(claimed_goal_id: String) -> void:
+	tracked_goal_id = _recommended_goal_id(claimed_goal_id)
+	tracked_goal_completion_notified = false
+
+
+func _update_tracked_goal_notification() -> void:
+	if tracked_goal_id == "" or tracked_goal_completion_notified or offline_simulating or offline_report_open or goals_open or upgrade_open:
+		return
+	var goal := _goal_definition(tracked_goal_id)
+	if goal.is_empty() or bool(goals_claimed.get(tracked_goal_id, false)):
+		return
+	if _goal_complete(tracked_goal_id) and toast_time <= 0.0:
+		tracked_goal_completion_notified = true
+		_play_sound("ui_confirm", 1.1)
+		toast("目标完成：%s，打开目标面板领取奖励" % String(goal["title"]), 4.0)
 
 
 func _total_structure_levels() -> int:
@@ -7156,6 +7350,8 @@ func _claim_goal(goal_id: String) -> void:
 		mineral += float(reward.get("mineral", 0.0))
 		dna += int(reward.get("dna", 0))
 		goals_claimed[goal_id] = true
+		if tracked_goal_id == goal_id:
+			_advance_tracked_goal(goal_id)
 		_play_sound("goal")
 		toast("目标奖励已领取：%s" % goal["reward_text"], 4.0)
 		return
@@ -7168,6 +7364,10 @@ func _goals_panel_rect(viewport: Vector2) -> Rect2:
 
 func _goal_button_rect(panel: Rect2, index: int) -> Rect2:
 	return Rect2(panel.position + Vector2(panel.size.x - 144, 102 + index * 84), Vector2(108, 32))
+
+
+func _goal_track_button_rect(panel: Rect2, index: int) -> Rect2:
+	return Rect2(panel.position + Vector2(panel.size.x - 260, 102 + index * 84), Vector2(96, 32))
 
 
 func _goal_prev_rect(panel: Rect2) -> Rect2:
@@ -7199,6 +7399,9 @@ func _handle_goals_click(pos: Vector2) -> void:
 	var finish := mini(start + GOALS_PER_PAGE, goals.size())
 	for goal_index in range(start, finish):
 		var local_index := goal_index - start
+		if _goal_track_button_rect(panel, local_index).has_point(pos):
+			_set_tracked_goal(String(goals[goal_index]["id"]))
+			return
 		if _goal_button_rect(panel, local_index).has_point(pos):
 			_claim_goal(goals[goal_index]["id"])
 			return
@@ -7225,13 +7428,23 @@ func _draw_goals_panel(viewport: Vector2) -> void:
 		var card := Rect2(panel.position + Vector2(28, 82 + i * 84), Vector2(panel.size.x - 56, 70))
 		var complete := _goal_complete(goal["id"])
 		var claimed := bool(goals_claimed.get(goal["id"], false))
-		var accent := COLOR_HYPHA if complete else COLOR_BORDER
+		var tracked := tracked_goal_id == String(goal["id"])
+		var accent := Color(COLOR_MINERAL) if tracked else (COLOR_HYPHA if complete else COLOR_BORDER)
 		draw_style_box(_rounded_style(Color(0.025, 0.095, 0.125, 0.96), Color(accent, 0.72), 9, 2), card)
+		if tracked:
+			draw_rect(Rect2(card.position + Vector2(4, 10), Vector2(5, 50)), Color(COLOR_MINERAL, 0.92))
 		draw_string(fallback_font, card.position + Vector2(16, 24), goal["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 		draw_string(fallback_font, card.position + Vector2(16, 49), goal["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		draw_string(fallback_font, card.position + Vector2(300, 24), _goal_progress_text(goal["id"]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(300, 49), goal["reward_text"], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC if goal["reward"].has("organic") else COLOR_MINERAL)
+		var info_width := maxf(80.0, card.size.x - 564.0)
+		draw_string(fallback_font, card.position + Vector2(300, 24), _goal_progress_text(goal["id"]), HORIZONTAL_ALIGNMENT_LEFT, info_width, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, card.position + Vector2(300, 49), goal["reward_text"], HORIZONTAL_ALIGNMENT_LEFT, info_width, UI_FONT_SIZE, COLOR_ORGANIC if goal["reward"].has("organic") else COLOR_MINERAL)
 		var button := _goal_button_rect(panel, i)
+		var track_button := _goal_track_button_rect(panel, i)
+		var track_available := not claimed
+		draw_style_box(_rounded_style(Color(0.10, 0.12, 0.20, 1.0) if tracked else Color(0.05, 0.075, 0.09, 1.0), Color(COLOR_MINERAL, 0.88) if tracked else COLOR_BORDER, 7, 2 if tracked else 1), track_button)
+		var track_text := "取消追踪" if tracked else ("已领取" if claimed else "追踪")
+		draw_string(fallback_font, track_button.position + Vector2(17, 21), track_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if track_available else COLOR_MUTED)
+
 		var button_bg := Color(0.08, 0.23, 0.18, 1.0) if complete and not claimed else Color(0.05, 0.075, 0.09, 1.0)
 		draw_style_box(_rounded_style(button_bg, Color(COLOR_HYPHA, 0.82) if complete and not claimed else COLOR_BORDER, 7, 2), button)
 		var button_text := "已领取" if claimed else ("领取" if complete else "进行中")
@@ -8798,6 +9011,10 @@ func _save_game() -> void:
 		"ecology_event_countdown": ecology_event_countdown,
 		"next_ecology_event_id": next_ecology_event_id,
 		"goals_claimed": goals_claimed,
+		"barracks_directive_ever_set": barracks_directive_ever_set,
+		"tracked_goal_id": tracked_goal_id,
+		"tracked_goal_completion_notified": tracked_goal_completion_notified,
+		"goal_tracker_schema": 1,
 		"scout_upgrade_levels": scout_upgrade_levels,
 		"camera_x": camera_center.x,
 		"camera_y": camera_center.y,
@@ -8896,7 +9113,20 @@ func _load_game() -> bool:
 	enemy_threat_pos = Vector2.INF
 	ecology_event_countdown = clampf(float(parsed.get("ecology_event_countdown", ECOLOGY_FIRST_EVENT_MAX)), 0.0, ECOLOGY_EVENT_INTERVAL_MAX)
 	next_ecology_event_id = maxi(1, int(parsed.get("next_ecology_event_id", 1)))
-	goals_claimed = parsed.get("goals_claimed", {})
+	var saved_goals_claimed = parsed.get("goals_claimed", {})
+	goals_claimed = {}
+	if saved_goals_claimed is Dictionary:
+		for goal in _goal_definitions():
+			var goal_id := String(goal["id"])
+			if bool(saved_goals_claimed.get(goal_id, false)):
+				goals_claimed[goal_id] = true
+	barracks_directive_ever_set = bool(parsed.get("barracks_directive_ever_set", false))
+	var tracked_goal_field_present: bool = parsed.has("tracked_goal_id")
+	var tracked_goal_value = parsed.get("tracked_goal_id", "")
+	var saved_tracked_goal := String(tracked_goal_value) if tracked_goal_value is String else ""
+	var saved_tracked_goal_explicit_empty: bool = tracked_goal_field_present and tracked_goal_value is String and saved_tracked_goal == ""
+	var saved_tracked_goal_notified := bool(parsed.get("tracked_goal_completion_notified", false))
+	tracked_goal_completion_notified = false
 	camera_center = Vector2(float(parsed.get("camera_x", 0.0)), float(parsed.get("camera_y", 0.0)))
 	camera_zoom = clampf(float(parsed.get("camera_zoom", 0.65)), 0.018, 2.4)
 	sim_time = maxf(0.0, float(parsed.get("sim_time", 0.0)))
@@ -9226,6 +9456,17 @@ func _load_game() -> bool:
 			cores[core_id]["directive_type"] = ""
 			cores[core_id]["directive_min"] = cores[core_id]["pos"]
 			cores[core_id]["directive_max"] = cores[core_id]["pos"]
+	if not parsed.has("barracks_directive_ever_set"):
+		for core in cores:
+			if bool(core.get("directive_enabled", false)):
+				barracks_directive_ever_set = true
+				break
+	if saved_tracked_goal_explicit_empty:
+		tracked_goal_id = ""
+	else:
+		tracked_goal_id = _normalize_tracked_goal_id(saved_tracked_goal, true)
+	tracked_goal_completion_notified = saved_tracked_goal_notified and tracked_goal_id == saved_tracked_goal and tracked_goal_id != "" and _goal_complete(tracked_goal_id)
+
 	expedition_units.clear()
 	next_expedition_id = maxi(1, int(parsed.get("next_expedition_id", 1)))
 	for item in parsed.get("expedition_units", []):

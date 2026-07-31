@@ -42,6 +42,10 @@ func _run() -> void:
 	game._add_resource(Vector2(54.0, 18.0), 0, 100.0)
 	game._reveal_exploration(Vector2.ZERO, 220.0)
 
+	game.cores[first_barracks]["production_unit"] = "carrier"
+	if not _check(game._assign_barracks_directive(first_barracks, "purge", Vector2(-80.0, -80.0), Vector2(80.0, 20.0)) == 0 and not game.barracks_directive_ever_set and not game._goal_complete("barracks_directive"), "a rejected directive must not complete the teaching goal"):
+		return
+
 	game.selected_core = first_barracks
 	game.show_status = true
 	game.cores[first_barracks]["production_unit"] = "forager"
@@ -65,6 +69,9 @@ func _run() -> void:
 	release.position = end_screen
 	game._unhandled_input(release)
 	var harvest_zone: Rect2 = game._barracks_directive_rect(game.cores[first_barracks])
+	if not _check(game.barracks_directive_ever_set and game._goal_complete("barracks_directive") and game._goal_progress_text("barracks_directive") == "1 / 1", "the first saved directive should permanently complete the teaching goal"):
+		return
+
 	if not _check(game.mode == "normal" and camera_before.is_equal_approx(game.camera_center) and harvest_zone.size.is_equal_approx(Vector2.ONE * harvest_zone.size.x), "right drag should save a square directive without panning"):
 		return
 	if not _check(bool(first_forager["harvest_enabled"]) and not bool(first_carrier["harvest_enabled"]) and not bool(other_forager["harvest_enabled"]), "only matching home and unit type should be assigned"):
@@ -165,12 +172,27 @@ func _run() -> void:
 		return
 
 	game._save_game()
-	if not _check(game._load_game() and bool(game.cores[first_barracks]["directive_enabled"]) and String(game.cores[first_barracks]["directive_type"]) == "purge" and String(game.cores[first_barracks]["directive_unit"]) == "lytic", "directive should round-trip through saves"):
+	if not _check(game._load_game() and bool(game.cores[first_barracks]["directive_enabled"]) and String(game.cores[first_barracks]["directive_type"]) == "purge" and String(game.cores[first_barracks]["directive_unit"]) == "lytic" and game.barracks_directive_ever_set, "directive and its completed teaching goal should round-trip through saves"):
 		return
 	var file := FileAccess.open(game.save_path, FileAccess.READ)
 	var malformed: Dictionary = JSON.parse_string(file.get_as_text())
 	file = null
+	var legacy_valid: Dictionary = malformed.duplicate(true)
+	legacy_valid.erase("barracks_directive_ever_set")
+	file = FileAccess.open(game.save_path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(legacy_valid))
+	file = null
+	if not _check(game._load_game() and game.barracks_directive_ever_set, "v0.36 saves should infer teaching-goal completion from a valid saved directive"):
+		return
+	game._save_game()
+	file = FileAccess.open(game.save_path, FileAccess.READ)
+	malformed = JSON.parse_string(file.get_as_text())
+	file = null
+	malformed.erase("barracks_directive_ever_set")
+
 	var saved_cores: Array = malformed.get("cores", [])
+	for saved_core in saved_cores:
+		saved_core["directive_enabled"] = false
 	saved_cores[first_barracks]["directive_enabled"] = true
 	saved_cores[first_barracks]["directive_min_x"] = -1000.0
 	saved_cores[first_barracks]["directive_min_y"] = -1000.0
@@ -179,7 +201,7 @@ func _run() -> void:
 	file = FileAccess.open(game.save_path, FileAccess.WRITE)
 	file.store_string(JSON.stringify(malformed))
 	file = null
-	if not _check(game._load_game() and not bool(game.cores[first_barracks]["directive_enabled"]), "oversized malformed directive fields should be rejected"):
+	if not _check(game._load_game() and not bool(game.cores[first_barracks]["directive_enabled"]) and not game.barracks_directive_ever_set and not game._goal_complete("barracks_directive"), "oversized malformed directives must be rejected before legacy teaching-goal inference"):
 		return
 	game._save_game()
 	file = FileAccess.open(game.save_path, FileAccess.READ)
@@ -211,7 +233,7 @@ func _run() -> void:
 		return
 
 	var cleared: int = int(game._clear_barracks_directive(first_barracks, false))
-	if not _check(not bool(game.cores[first_barracks]["directive_enabled"]) and cleared > 0, "explicit template clearing should release matching current units"):
+	if not _check(not bool(game.cores[first_barracks]["directive_enabled"]) and cleared > 0 and game.barracks_directive_ever_set and game._goal_complete("barracks_directive"), "explicit template clearing should release matching units without regressing the teaching goal"):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
 	print("BARRACKS_DIRECTIVE_OK square=drag isolated=home automatic=inherits manual=free diet=pause-resume save=compatible offline=inherits")
