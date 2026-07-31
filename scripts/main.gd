@@ -166,6 +166,8 @@ const BARRACKS_QUEUE_CAPACITY := 10
 const BARRACKS_RALLY_RADIUS := 260.0
 const BARRACKS_AUTO_TARGETS := [4, 8, 12]
 const BARRACKS_AUTO_CHECK_SECONDS := 2.0
+const BARRACKS_DIRECTIVE_TYPES := ["defense", "harvest", "purge"]
+const BARRACKS_DIRECTIVE_NAMES := {"defense": "防区", "harvest": "采区", "purge": "猎区"}
 const EXPEDITION_SPORE_ORGANIC_COST := 8.0
 const EXPEDITION_SPORE_MINERAL_COST := 0.250
 const EXPEDITION_SPORE_BUILD_SECONDS := 30.0
@@ -588,6 +590,11 @@ func _make_core(pos: Vector2, kind: String = "normal") -> Dictionary:
 		"auto_replenish": false,
 		"auto_replenish_unit": "forager",
 		"auto_replenish_target": 4,
+		"directive_enabled": false,
+		"directive_type": "",
+		"directive_unit": "forager",
+		"directive_min": pos,
+		"directive_max": pos,
 		"kind": kind,
 		"feeder_range_level": 0,
 		"biomass": maximum,
@@ -1643,13 +1650,13 @@ func _update_barracks_jobs(sim_delta: float) -> void:
 			if job_left <= remaining_time:
 				remaining_time -= job_left
 				jobs.pop_front()
-				_spawn_expedition_spore(core_id, String(job.get("unit_type", "forager")))
+				_spawn_expedition_spore(core_id, String(job.get("unit_type", "forager")), bool(job.get("automatic", false)))
 			else:
 				job["remaining"] = job_left - remaining_time
 				remaining_time = 0.0
 
 
-func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> void:
+func _spawn_expedition_spore(core_id: int, unit_type: String = "forager", automatic: bool = false) -> void:
 	if not _is_core_alive(core_id) or expedition_units.size() >= MAX_EXPEDITION_SPORES:
 		return
 	var core_pos: Vector2 = cores[core_id]["pos"]
@@ -1694,7 +1701,8 @@ func _spawn_expedition_spore(core_id: int, unit_type: String = "forager") -> voi
 		"reveal_cell": _exploration_key(_exploration_coords(spawn_pos)),
 		"phase": rng.randf_range(0.0, TAU)
 	}
-	if bool(cores[core_id].get("rally_enabled", false)):
+	var directive_applied := automatic and _apply_barracks_directive_to_unit(core_id, unit, true)
+	if not directive_applied and bool(cores[core_id].get("rally_enabled", false)):
 		unit["state"] = "moving"
 		unit["target_kind"] = "ground"
 		unit["target_pos"] = cores[core_id].get("rally_point", core_pos)
@@ -1756,6 +1764,210 @@ func _cycle_barracks_auto_target(core_id: int) -> void:
 	var index := BARRACKS_AUTO_TARGETS.find(current)
 	cores[core_id]["auto_replenish_target"] = BARRACKS_AUTO_TARGETS[(index + 1) % BARRACKS_AUTO_TARGETS.size()]
 	toast("自动补员目标：%d" % int(cores[core_id]["auto_replenish_target"]), 2.0)
+
+
+func _barracks_directive_rect(core: Dictionary) -> Rect2:
+	if not bool(core.get("directive_enabled", false)):
+		return Rect2()
+	var minimum: Vector2 = core.get("directive_min", core.get("pos", Vector2.ZERO))
+	var maximum: Vector2 = core.get("directive_max", minimum)
+	if not minimum.is_finite() or not maximum.is_finite():
+		return Rect2()
+	var position := Vector2(minf(minimum.x, maximum.x), minf(minimum.y, maximum.y))
+	var size := (maximum - minimum).abs()
+	if size.x < DEFENSE_ZONE_MIN_SIDE - 0.01 or size.y < DEFENSE_ZONE_MIN_SIDE - 0.01 or size.x > DEFENSE_ZONE_MAX_SIDE + 0.01 or size.y > DEFENSE_ZONE_MAX_SIDE + 0.01 or absf(size.x - size.y) > 0.1:
+		return Rect2()
+	return Rect2(position, size)
+
+
+func _directive_type_supported(unit_type: String, directive_type: String, require_active_diet: bool = true) -> bool:
+	match directive_type:
+		"defense":
+			return unit_type == "forager" or (unit_type == "piercer" and (not require_active_diet or _diet_efficiency("fungi") > 0.0))
+		"harvest":
+			return ["forager", "carrier", "chelator"].has(unit_type)
+		"purge":
+			return ["forager", "lytic", "disperser"].has(unit_type) and (not require_active_diet or _diet_efficiency("bacteria") > 0.0)
+	return false
+
+
+func _barracks_directive_valid(core_id: int, require_active_diet: bool = true) -> bool:
+	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return false
+	var core: Dictionary = cores[core_id]
+	if not bool(core.get("directive_enabled", false)):
+		return false
+	var directive_type := String(core.get("directive_type", ""))
+	var unit_type := String(core.get("directive_unit", "forager"))
+	var zone := _barracks_directive_rect(core)
+	if not BARRACKS_DIRECTIVE_TYPES.has(directive_type) or not UNIT_MAX_BIOMASS.has(unit_type) or zone.size.x <= 0.0:
+		return false
+	if not _directive_type_supported(unit_type, directive_type, require_active_diet):
+		return false
+	return _defense_zone_within_operating_range(zone, {"unit_type": unit_type})
+
+
+func _rects_match(a: Rect2, b: Rect2) -> bool:
+	return a.position.distance_squared_to(b.position) <= 0.01 and a.size.distance_squared_to(b.size) <= 0.01
+
+
+func _unit_matches_barracks_directive(unit: Dictionary, core_id: int, directive_type: String, unit_type: String, zone: Rect2) -> bool:
+	if int(unit.get("home_core_id", -1)) != core_id or String(unit.get("unit_type", "forager")) != unit_type:
+		return false
+	match directive_type:
+		"defense":
+			return bool(unit.get("defense_enabled", false)) and _rects_match(_defense_rect(unit), zone)
+		"harvest":
+			return bool(unit.get("harvest_enabled", false)) and _rects_match(_harvest_rect(unit), zone)
+		"purge":
+			return bool(unit.get("purge_enabled", false)) and _rects_match(_purge_rect(unit), zone)
+	return false
+
+
+func _apply_barracks_directive_zone_to_unit(unit: Dictionary, directive_type: String, zone: Rect2, acquire_now: bool = true) -> bool:
+	var unit_type := String(unit.get("unit_type", "forager"))
+	if not _directive_type_supported(unit_type, directive_type, true) or zone.size.x <= 0.0 or not _defense_zone_within_operating_range(zone, unit):
+		return false
+	if bool(unit.get("defense_enabled", false)):
+		_clear_unit_defense(unit)
+	if bool(unit.get("harvest_enabled", false)):
+		_clear_unit_harvest(unit)
+	if bool(unit.get("purge_enabled", false)):
+		_clear_unit_purge(unit)
+	unit["target_resource_id"] = -1
+	unit["target_enemy_id"] = -1
+	unit["target_enemy_hypha_id"] = -1
+	unit["target_enemy_guard_id"] = -1
+	var can_acquire := acquire_now and not ["returning", "retreating", "repairing", "wounded"].has(String(unit.get("state", "idle")))
+	match directive_type:
+		"defense":
+			unit["defense_enabled"] = true
+			unit["defense_min"] = zone.position
+			unit["defense_max"] = zone.end
+			unit["defense_patrol_index"] = int(unit.get("id", 0)) % 5
+			if can_acquire:
+				_set_next_defense_patrol(unit)
+		"harvest":
+			unit["harvest_enabled"] = true
+			unit["harvest_min"] = zone.position
+			unit["harvest_max"] = zone.end
+			unit["harvest_patrol_index"] = int(unit.get("id", 0)) % 5
+			if can_acquire:
+				_acquire_harvest_target(unit)
+		"purge":
+			unit["purge_enabled"] = true
+			unit["purge_min"] = zone.position
+			unit["purge_max"] = zone.end
+			unit["purge_patrol_index"] = int(unit.get("id", 0)) % 5
+			if can_acquire:
+				_acquire_purge_target(unit)
+		_:
+			return false
+	return true
+
+
+func _apply_barracks_directive_to_unit(core_id: int, unit: Dictionary, acquire_now: bool = true) -> bool:
+	if not _barracks_directive_valid(core_id, true):
+		return false
+	var core: Dictionary = cores[core_id]
+	if int(unit.get("home_core_id", -1)) != core_id or String(unit.get("unit_type", "forager")) != String(core.get("directive_unit", "forager")):
+		return false
+	return _apply_barracks_directive_zone_to_unit(unit, String(core.get("directive_type", "")), _barracks_directive_rect(core), acquire_now)
+
+
+func _clear_barracks_directive(core_id: int, feedback: bool = true) -> int:
+	if core_id < 0 or core_id >= cores.size() or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return 0
+	var core: Dictionary = cores[core_id]
+	var directive_type := String(core.get("directive_type", ""))
+	var unit_type := String(core.get("directive_unit", "forager"))
+	var zone := _barracks_directive_rect(core)
+	var cleared := 0
+	if zone.size.x > 0.0:
+		for unit in expedition_units:
+			if not _unit_matches_barracks_directive(unit, core_id, directive_type, unit_type, zone):
+				continue
+			match directive_type:
+				"defense": _clear_unit_defense(unit)
+				"harvest": _clear_unit_harvest(unit)
+				"purge": _clear_unit_purge(unit)
+			cleared += 1
+	core["directive_enabled"] = false
+	core["directive_type"] = ""
+	core["directive_min"] = core.get("pos", Vector2.ZERO)
+	core["directive_max"] = core.get("pos", Vector2.ZERO)
+	mode = "normal"
+	defense_zone_drawing = false
+	if feedback:
+		_play_sound("ui_cancel")
+		toast("兵营持续任务已清除；%d 个现役单位解除编制" % cleared, 2.6)
+	return cleared
+
+
+func _begin_barracks_directive_mode(directive_type: String) -> bool:
+	if selected_core < 0 or selected_core >= cores.size() or not _is_core_alive(selected_core) or String(cores[selected_core].get("kind", "normal")) != "barracks":
+		return false
+	if not BARRACKS_DIRECTIVE_TYPES.has(directive_type):
+		return false
+	var core: Dictionary = cores[selected_core]
+	var unit_type := String(core.get("auto_replenish_unit", "forager")) if bool(core.get("auto_replenish", false)) else String(core.get("production_unit", "forager"))
+	if not _available_barracks_units().has(unit_type) or not _directive_type_supported(unit_type, directive_type, true):
+		_play_sound("ui_error")
+		toast("%s当前不能执行%s持续任务" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), BARRACKS_DIRECTIVE_NAMES.get(directive_type, "该")], 2.8)
+		return false
+	mode = "barracks_%s_zone" % directive_type
+	defense_zone_drawing = false
+	_play_sound("ui_confirm")
+	toast("为%s按住右键拖出正方形%s；Esc 取消" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), BARRACKS_DIRECTIVE_NAMES.get(directive_type, "任务区")], 3.2)
+	return true
+
+
+func _assign_barracks_directive(core_id: int, directive_type: String, start_world: Vector2, end_world: Vector2) -> int:
+	if core_id < 0 or core_id >= cores.size() or not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return 0
+	var core: Dictionary = cores[core_id]
+	var unit_type := String(core.get("auto_replenish_unit", "forager")) if bool(core.get("auto_replenish", false)) else String(core.get("production_unit", "forager"))
+	var zone := _square_defense_rect(start_world, end_world)
+	if not _available_barracks_units().has(unit_type) or not _directive_type_supported(unit_type, directive_type, true) or not _defense_zone_within_operating_range(zone, {"unit_type": unit_type}):
+		mode = "normal"
+		defense_zone_drawing = false
+		_play_sound("ui_error")
+		toast("持续任务不兼容，或区域超出菌落行动范围", 2.8)
+		return 0
+	_clear_barracks_directive(core_id, false)
+	core["directive_enabled"] = true
+	core["directive_type"] = directive_type
+	core["directive_unit"] = unit_type
+	core["directive_min"] = zone.position
+	core["directive_max"] = zone.end
+	if directive_type == "purge":
+		_rebuild_purge_density_grid(true)
+		_rebuild_purge_claim_cache()
+	var assigned := 0
+	for unit in expedition_units:
+		if int(unit.get("home_core_id", -1)) != core_id or String(unit.get("unit_type", "forager")) != unit_type:
+			continue
+		if _apply_barracks_directive_to_unit(core_id, unit, true):
+			assigned += 1
+	mode = "normal"
+	defense_zone_drawing = false
+	_play_sound("command", clampf(0.86 + assigned * 0.02, 0.86, 1.2))
+	toast("兵营持续%s已保存：现役 %d，新补员将自动接班" % [BARRACKS_DIRECTIVE_NAMES.get(directive_type, "任务"), assigned], 3.2)
+	return assigned
+
+
+func _barracks_directive_member_count(core_id: int) -> int:
+	if core_id < 0 or core_id >= cores.size():
+		return 0
+	var core: Dictionary = cores[core_id]
+	var directive_type := String(core.get("directive_type", ""))
+	var unit_type := String(core.get("directive_unit", "forager"))
+	var zone := _barracks_directive_rect(core)
+	var count := 0
+	for unit in expedition_units:
+		if _unit_matches_barracks_directive(unit, core_id, directive_type, unit_type, zone):
+			count += 1
+	return count
 
 
 func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = true) -> void:
@@ -2809,8 +3021,17 @@ func _enforce_purge_zone(unit: Dictionary) -> void:
 	if ["returning", "retreating", "repairing", "wounded"].has(state):
 		return
 	var zone := _purge_rect(unit)
-	if zone.size.x <= 0.0 or not _unit_can_purge(unit) or not _defense_zone_within_operating_range(zone, unit):
+	if zone.size.x <= 0.0 or not _defense_zone_within_operating_range(zone, unit):
 		_clear_unit_purge(unit)
+		return
+	# Food-trait reversal pauses the copied mission instead of erasing it. This
+	# lets an existing barracks cohort resume without waiting for a casualty.
+	if not _unit_can_purge(unit):
+		_release_purge_claim(unit)
+		unit["state"] = "idle"
+		unit["target_kind"] = ""
+		unit["target_enemy_id"] = -1
+		unit["manual"] = false
 		return
 	if not zone.grow(12.0).has_point(unit["pos"]):
 		_set_next_purge_patrol(unit)
@@ -2979,6 +3200,16 @@ func _enforce_defense_zone(unit: Dictionary) -> void:
 	var zone := _defense_rect(unit)
 	if zone.size.x <= 0.0 or not _defense_zone_within_operating_range(zone, unit):
 		_clear_unit_defense(unit)
+		return
+	# A piercer keeps its assigned square while fungi feeding is inactive. The
+	# target is dropped now and reacquired automatically when the diet returns.
+	if not _unit_can_defend_fungi(unit):
+		unit["state"] = "idle"
+		unit["target_kind"] = ""
+		unit["target_enemy_id"] = -1
+		unit["target_enemy_hypha_id"] = -1
+		unit["target_enemy_guard_id"] = -1
+		unit["manual"] = false
 		return
 	if not zone.grow(12.0).has_point(unit["pos"]):
 		_set_next_defense_patrol(unit)
@@ -4570,7 +4801,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_button = MOUSE_BUTTON_MIDDLE if event.pressed else 0
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
-			if mode == "defense_zone" or mode == "harvest_zone" or mode == "purge_zone":
+			if mode == "defense_zone" or mode == "harvest_zone" or mode == "purge_zone" or (mode.begins_with("barracks_") and mode.ends_with("_zone")):
 				if upgrade_open or goals_open:
 					mode = "normal"
 					defense_zone_drawing = false
@@ -4583,7 +4814,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					if defense_zone_drawing and right_press_pos.distance_to(event.position) >= 8.0:
 						defense_zone_current_world = screen_to_world(event.position)
-						if mode == "harvest_zone":
+						if mode.begins_with("barracks_"):
+							var directive_type := mode.trim_prefix("barracks_").trim_suffix("_zone")
+							_assign_barracks_directive(selected_core, directive_type, defense_zone_start_world, defense_zone_current_world)
+						elif mode == "harvest_zone":
 							_assign_harvest_zone(defense_zone_start_world, defense_zone_current_world)
 						elif mode == "purge_zone":
 							_assign_purge_zone(defense_zone_start_world, defense_zone_current_world)
@@ -4593,7 +4827,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						var cancelled_mode := mode
 						defense_zone_drawing = false
 						mode = "normal"
-						var cancel_label := "采区" if cancelled_mode == "harvest_zone" else ("猎区" if cancelled_mode == "purge_zone" else "防区")
+						var cancel_label := "采区" if cancelled_mode.contains("harvest") else ("猎区" if cancelled_mode.contains("purge") else "防区")
 						toast("已取消设置%s" % cancel_label, 1.6)
 				return
 			if event.pressed:
@@ -6098,6 +6332,17 @@ func _draw_purge_zone_rect(zone: Rect2, preview: bool = false) -> void:
 
 func _draw_persistent_zones() -> void:
 	var drawn := {}
+	if selected_core >= 0 and selected_core < cores.size() and String(cores[selected_core].get("kind", "normal")) == "barracks" and bool(cores[selected_core].get("directive_enabled", false)):
+		var directive_type := String(cores[selected_core].get("directive_type", ""))
+		var directive_zone := _barracks_directive_rect(cores[selected_core])
+		if directive_zone.size.x > 0.0:
+			match directive_type:
+				"defense": _draw_defense_zone_rect(directive_zone)
+				"harvest": _draw_harvest_zone_rect(directive_zone)
+				"purge": _draw_purge_zone_rect(directive_zone)
+			var marker := _pixel_snap(world_to_screen(directive_zone.position)) + Vector2(6, 16)
+			draw_style_box(_rounded_style(Color(0.02, 0.08, 0.10, 0.94), Color("76f5ca"), 4, 1), Rect2(marker - Vector2(4, 13), Vector2(54, 20)))
+			draw_string(fallback_font, marker, "兵营 %d" % (selected_core + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("a7f4d7"))
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
@@ -6119,7 +6364,13 @@ func _draw_persistent_zones() -> void:
 			if purge_zone.size.x > 0.0 and not drawn.has(purge_key):
 				drawn[purge_key] = true
 				_draw_purge_zone_rect(purge_zone)
-	if mode == "defense_zone" and defense_zone_drawing:
+	if mode == "barracks_defense_zone" and defense_zone_drawing:
+		_draw_defense_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
+	elif mode == "barracks_harvest_zone" and defense_zone_drawing:
+		_draw_harvest_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
+	elif mode == "barracks_purge_zone" and defense_zone_drawing:
+		_draw_purge_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
+	elif mode == "defense_zone" and defense_zone_drawing:
 		_draw_defense_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
 	elif mode == "harvest_zone" and defense_zone_drawing:
 		_draw_harvest_zone_rect(_square_defense_rect(defense_zone_start_world, defense_zone_current_world), true)
@@ -7771,7 +8022,7 @@ func _draw_menu_tooltip(button: Dictionary) -> void:
 
 func _status_panel_rect() -> Rect2:
 	if selected_core >= 0 and selected_core < cores.size() and String(cores[selected_core].get("kind", "normal")) == "barracks":
-		return Rect2(22, 156, 390, 414)
+		return Rect2(22, 156, 390, 500)
 	return Rect2(22, 156, 350, 282)
 
 
@@ -7790,6 +8041,11 @@ func _barracks_rally_button_rect() -> Rect2:
 	return Rect2(panel.position + Vector2(274, 366), Vector2(100, 32))
 
 
+func _barracks_directive_button_rect(index: int) -> Rect2:
+	var panel := _status_panel_rect()
+	return Rect2(panel.position + Vector2(16 + index * 92, 444), Vector2(86, 32))
+
+
 func _handle_barracks_status_click(pos: Vector2) -> bool:
 	if selected_core < 0 or selected_core >= cores.size() or String(cores[selected_core].get("kind", "normal")) != "barracks":
 		return false
@@ -7806,6 +8062,13 @@ func _handle_barracks_status_click(pos: Vector2) -> bool:
 			mode = "set_rally"
 			toast("左键点击地图设置集结点；右键或 Esc 取消", 3.0)
 		return true
+	for index in range(4):
+		if _barracks_directive_button_rect(index).has_point(pos):
+			if index == 3:
+				_clear_barracks_directive(selected_core)
+			else:
+				_begin_barracks_directive_mode(String(BARRACKS_DIRECTIVE_TYPES[index]))
+			return true
 	return _status_panel_rect().has_point(pos)
 
 
@@ -7872,6 +8135,28 @@ func _draw_status_panel(viewport: Vector2) -> void:
 		draw_string(fallback_font, auto_button.position + Vector2(12, 21), "自动补员：%s" % ("开" if bool(core.get("auto_replenish", false)) else "关"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 		draw_string(fallback_font, target_button.position + Vector2(10, 21), "目标 %d" % auto_target, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 		draw_string(fallback_font, rally_button.position + Vector2(9, 21), "清除集结" if bool(core.get("rally_enabled", false)) else "设置集结", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		var directive_enabled := bool(core.get("directive_enabled", false))
+		var directive_type := String(core.get("directive_type", ""))
+		var directive_unit := String(core.get("directive_unit", "forager"))
+		var directive_text := "持续任务：未设置"
+		var directive_color := COLOR_MUTED
+		if directive_enabled:
+			directive_text = "持续任务：%s · %s　现役编制 %d　新补员自动接班" % [BARRACK_UNIT_NAMES.get(directive_unit, directive_unit), BARRACKS_DIRECTIVE_NAMES.get(directive_type, directive_type), _barracks_directive_member_count(selected_core)]
+			directive_color = Color("76f5ca")
+			if not _barracks_directive_valid(selected_core, true):
+				directive_text = "持续任务暂停：兵种、食性或区域条件失效"
+				directive_color = Color("ffad78")
+		draw_string(fallback_font, rect.position + Vector2(16, 426), directive_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, directive_color)
+		var directive_labels := ["防区", "采区", "猎区", "清任务"]
+		var directive_colors := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER)]
+		var setup_unit := String(core.get("auto_replenish_unit", "forager")) if bool(core.get("auto_replenish", false)) else String(core.get("production_unit", "forager"))
+		for directive_index in range(4):
+			var directive_button := _barracks_directive_button_rect(directive_index)
+			var available := directive_enabled if directive_index == 3 else _available_barracks_units().has(setup_unit) and _directive_type_supported(setup_unit, String(BARRACKS_DIRECTIVE_TYPES[directive_index]), true)
+			var active := directive_index < 3 and mode == "barracks_%s_zone" % String(BARRACKS_DIRECTIVE_TYPES[directive_index])
+			var button_color: Color = directive_colors[directive_index] if available else Color(COLOR_BORDER, 0.45)
+			draw_style_box(_rounded_style(Color(0.05, 0.20, 0.16, 0.98) if active else Color(0.035, 0.12, 0.13, 0.96), button_color, 6, 2 if active else 1), directive_button)
+			draw_string(fallback_font, directive_button.position + Vector2(10, 21), String(directive_labels[directive_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
 	if viewport.x < 800:
 		return
 
@@ -8287,6 +8572,13 @@ func _save_game() -> void:
 			"auto_replenish": bool(core.get("auto_replenish", false)),
 			"auto_replenish_unit": String(core.get("auto_replenish_unit", core.get("production_unit", "forager"))),
 			"auto_replenish_target": int(core.get("auto_replenish_target", 4)),
+			"directive_enabled": bool(core.get("directive_enabled", false)),
+			"directive_type": String(core.get("directive_type", "")),
+			"directive_unit": String(core.get("directive_unit", "forager")),
+			"directive_min_x": (core.get("directive_min", core["pos"]) as Vector2).x,
+			"directive_min_y": (core.get("directive_min", core["pos"]) as Vector2).y,
+			"directive_max_x": (core.get("directive_max", core["pos"]) as Vector2).x,
+			"directive_max_y": (core.get("directive_max", core["pos"]) as Vector2).y,
 			"feeder_range_level": int(core.get("feeder_range_level", 0)),
 			"biomass": float(core.get("biomass", CORE_MAX_BIOMASS)),
 			"max_biomass": float(core.get("max_biomass", CORE_MAX_BIOMASS)),
@@ -8638,6 +8930,24 @@ func _load_game() -> bool:
 		# 保留因食性逆转而暂时失效的专属兵种配置；补员逻辑会暂停，UI 会明确提示原因。
 		core["auto_replenish"] = bool(item.get("auto_replenish", false)) and known_auto_unit and String(core.get("kind", "normal")) == "barracks"
 		core["auto_replenish_target"] = _normalized_auto_target(int(item.get("auto_replenish_target", 4)))
+		var directive_type := String(item.get("directive_type", ""))
+		var directive_unit := String(item.get("directive_unit", "forager"))
+		var directive_min := Vector2(float(item.get("directive_min_x", core["pos"].x)), float(item.get("directive_min_y", core["pos"].y)))
+		var directive_max := Vector2(float(item.get("directive_max_x", core["pos"].x)), float(item.get("directive_max_y", core["pos"].y)))
+		var directive_fields_valid := directive_min.is_finite() and directive_max.is_finite()
+		if not directive_fields_valid:
+			directive_min = core["pos"]
+			directive_max = core["pos"]
+		directive_min = directive_min.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		directive_max = directive_max.clamp(Vector2.ONE * -WORLD_HALF, Vector2.ONE * WORLD_HALF)
+		var directive_size := (directive_max - directive_min).abs()
+		directive_fields_valid = directive_fields_valid and BARRACKS_DIRECTIVE_TYPES.has(directive_type) and UNIT_MAX_BIOMASS.has(directive_unit) and _directive_type_supported(directive_unit, directive_type, false)
+		directive_fields_valid = directive_fields_valid and directive_size.x >= DEFENSE_ZONE_MIN_SIDE - 0.01 and directive_size.y >= DEFENSE_ZONE_MIN_SIDE - 0.01 and directive_size.x <= DEFENSE_ZONE_MAX_SIDE + 0.01 and directive_size.y <= DEFENSE_ZONE_MAX_SIDE + 0.01 and absf(directive_size.x - directive_size.y) <= 0.1
+		core["directive_enabled"] = bool(item.get("directive_enabled", false)) and directive_fields_valid and String(core.get("kind", "normal")) == "barracks"
+		core["directive_type"] = directive_type if bool(core["directive_enabled"]) else ""
+		core["directive_unit"] = directive_unit if UNIT_MAX_BIOMASS.has(directive_unit) else "forager"
+		core["directive_min"] = directive_min
+		core["directive_max"] = directive_max
 		core["feeder_range_level"] = clampi(int(item.get("feeder_range_level", 0)), 0, MAX_FEEDER_RANGE_LEVEL)
 		core["max_biomass"] = maxf(1.0, float(item.get("max_biomass", CORE_MAX_BIOMASS)))
 		core["biomass"] = clampf(float(item.get("biomass", core["max_biomass"])), 0.0, float(core["max_biomass"]))
@@ -8910,6 +9220,12 @@ func _load_game() -> bool:
 		fungal_incursion = {"phase": incursion_phase, "remaining": incursion_remaining, "pos": incursion_pos, "wave": incursion_wave, "enemy_id": incursion_enemy_id}
 		if incursion_phase == "warning":
 			_reveal_exploration(incursion_pos, FUNGAL_INCURSION_REVEAL_RADIUS)
+	for core_id in range(cores.size()):
+		if bool(cores[core_id].get("directive_enabled", false)) and not _barracks_directive_valid(core_id, false):
+			cores[core_id]["directive_enabled"] = false
+			cores[core_id]["directive_type"] = ""
+			cores[core_id]["directive_min"] = cores[core_id]["pos"]
+			cores[core_id]["directive_max"] = cores[core_id]["pos"]
 	expedition_units.clear()
 	next_expedition_id = maxi(1, int(parsed.get("next_expedition_id", 1)))
 	for item in parsed.get("expedition_units", []):
@@ -9012,11 +9328,14 @@ func _load_game() -> bool:
 			"phase": float(item.get("phase", 0.0))
 		})
 		var loaded_unit: Dictionary = expedition_units.back()
-		if _is_deployable_unit_type(String(loaded_unit.get("unit_type", "forager"))) or not _unit_can_defend_fungi(loaded_unit) or (bool(loaded_unit.get("defense_enabled", false)) and not _defense_zone_within_operating_range(_defense_rect(loaded_unit), loaded_unit)):
+		var loaded_unit_type := String(loaded_unit.get("unit_type", "forager"))
+		# Diet-gated persistent orders survive a save made while their diet is
+		# inactive; enforcement pauses them safely until that diet is restored.
+		if _is_deployable_unit_type(loaded_unit_type) or not _directive_type_supported(loaded_unit_type, "defense", false) or (bool(loaded_unit.get("defense_enabled", false)) and not _defense_zone_within_operating_range(_defense_rect(loaded_unit), loaded_unit)):
 			loaded_unit["defense_enabled"] = false
 		if not _unit_can_harvest(loaded_unit) or (bool(loaded_unit.get("harvest_enabled", false)) and not _defense_zone_within_operating_range(_harvest_rect(loaded_unit), loaded_unit)):
 			loaded_unit["harvest_enabled"] = false
-		if not _unit_can_purge(loaded_unit) or (bool(loaded_unit.get("purge_enabled", false)) and not _defense_zone_within_operating_range(_purge_rect(loaded_unit), loaded_unit)):
+		if not _directive_type_supported(loaded_unit_type, "purge", false) or (bool(loaded_unit.get("purge_enabled", false)) and not _defense_zone_within_operating_range(_purge_rect(loaded_unit), loaded_unit)):
 			loaded_unit["purge_enabled"] = false
 		if not bool(loaded_unit.get("defense_enabled", false)) and String(loaded_unit.get("target_kind", "")) == "defense_patrol":
 			loaded_unit["target_kind"] = ""

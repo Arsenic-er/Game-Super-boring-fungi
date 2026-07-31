@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.35.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.36.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Download and play
 
@@ -33,6 +33,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Selected foragers and fungi-specialist piercers can now receive a persistent square defense zone. They patrol within it, prioritize hostile guards before rival cores, abandon targets that leave the boundary, and resume the saved patrol after returning or repairing.
 - Foragers, carriers, and chelators can receive persistent square harvesting zones. They split compatible resource targets, keep searching after a point is depleted, unload full cargo, recover from low biomass, and automatically resume the saved gathering route; harvesting continues during capped offline progress.
 - With the bacteria diet active, foragers, lytic spores, and lytic dispersers can receive persistent square purge zones. Single-target hunters split claims, dispersers prefer dense clusters, and every eligible unit resumes the hunt after unloading or repair; offline purging respects the existing ten-minute combat cap and ignores temporary event strains.
+- Each barracks can store one persistent defense, harvesting, or purge directive for its current replenishment role. Matching active units are reassigned immediately, automatic replacements inherit the square mission on birth, and manual production remains free for direct control; directives are isolated per barracks and persist through saves and offline progress.
 - Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Fungi-diet progression also unlocks coil hunters: order them onto individual enemy hyphae to sever supply lines, make dependent branches fade over 90 seconds, and earn the new severing objective while the rival regrows from its surviving network.
 - Fungi-diet progression now adds reusable antifungal pods: unfold a 75 μm lockdown field to reduce rival nutrient absorption and regrowth to 35%, double the decay of severed hyphae, and complete a dedicated containment objective without dealing direct damage.
@@ -56,6 +57,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - `Z` or the defense button: enter defense mode, then right-drag a square patrol zone
 - `X` or the harvest button: enter harvesting mode, then right-drag a square resource zone
 - `V` or the purge button: enter purge mode, then right-drag a square bacteria-hunting zone
+- Barracks status panel: choose a defense, harvesting, or purge directive, then right-drag its square; use Clear Task to remove the template
 - `C` or the clear-order button: remove the selected units' persistent defense, harvesting, or purge zones
 - `R`: return selected expedition spores to their barracks
 - Right drag / middle drag: move the camera
@@ -86,7 +88,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.35.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.36.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 下载与运行
 
@@ -118,6 +120,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 已选中的游猎孢子和真菌专属穿壁孢子现在可以设置持久正方形防区：单位在区内巡逻、优先拦截敌方守卫再攻击竞争核心；目标越界后立即脱战，返巢修复后仍会继续执行已保存的防区任务。
 - 游猎孢子、囊载孢子和螯合孢子可以设置持久正方形采区：单位会分流适合自身食性的资源点，采空后继续搜索，满载卸货或低生物量修复后自动恢复任务；在离线结算上限内也会继续执行真实资源采集。
 - 开启细菌食性后，游猎孢子、裂菌孢子和溶菌散播体可以设置持久正方形清剿区：单体猎手会分流目标，远程散播体优先攻击密集菌群，卸货或修复后自动恢复任务；离线清剿遵守现有十分钟战斗上限，并避开临时生态事件菌株。
+- 每座兵营现在可以为当前补员兵种保存一个持久防区、采区或猎区任务：同兵营同兵种的现役单位会立即重新编制，自动补员出生时自动接班，手动生产的单位仍保持自由；任务按兵营隔离，并支持存档与离线结算。
 - 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 真菌食性还可解锁“缠丝猎手”：把它右键指派到一段敌方菌丝后可切断供给线，使依赖该段的远端分支在90秒内逐渐暗淡、失活；竞争菌仍会从幸存网络重新生长，并新增“断丝战术”目标。
 - 真菌食性新增可重复部署的“抗真菌囊体”：展开半径75 μm的封锁区，把竞争真菌的营养吸收和再扩张压至35%，令已切断菌丝以两倍速度衰败；封锁区不直接造成伤害，并配有独立长期目标。
@@ -138,6 +141,7 @@ The source code, visual assets, game design, text, and other repository contents
 - `Z` 或“设防”按钮：进入设防模式，再按住右键拖出正方形巡逻区
 - `X` 或“采区”按钮：进入采集模式，再按住右键拖出正方形资源区
 - `V` 或“猎区”按钮：进入清剿模式，再按住右键拖出正方形细菌猎区
+- 兵营状态面板：选择持续防区、采区或猎区，再按住右键拖出正方形；“清任务”会移除兵营模板
 - `C` 或“清令”按钮：移除所选单位的持久防区、采区或猎区
 - `R`：让已选中的体外孢子返回所属兵营
 - 右键拖动 / 中键拖动：移动镜头
