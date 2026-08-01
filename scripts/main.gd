@@ -2045,10 +2045,22 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 				_move_expedition_unit(unit, target, sim_delta)
 			if (unit["pos"] as Vector2).distance_to(target) <= arrival_distance:
 				if target_kind == "resource":
-					unit["state"] = "gathering"
+					var moving_resource := _resource_by_id(int(unit.get("target_resource_id", -1)))
+					if not moving_resource.is_empty() and _unit_can_target_resource(unit, int(moving_resource.get("kind", -1))):
+						unit["state"] = "gathering"
+					elif bool(unit.get("manual", false)):
+						_set_expedition_hold(unit, target)
+					else:
+						unit["state"] = "idle"
+						unit["target_kind"] = ""
 				elif target_kind == "bacteria":
-					unit["state"] = "attacking"
-					if String(unit.get("unit_type", "forager")) == "disperser":
+					if _unit_can_attack_bacteria(unit):
+						unit["state"] = "attacking"
+					elif bool(unit.get("manual", false)):
+						_set_expedition_hold(unit, target)
+					else:
+						_cancel_illegal_bacteria_order(unit)
+					if String(unit.get("unit_type", "forager")) == "disperser" and String(unit.get("state", "")) == "attacking":
 						unit["burst_cooldown"] = maxf(0.0, float(unit.get("burst_cooldown", DISPERSER_WINDUP_SECONDS)))
 				elif target_kind == "enemy_fungus":
 					unit["state"] = "attacking_fungus"
@@ -2060,7 +2072,11 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 					unit["state"] = "deploying"
 					unit["deploy_progress"] = 0.0
 				else:
-					unit["state"] = "guarding" if bool(unit.get("manual", false)) else "idle"
+					if bool(unit.get("manual", false)):
+						_set_expedition_hold(unit, target)
+					else:
+						unit["state"] = "idle"
+						unit["target_kind"] = ""
 		elif state == "gathering":
 			_update_expedition_gathering(unit, sim_delta)
 		elif state == "attacking":
@@ -2076,8 +2092,9 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		elif state == "deployed":
 			pass
 		else:
-			unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
-			if float(unit["search_cooldown"]) <= 0.0:
+			if not _unit_is_manual_hold(unit):
+				unit["search_cooldown"] = maxf(0.0, float(unit.get("search_cooldown", 0.0)) - sim_delta)
+			if not _unit_is_manual_hold(unit) and float(unit["search_cooldown"]) <= 0.0:
 				if bool(unit.get("purge_enabled", false)):
 					_acquire_purge_target(unit)
 				elif bool(unit.get("harvest_enabled", false)):
@@ -2237,8 +2254,14 @@ func _expedition_cargo_capacity(unit: Dictionary) -> float:
 
 
 func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
-	var resource := _resource_by_id(int(unit.get("target_resource_id", -1)))
 	var expected_kind := 1 if String(unit.get("unit_type", "forager")) == "chelator" else 0
+	if not _unit_can_target_resource(unit, expected_kind):
+		if bool(unit.get("manual", false)):
+			_set_expedition_hold(unit, unit.get("pos", Vector2.ZERO))
+		else:
+			_resume_expedition_auto(unit)
+		return
+	var resource := _resource_by_id(int(unit.get("target_resource_id", -1)))
 	var harvest_zone := _harvest_rect(unit)
 	var resource_valid := not resource.is_empty() and bool(resource.get("alive", false)) and int(resource.get("kind", -1)) == expected_kind
 	if resource_valid and bool(unit.get("harvest_enabled", false)):
@@ -2270,6 +2293,9 @@ func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
 
 
 func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
+	if not _unit_can_attack_bacteria(unit):
+		_cancel_illegal_bacteria_order(unit)
+		return
 	if String(unit.get("unit_type", "forager")) == "disperser":
 		_update_disperser_attack(unit, sim_delta)
 		return
@@ -2314,6 +2340,9 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 
 
 func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
+	if not _unit_can_attack_bacteria(unit):
+		_cancel_illegal_bacteria_order(unit)
+		return
 	if offline_simulating and not offline_expedition_combat_active:
 		return
 	var efficiency := _diet_efficiency("bacteria")
@@ -2520,12 +2549,89 @@ func _defense_zone_within_operating_range(zone: Rect2, unit: Dictionary) -> bool
 
 
 func _unit_can_defend_fungi(unit: Dictionary) -> bool:
-	var unit_type := String(unit.get("unit_type", "forager"))
-	return unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0)
+	return _unit_can_attack_enemy_fungus(unit)
 
 
 func _unit_can_harvest(unit: Dictionary) -> bool:
 	return ["forager", "carrier", "chelator"].has(String(unit.get("unit_type", "forager")))
+
+
+func _unit_can_target_resource(unit: Dictionary, resource_kind: int) -> bool:
+	var unit_type := String(unit.get("unit_type", "forager"))
+	return (resource_kind == 0 and ["forager", "carrier"].has(unit_type)) or (resource_kind == 1 and unit_type == "chelator")
+
+
+func _unit_can_attack_bacteria(unit: Dictionary, require_active_diet: bool = true) -> bool:
+	if not ["forager", "lytic", "disperser"].has(String(unit.get("unit_type", "forager"))):
+		return false
+	return not require_active_diet or _diet_efficiency("bacteria") > 0.0
+
+
+func _unit_can_attack_enemy_fungus(unit: Dictionary) -> bool:
+	var unit_type := String(unit.get("unit_type", "forager"))
+	return unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0)
+
+
+func _unit_can_attack_enemy_guard(unit: Dictionary) -> bool:
+	return _unit_can_attack_enemy_fungus(unit)
+
+
+func _unit_can_attack_enemy_hypha(unit: Dictionary) -> bool:
+	return String(unit.get("unit_type", "forager")) == "coil" and _diet_efficiency("fungi") > 0.0
+
+
+func _unit_has_persistent_order(unit: Dictionary) -> bool:
+	return bool(unit.get("defense_enabled", false)) or bool(unit.get("harvest_enabled", false)) or bool(unit.get("purge_enabled", false))
+
+
+func _clear_expedition_target_ids(unit: Dictionary) -> void:
+	unit["target_resource_id"] = -1
+	unit["target_enemy_id"] = -1
+	unit["target_enemy_hypha_id"] = -1
+	unit["target_enemy_guard_id"] = -1
+
+
+func _set_expedition_hold(unit: Dictionary, hold_pos: Vector2) -> void:
+	unit["state"] = "guarding"
+	unit["target_kind"] = ""
+	unit["target_pos"] = hold_pos
+	_clear_expedition_target_ids(unit)
+	unit["manual"] = true
+	unit["search_cooldown"] = 0.0
+
+
+func _unit_is_manual_hold(unit: Dictionary) -> bool:
+	return bool(unit.get("manual", false)) and String(unit.get("state", "idle")) == "guarding" and String(unit.get("target_kind", "")) == "" and not _unit_has_persistent_order(unit)
+
+
+func _resume_expedition_auto(unit: Dictionary) -> bool:
+	var state := String(unit.get("state", "idle"))
+	if bool(unit.get("lost", false)) or state == "deployed" or ["returning", "retreating", "repairing", "wounded"].has(state):
+		return false
+	unit["manual"] = false
+	unit["target_kind"] = ""
+	_clear_expedition_target_ids(unit)
+	unit["search_cooldown"] = 0.0
+	if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) > 0.0005:
+		unit["state"] = "returning"
+		unit["target_kind"] = "home"
+		var home := _expedition_home_position(unit)
+		if home.is_finite():
+			unit["target_pos"] = home
+	else:
+		unit["state"] = "idle"
+		unit["target_pos"] = unit.get("pos", Vector2.ZERO)
+	return true
+
+
+func _cancel_illegal_bacteria_order(unit: Dictionary) -> void:
+	if bool(unit.get("manual", false)) and not _unit_has_persistent_order(unit):
+		_set_expedition_hold(unit, unit.get("pos", Vector2.ZERO))
+		return
+	unit["state"] = "idle"
+	unit["target_kind"] = ""
+	_clear_expedition_target_ids(unit)
+	unit["manual"] = false
 
 
 func _harvest_resource_kind(unit: Dictionary) -> int:
@@ -2595,26 +2701,31 @@ func _clear_selected_persistent_orders() -> void:
 	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
 		return
 	var cleared := 0
+	var resumed := 0
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
-		var had_order := bool(unit.get("defense_enabled", false)) or bool(unit.get("harvest_enabled", false)) or bool(unit.get("purge_enabled", false))
+		var state := String(unit.get("state", "idle"))
+		var had_order := _unit_has_persistent_order(unit)
+		var had_manual_order := bool(unit.get("manual", false)) and state != "deployed" and not ["returning", "retreating", "repairing", "wounded"].has(state)
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
 		if bool(unit.get("harvest_enabled", false)):
 			_clear_unit_harvest(unit)
 		if bool(unit.get("purge_enabled", false)):
 			_clear_unit_purge(unit)
-		if had_order:
+		if had_order or had_manual_order:
 			cleared += 1
+			if _resume_expedition_auto(unit):
+				resumed += 1
 	mode = "normal"
 	defense_zone_drawing = false
 	if cleared > 0:
 		_play_sound("ui_cancel")
-		toast("已清除 %d 个单位的持久命令" % cleared, 2.0)
+		toast("已清除 %d 个单位的命令；%d 个恢复自动行动" % [cleared, resumed], 2.4)
 	else:
 		_play_sound("ui_error")
-		toast("所选单位没有已设置的防区、采区或猎区", 1.8)
+		toast("所选单位没有可清除的手动命令或持久区域", 1.8)
 
 
 func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
@@ -2771,7 +2882,7 @@ func _enforce_harvest_zone(unit: Dictionary) -> void:
 
 
 func _unit_can_purge(unit: Dictionary) -> bool:
-	return _diet_efficiency("bacteria") > 0.0 and ["forager", "lytic", "disperser"].has(String(unit.get("unit_type", "forager")))
+	return _unit_can_attack_bacteria(unit)
 
 
 func _purge_rect(unit: Dictionary) -> Rect2:
@@ -3252,13 +3363,17 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 			unit["target_pos"] = scout_target
 			unit["state"] = "moving"
 		return
-	var resource := _nearest_resource_kind(pos, EXPEDITION_SEARCH_RADIUS, 1 if unit_type == "chelator" else 0) if not ["lytic", "disperser"].has(unit_type) else {}
+	var resource: Dictionary = {}
+	if ["forager", "carrier"].has(unit_type):
+		resource = _nearest_resource_kind(pos, EXPEDITION_SEARCH_RADIUS, 0)
+	elif unit_type == "chelator":
+		resource = _nearest_resource_kind(pos, EXPEDITION_SEARCH_RADIUS, 1)
 	if not resource.is_empty() and _distance_to_colony(resource["pos"]) <= EXPEDITION_OPERATING_RADIUS:
 		best_kind = "resource"
 		best_pos = resource["pos"]
 		best_distance = pos.distance_squared_to(best_pos)
 		unit["target_resource_id"] = int(resource["id"])
-	if _diet_efficiency("bacteria") > 0.0 and unit_type != "chelator" and unit_type != "carrier":
+	if _unit_can_attack_bacteria(unit):
 		var bacteria_index := _nearest_bacterium_index(pos, EXPEDITION_SEARCH_RADIUS)
 		if bacteria_index >= 0:
 			var bacteria_pos: Vector2 = bacteria[bacteria_index]["pos"]
@@ -3266,7 +3381,7 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 			if _distance_to_colony(bacteria_pos) <= EXPEDITION_OPERATING_RADIUS and bacteria_distance < best_distance:
 				best_kind = "bacteria"
 				best_pos = bacteria_pos
-	if unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0):
+	if _unit_can_attack_enemy_guard(unit):
 		var guard_index := _nearest_enemy_guard_index(pos, EXPEDITION_SEARCH_RADIUS, true)
 		if guard_index >= 0:
 			var guard_pos: Vector2 = enemy_guard_spores[guard_index]["pos"]
@@ -3276,7 +3391,7 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 				best_pos = guard_pos
 				best_distance = guard_distance
 				unit["target_enemy_guard_id"] = int(enemy_guard_spores[guard_index].get("id", -1))
-	if _diet_efficiency("fungi") > 0.0 and unit_type == "piercer":
+	if _unit_can_attack_enemy_fungus(unit) and unit_type == "piercer":
 		var enemy_index := _nearest_enemy_fungus_index(pos, EXPEDITION_SEARCH_RADIUS, true)
 		if enemy_index >= 0:
 			var enemy_pos: Vector2 = enemy_fungi[enemy_index]["pos"]
@@ -3285,7 +3400,7 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 				best_kind = "enemy_fungus"
 				best_pos = enemy_pos
 				unit["target_enemy_id"] = int(enemy_fungi[enemy_index].get("id", -1))
-	if _diet_efficiency("fungi") > 0.0 and unit_type == "coil":
+	if _unit_can_attack_enemy_hypha(unit):
 		var hypha_id := _nearest_enemy_hypha_id(pos, EXPEDITION_SEARCH_RADIUS, true, true)
 		var hypha_index := _enemy_hypha_index_by_id(hypha_id)
 		if hypha_index >= 0:
@@ -3860,6 +3975,8 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			requested_target = resource["pos"]
 			resource_id = int(resource["id"])
 	var commanded := 0
+	var fallback_commanded := 0
+	var unavailable := 0
 	for unit in expedition_units:
 		if not selected_expedition_ids.has(int(unit.get("id", -1))):
 			continue
@@ -3875,15 +3992,10 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			commanded += 1
 			continue
 		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
+			unavailable += 1
 			continue
 		var target := _clamp_expedition_command_target(requested_target, _expedition_operating_radius(unit))
 		var unit_type := String(unit.get("unit_type", "forager"))
-		# A visible in-range resource click is a gathering order, not a generic move.
-		# Gathering roles reject incompatible nutrient kinds without losing a saved zone.
-		if target_kind == "resource" and target.distance_to(requested_target) <= 0.01 and _unit_can_harvest(unit):
-			var commanded_resource := _resource_by_id(resource_id)
-			if commanded_resource.is_empty() or int(commanded_resource.get("kind", -1)) != _harvest_resource_kind(unit):
-				continue
 		if bool(unit.get("defense_enabled", false)):
 			_clear_unit_defense(unit)
 		if bool(unit.get("harvest_enabled", false)):
@@ -3895,6 +4007,7 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		var unit_enemy_id := enemy_id
 		var unit_enemy_hypha_id := enemy_hypha_id
 		var unit_enemy_guard_id := enemy_guard_id
+		var fell_back := false
 		if _is_deployable_unit_type(unit_type):
 			unit_target_kind = "deploy_zone"
 			unit_resource_id = -1
@@ -3908,21 +4021,34 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			unit_enemy_id = -1
 			unit_enemy_hypha_id = -1
 			unit_enemy_guard_id = -1
-		elif target_kind == "enemy_guard" and not (unit_type == "forager" or (unit_type == "piercer" and _diet_efficiency("fungi") > 0.0)):
+			fell_back = true
+		elif target_kind == "enemy_guard" and not _unit_can_attack_enemy_guard(unit):
 			unit_target_kind = "ground"
 			unit_enemy_guard_id = -1
-		elif target_kind == "enemy_fungus" and not (String(unit.get("unit_type", "forager")) == "forager" or (String(unit.get("unit_type", "forager")) == "piercer" and _diet_efficiency("fungi") > 0.0)):
+			fell_back = true
+		elif target_kind == "enemy_fungus" and not _unit_can_attack_enemy_fungus(unit):
 			unit_target_kind = "ground"
 			unit_enemy_id = -1
-		elif target_kind == "enemy_hypha" and not (String(unit.get("unit_type", "forager")) == "coil" and _diet_efficiency("fungi") > 0.0):
+			fell_back = true
+		elif target_kind == "enemy_hypha" and not _unit_can_attack_enemy_hypha(unit):
 			unit_target_kind = "ground"
 			unit_enemy_hypha_id = -1
-		elif unit_type == "scout" and target_kind == "bacteria":
+			fell_back = true
+		elif target_kind == "bacteria" and not _unit_can_attack_bacteria(unit):
+			unit_target_kind = "ground"
+			fell_back = true
+		elif target_kind == "resource":
+			var commanded_resource := _resource_by_id(resource_id)
+			if commanded_resource.is_empty() or not _unit_can_target_resource(unit, int(commanded_resource.get("kind", -1))):
+				unit_target_kind = "ground"
+				unit_resource_id = -1
+				fell_back = true
+		if fell_back:
 			unit_target_kind = "ground"
 			unit_resource_id = -1
-		elif target_kind == "resource" and not _unit_can_harvest(unit):
-			unit_target_kind = "ground"
-			unit_resource_id = -1
+			unit_enemy_id = -1
+			unit_enemy_hypha_id = -1
+			unit_enemy_guard_id = -1
 		unit["manual"] = true
 		unit["target_kind"] = unit_target_kind
 		unit["target_pos"] = target
@@ -3936,9 +4062,11 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			unit["burst_flash"] = 0.0
 		unit["command_until"] = sim_time + 3.0
 		commanded += 1
+		if fell_back:
+			fallback_commanded += 1
 	if commanded > 0:
 		_play_sound("command", clampf(0.8 + commanded * 0.02, 0.8, 1.25))
-		toast("已向 %d 个体外单位下达指令" % commanded, 1.8)
+		toast("指令回执：%d 执行　%d 改为警戒　%d 暂不可用" % [commanded - fallback_commanded, fallback_commanded, unavailable], 2.8)
 	elif not selected_expedition_ids.is_empty():
 		_play_sound("ui_error")
 		toast("重伤、修复中或食性不匹配的单位无法执行", 2.5)
@@ -9646,6 +9774,8 @@ func _load_game() -> bool:
 			loaded_unit["target_kind"] = ""
 			loaded_unit["target_enemy_guard_id"] = -1
 			loaded_unit["state"] = "idle"
+		if String(loaded_unit.get("target_kind", "")) == "bacteria" and not _unit_can_attack_bacteria(loaded_unit):
+			_cancel_illegal_bacteria_order(loaded_unit)
 		_enforce_defense_zone(loaded_unit)
 		_enforce_harvest_zone(loaded_unit)
 		_enforce_purge_zone(loaded_unit)

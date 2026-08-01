@@ -114,7 +114,7 @@ func _run() -> void:
 		return
 	forager["state"] = "guarding"
 	game._issue_expedition_command(game.world_to_screen(game._resource_by_id(2)["pos"]))
-	if not _check(bool(forager["harvest_enabled"]), "an incompatible mineral order must be rejected without clearing an organic gatherer's zone"):
+	if not _check(not bool(forager["harvest_enabled"]) and String(forager["target_kind"]) == "ground", "an incompatible mineral order should replace the zone with a ground hold fallback"):
 		return
 	game._issue_expedition_command(game.world_to_screen(Vector2(40.0, 40.0)))
 	if not _check(not bool(forager["harvest_enabled"]), "an accepted direct order should replace harvest"):
