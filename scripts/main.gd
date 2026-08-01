@@ -2309,8 +2309,8 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 			unit["state"] = "returning" if float(unit["cargo_organic"]) > 0.0 else "idle"
 	elif not offline_simulating or offline_expedition_combat_active:
 		var resistance := 0.70 if String(unit.get("unit_type", "forager")) == "lytic" else 1.0
-		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * float(bacterium.get("biomass", 1.0)) * resistance * sim_delta
-		_damage_expedition_unit(unit, counter_damage, "细菌反击")
+		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * float(bacterium.get("biomass", 1.0)) * resistance * _toxin_damage_multiplier() * sim_delta
+		_damage_expedition_unit(unit, counter_damage, "细菌毒素反噬")
 
 
 func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
@@ -2369,7 +2369,7 @@ func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
 			unit["state"] = "returning" if float(unit.get("cargo_organic", 0.0)) > 0.0 else "idle"
 		return
 	if not offline_simulating or offline_expedition_combat_active:
-		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * surviving_biomass * DISPERSER_COUNTER_MULTIPLIER
+		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * surviving_biomass * DISPERSER_COUNTER_MULTIPLIER * _toxin_damage_multiplier()
 		_damage_expedition_unit(unit, counter_damage, "范围裂解反击")
 	if killed_count > 0 and surviving_biomass <= 0.0005:
 		if bool(unit.get("purge_enabled", false)) and float(unit.get("cargo_organic", 0.0)) < _expedition_cargo_capacity(unit) - 0.0005:
@@ -4868,7 +4868,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if left_dragged:
 					_select_expedition_box(selection_start, selection_current)
 				else:
-					_handle_left_click(event.position)
+					_handle_left_click(event.position, event.shift_pressed, event.ctrl_pressed)
 				left_dragged = false
 			return
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -4936,7 +4936,7 @@ func _zoom_at(screen_pos: Vector2, factor: float) -> void:
 	queue_redraw()
 
 
-func _handle_left_click(pos: Vector2) -> void:
+func _handle_left_click(pos: Vector2, shift_pressed: bool = false, ctrl_pressed: bool = false) -> void:
 	if game_over:
 		return
 	if _pause_hud_rect().has_point(pos):
@@ -5021,7 +5021,7 @@ func _handle_left_click(pos: Vector2) -> void:
 		return
 	var action := _menu_action_at(pos)
 	if action != "":
-		_apply_menu_action(action)
+		_apply_menu_action(action, _dna_batch_size_from_modifiers(shift_pressed, ctrl_pressed))
 		return
 	if mode == "place_barracks":
 		var barracks_tip := _tip_at(pos)
@@ -5082,7 +5082,7 @@ func _menu_action_at(pos: Vector2) -> String:
 	return ""
 
 
-func _apply_menu_action(action: String) -> void:
+func _apply_menu_action(action: String, dna_batch_size: int = 1) -> void:
 	match action:
 		"extend_core":
 			mode = "extend"
@@ -5092,7 +5092,7 @@ func _apply_menu_action(action: String) -> void:
 			mode = "extend"
 			toast("从这个菌丝末端继续生长", 2.5)
 		"dna":
-			_queue_dna(selected_core)
+			_queue_dna(selected_core, dna_batch_size)
 		"queue_spore":
 			_queue_expedition_spore(selected_core)
 		"cycle_spore_unit":
@@ -5136,19 +5136,46 @@ func _upgrade_feeder_range(core_id: int) -> void:
 	toast("节点 Lv.%d　范围 %.0f μm　DNA 速度 +%d%%" % [level, _feeder_range_for_core(core_id) / 2.0, int(_dna_speed_bonus(core_id) * 100.0)], 4.0)
 
 
-func _queue_dna(core_id: int) -> void:
+func _dna_batch_size_from_modifiers(shift_pressed: bool, ctrl_pressed: bool) -> int:
+	if ctrl_pressed:
+		return 10
+	if shift_pressed:
+		return 5
+	return 1
+
+
+func _current_dna_batch_size() -> int:
+	return _dna_batch_size_from_modifiers(Input.is_key_pressed(KEY_SHIFT), Input.is_key_pressed(KEY_CTRL))
+
+
+func _dna_batch_tooltip_title(core_id: int, batch_size: int) -> String:
+	var amount := clampi(batch_size, 1, 10)
+	return "生产 %d DNA　本批总计 %.1f 秒" % [amount, _dna_job_duration(core_id) * amount]
+
+
+func _dna_batch_tooltip_cost(batch_size: int) -> String:
+	var amount := clampi(batch_size, 1, 10)
+	return "有机营养 %.3f\n矿物离子 %.3f\nShift：×5　Ctrl：×10" % [DNA_ORGANIC_COST * amount, DNA_MINERAL_COST * amount]
+
+
+func _queue_dna(core_id: int, batch_size: int = 1) -> bool:
 	if not _is_core_alive(core_id):
-		return
-	if organic < DNA_ORGANIC_COST or mineral < DNA_MINERAL_COST:
-		toast("资源不足：需要 30 有机营养与 1 矿物离子", 3.0)
-		return
-	organic -= DNA_ORGANIC_COST
-	mineral -= DNA_MINERAL_COST
+		return false
+	var amount := clampi(batch_size, 1, 10)
+	var organic_cost := DNA_ORGANIC_COST * amount
+	var mineral_cost := DNA_MINERAL_COST * amount
+	if organic < organic_cost or mineral < mineral_cost:
+		toast("资源不足：生产 %d DNA 需要 %.3f 有机营养与 %.3f 矿物离子" % [amount, organic_cost, mineral_cost], 3.0)
+		return false
+	organic -= organic_cost
+	mineral -= mineral_cost
 	var jobs: Array = cores[core_id]["jobs"]
 	var duration := _dna_job_duration(core_id)
-	jobs.append({"remaining": duration, "total": duration})
+	for _job_index in range(amount):
+		jobs.append({"remaining": duration, "total": duration})
 	_play_sound("dna_queue")
-	toast("DNA 生产已排队（核心队列 %d）" % jobs.size(), 3.0)
+	toast("DNA ×%d 已排队（核心队列 %d）" % [amount, jobs.size()], 3.0)
+	return true
 
 
 func _dna_job_duration(core_id: int) -> float:
@@ -7997,7 +8024,8 @@ func _draw_bacteria_tooltip() -> void:
 		behavior_text,
 		"吸收 %.3f/秒　真菌初始速率的 1/20" % BACTERIA_ABSORB_RATE,
 		"分裂营养 %.3f / %.3f" % [stored, BACTERIA_DIVISION_NUTRIENT],
-		"自身基因组复制　不消耗真菌 DNA"
+		"自身基因组复制　不消耗真菌 DNA",
+		"被摄食时会释放少量毒素，使体外孢子缓慢损失生物量"
 	]
 	if bool(bacterium.get("suppressed", false)):
 		var source_text := "前沿抑菌囊体" if bool(bacterium.get("suppressed_by_deployment", false)) else "核心抗生素"
@@ -8166,10 +8194,13 @@ func _current_menu_buttons() -> Array:
 			production_unit = "forager"
 		var production_name := String(BARRACK_UNIT_NAMES.get(production_unit, "游猎孢子"))
 		var production_cost_text := "有机 %.3f\n矿物 %.3f" % [float(UNIT_ORGANIC_COSTS.get(production_unit, EXPEDITION_SPORE_ORGANIC_COST)), float(UNIT_MINERAL_COSTS.get(production_unit, EXPEDITION_SPORE_MINERAL_COST))]
+		var dna_batch_size := _current_dna_batch_size()
+		var dna_tooltip_title := _dna_batch_tooltip_title(selected_core, dna_batch_size)
+		var dna_tooltip_cost := _dna_batch_tooltip_cost(dna_batch_size)
 		var upgrade_cost_text := "已达到当前上限" if range_level >= MAX_FEEDER_RANGE_LEVEL else "范围 %.0f → %.0f μm\nDNA 速度 +%d%% → +%d%%\n有机营养 %.3f" % [current_range_um, current_range_um + FEEDER_RANGE_PER_LEVEL / 2.0, int(_dna_speed_bonus(selected_core) * 100.0), int((_dna_speed_bonus(selected_core) + DNA_SPEED_BONUS_PER_NODE_LEVEL) * 100.0), _feeder_upgrade_cost(selected_core)]
 		var specs := [
 			[Vector2(-90, -34), "延伸", "extend_core", COLOR_HYPHA, "延伸主菌丝", "有机营养 1.000 / 11 μm\n最终消耗按长度向上取整"],
-			[Vector2(-34, -92), "生产" if is_barracks else "DNA", "queue_spore" if is_barracks else "dna", COLOR_MINERAL, "生产%s　%.1f 秒" % [production_name, float(UNIT_BUILD_SECONDS.get(production_unit, EXPEDITION_SPORE_BUILD_SECONDS))] if is_barracks else "生产 1 DNA　%.1f 秒" % _dna_job_duration(selected_core), production_cost_text if is_barracks else "有机营养 30.000\n矿物离子 1.000"],
+			[Vector2(-34, -92), "生产" if is_barracks else "DNA", "queue_spore" if is_barracks else "dna", COLOR_MINERAL, "生产%s　%.1f 秒" % [production_name, float(UNIT_BUILD_SECONDS.get(production_unit, EXPEDITION_SPORE_BUILD_SECONDS))] if is_barracks else dna_tooltip_title, production_cost_text if is_barracks else dna_tooltip_cost],
 			[Vector2(34, -92), "强化", "upgrade_feeder_range", COLOR_ORGANIC, "增强细菌丝延展范围　Lv.%d" % range_level, upgrade_cost_text],
 			[Vector2(90, -34), "状态", "status", COLOR_WATER, "查看核心状态", "不消耗资源"],
 			[Vector2(90, 34), "修复", "repair_core", Color("ff9f8f"), "添加缓慢修复储备", "储备最多 +%.3f\n恢复速度 %.3f / 秒\n有机营养 %.3f" % [_repair_reserve_purchase_amount(), _repair_recovery_rate(), CORE_REPAIR_ORGANIC_COST]],

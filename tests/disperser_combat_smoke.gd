@@ -72,12 +72,27 @@ func _run() -> void:
 	if not _check(is_equal_approx(float(game.bacteria[0]["biomass"]), 1.0), "first burst should require the full two-second windup"):
 		return
 	game._update_disperser_attack(disperser, 0.1)
+	var disperser_toxin_damage_level0 := float(disperser["max_biomass"]) - float(disperser["biomass"])
 	if not _check(is_equal_approx(float(game.bacteria[0]["biomass"]), 0.88) and is_equal_approx(float(outside["biomass"]), 1.0), "burst should deal 0.600 times diet efficiency only inside radius 60"):
 		return
 	if not _check(int(disperser["last_burst_hits"]) == 8 and game.lifetime_disperser_best_hit == 8 and game._goal_complete("disperser_burst"), "one dense burst should record eight hits and complete the specialist goal"):
 		return
 	if not _check(is_equal_approx(float(disperser["cargo_organic"]), 0.24) and is_equal_approx(float(disperser["burst_cooldown"]), 6.0), "burst should recover 25 percent organic cargo and start a six-second cooldown"):
 		return
+
+	for bacterium in game.bacteria:
+		bacterium["biomass"] = 1.0
+	game.survival_levels["detox"] = 1
+	disperser["biomass"] = disperser["max_biomass"]
+	disperser["cargo_organic"] = 0.0
+	disperser["burst_cooldown"] = 0.0
+	disperser["target_pos"] = target
+	disperser["state"] = "attacking"
+	game._update_disperser_attack(disperser, 0.01)
+	var disperser_toxin_damage_level1 := float(disperser["max_biomass"]) - float(disperser["biomass"])
+	if not _check(disperser_toxin_damage_level0 > 0.0 and is_equal_approx(disperser_toxin_damage_level1, disperser_toxin_damage_level0 * 0.85), "level-one detox should reduce disperser bacterial toxin backlash by 15 percent"):
+		return
+	game.survival_levels["detox"] = 0
 	game.selected_expedition_ids = [int(disperser["id"])]
 	var reissue_target: Vector2 = game.bacteria[0]["pos"]
 	game._issue_expedition_command(game.world_to_screen(reissue_target))

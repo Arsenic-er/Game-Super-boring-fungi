@@ -124,6 +124,28 @@ func _run() -> void:
 	if not _check(float(game.bacteria[0]["biomass"]) < bacteria_before and float(loaded["biomass"]) < health_before, "offline combat inside the capped window should apply both attack and counterattack"):
 		return
 
+	game.offline_simulating = false
+	game.offline_expedition_combat_active = false
+	game.survival_levels["detox"] = 0
+	game.bacteria = [game._make_bacterium(loaded["pos"])]
+	loaded["biomass"] = loaded["max_biomass"]
+	loaded["state"] = "attacking"
+	loaded["target_pos"] = loaded["pos"]
+	var toxin_before_level0: float = loaded["biomass"]
+	game._update_expedition_attack(loaded, 1.0)
+	var toxin_damage_level0 := toxin_before_level0 - float(loaded["biomass"])
+	game.survival_levels["detox"] = 1
+	game.bacteria = [game._make_bacterium(loaded["pos"])]
+	loaded["biomass"] = loaded["max_biomass"]
+	loaded["state"] = "attacking"
+	loaded["target_pos"] = loaded["pos"]
+	var toxin_before_level1: float = loaded["biomass"]
+	game._update_expedition_attack(loaded, 1.0)
+	var toxin_damage_level1 := toxin_before_level1 - float(loaded["biomass"])
+	if not _check(toxin_damage_level0 > 0.0 and is_equal_approx(toxin_damage_level1, toxin_damage_level0 * 0.85), "level-one detox should reduce expedition bacterial toxin backlash by 15 percent"):
+		return
+	game.survival_levels["detox"] = 0
+
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
 	print("EXPEDITION_COMBAT_OK maxes=10 retreat=30% repair=0.080 death=true save=compatible offline=capped")
 	game.queue_free()
