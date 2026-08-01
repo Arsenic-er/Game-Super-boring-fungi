@@ -61,7 +61,7 @@ func _run() -> void:
 
 	game.main_menu_page = "settings"
 	game.pause_menu_page = "settings"
-	if not _check(game._main_menu_labels().size() == 8 and game._pause_menu_labels().size() == 8, "main and pause settings should expose five audio channels"):
+	if not _check(game._main_menu_labels().size() == 9 and game._pause_menu_labels().size() == 9, "main and pause settings should expose language plus five audio channels"):
 		return
 	for viewport in [Vector2(1280.0, 720.0), Vector2(960.0, 540.0), Vector2(640.0, 360.0)]:
 		var settings_header := Rect2(Vector2.ZERO, Vector2(viewport.x, 78.0))

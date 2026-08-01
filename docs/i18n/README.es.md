@@ -1,0 +1,59 @@
+[English](README.en.md) | [简体中文](README.zh-Hans.md) | [繁體中文](README.zh-Hant.md) | [日本語](README.ja.md) | [**Español**](README.es.md) | [Deutsch](README.de.md) | [Русский](README.ru.md)
+
+# Game: Super boring fungi
+
+Un juego incremental de evolución y expansión que comienza con una espora microscópica y crece hasta alcanzar ecosistemas, sociedades humanas, países y, finalmente, todo el planeta.
+
+El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.40.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
+
+## Descarga y ejecución
+
+Abre la [versión más reciente](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest) del repositorio, descarga el ZIP para Windows, extráelo y ejecuta `FungiMicroculture.exe`.
+
+- Plataforma: Windows 10/11 de 64 bits
+- Instalación: no es necesaria; todos los datos del juego están integrados en el EXE
+- Partidas guardadas: se almacenan en la carpeta de datos de aplicación del usuario actual de Windows
+- Windows puede mostrar una advertencia de SmartScreen porque esta compilación experimental no está firmada digitalmente
+
+## Características principales
+
+- Explora un amplio entorno de laboratorio con zoom, nutrientes orgánicos agrupados, iones minerales, colonias bacterianas, hongos rivales y niebla de guerra permanente.
+- Germina desde un único núcleo de espora, extiende hifas principales y desarrolla finas hifas absorbentes que acumulan recursos lentamente con precisión decimal.
+- Consume nutrientes para producir ADN, adquirir evoluciones reversibles, mejorar estructuras, supervivencia, adaptación y dietas, y completar objetivos a largo plazo con distintas recompensas.
+- Gestiona la biomasa con tres decimales de núcleos y esporas, el daño por toxinas, la recuperación gradual, la retirada para reparaciones y la muerte o reconexión de hifas aisladas.
+- Construye núcleos de cuartel y produce esporas especializadas en recolección, transporte, minerales, exploración, combate antibacteriano, combate antifúngico y despliegue de zonas.
+- Asigna zonas cuadradas persistentes de defensa, recolección o purga bacteriana; las unidades compatibles reanudan su misión después de descargar, repararse, ser reemplazadas o avanzar sin conexión.
+- Las órdenes seguras de v0.40 permiten atacar o recolectar únicamente a las funciones compatibles. Las unidades incompatibles de un grupo mixto avanzan hasta la zona y mantienen la posición; el recibo de la orden muestra cuántas ejecutan, vigilan o no están disponibles.
+- Afronta proliferaciones bacterianas, zonas tóxicas, lluvias de esporas rivales, anomalías de recursos, exploración bajo niebla, progreso incremental y un paisaje sonoro original de laboratorio pixelado con canales ajustables.
+
+## Resumen de controles
+
+- ADN del núcleo: clic normal para producir 1; Shift + clic para 5; Ctrl + clic para 10
+- Clic izquierdo: inspeccionar núcleos, elegir acciones o seleccionar esporas expedicionarias
+- Arrastrar con el botón izquierdo: seleccionar unidades mediante un rectángulo
+- Clic derecho: ordenar movimiento, recolección, ataque, corte de hifas o despliegue
+- `Z`: definir una zona cuadrada de defensa
+- `X`: definir una zona cuadrada de recolección
+- `V`: definir una zona cuadrada de purga bacteriana
+- `C`: cancelar las órdenes manuales o persistentes y devolver las unidades sanas a su comportamiento automático según su función
+- `R`: hacer regresar las esporas seleccionadas a su cuartel
+- Arrastrar con el botón derecho o central: mover la cámara
+- Rueda del ratón: acercar o alejar
+- `E`: abrir la tienda de evolución
+- `G`: abrir los objetivos a largo plazo
+- `F5`: guardar inmediatamente
+- `Esc`: cerrar un panel, cancelar una acción o pausar/reanudar
+
+## Progresión de escalas prevista
+
+El microcultivo es solo el punto de partida. Los futuros capítulos independientes avanzarán por microorganismos y células, pequeños organismos y objetos, ecosistemas, sociedad humana, ciudades, países y la Tierra moderna. Los rasgos fisiológicos evolucionados en escalas anteriores influirán en las estrategias posteriores de propagación y conquista.
+
+## Desarrollo
+
+El proyecto utiliza Godot `4.7` y GDScript. Abre `project.godot` con Godot para ejecutar el código fuente. Las pruebas automatizadas se encuentran en `tests/`, y la configuración de exportación para Windows integra los datos del juego en un único EXE.
+
+## Derechos
+
+Copyright © 2026 koko. Todos los derechos reservados.
+
+El código fuente, los recursos visuales y sonoros, el diseño, los textos y los demás contenidos del repositorio son públicos únicamente para su consulta y evaluación. **No se autoriza su copia, reutilización, modificación, redistribución, uso en obras derivadas ni explotación comercial**. La compilación oficial solo puede descargarse y ejecutarse para uso personal y evaluación. Consulta [LICENSE](../../LICENSE).

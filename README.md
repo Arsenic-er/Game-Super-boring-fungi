@@ -1,10 +1,21 @@
+[**English**](docs/i18n/README.en.md) | [简体中文](docs/i18n/README.zh-Hans.md) | [繁體中文](docs/i18n/README.zh-Hant.md) | [日本語](docs/i18n/README.ja.md) | [Español](docs/i18n/README.es.md) | [Deutsch](docs/i18n/README.de.md) | [Русский](docs/i18n/README.ru.md)
+
 ![Game: Super boring fungi](assets/branding/repo-hero.png)
 
 # Game: Super boring fungi
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.38.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.40.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+
+## Languages
+
+The main menu, settings, pause/session screens, and repository introduction support English, Simplified Chinese, Traditional Chinese, Japanese, Spanish, German, and Russian. Choose the interface language in Settings. Use the links above to read the complete localized introduction.
+
+## Recent command and localization updates
+
+- v0.39 introduced role-safe expedition commands: only compatible units attack or gather from a target, incompatible members of mixed selections fall back to a nearby hold position, `C` clears orders and restores automatic behavior, and command receipts report exact results.
+- v0.40 adds the seven-language menu flow and localized session interface, together with matching repository documentation for every supported language.
 
 ## Download and play
 
@@ -45,6 +56,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Expedition spores now have role-specific fractional biomass, counterattack and toxin damage, automatic low-biomass retreat, slow free barracks repair, death, and replenishment. Live bacteria release a small defensive toxin while being consumed; their tooltip now explains this biomass loss.
 - After the first rival is cleared, recurring Rival Sporefall cycles add long idle cooldowns, visible landing warnings, progressively stronger young colonies, and repeatable recovery rewards.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
+- Role-safe expedition orders prevent incompatible units from attacking or gathering the wrong target; mixed selections fall back to a nearby hold position, and `C` restores healthy units to role-appropriate automation.
 - Up to two hours of resource-faithful offline progress; expedition combat is capped at ten minutes and toxin exposure at one minute, with offline replenishment and a detailed return report.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
 - An original procedural “pixel laboratory nebula” soundscape with interaction, growth, nutrient, DNA, RTS, combat, warning, and looping ambient cues; five independently adjustable audio channels remain rate-limited during accelerated play.
@@ -89,9 +101,20 @@ The source code, visual assets, game design, text, and other repository contents
 
 # 《超级无聊真菌游戏》
 
+[English](docs/i18n/README.en.md) | [**简体中文**](docs/i18n/README.zh-Hans.md) | [繁體中文](docs/i18n/README.zh-Hant.md) | [日本語](docs/i18n/README.ja.md) | [Español](docs/i18n/README.es.md) | [Deutsch](docs/i18n/README.de.md) | [Русский](docs/i18n/README.ru.md)
+
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.38.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.40.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+
+## 语言支持
+
+主菜单、设置、暂停/会话界面与仓库介绍支持英语、简体中文、繁体中文、日语、西班牙语、德语和俄语。可在“设置”中选择界面语言；使用上方链接可阅读对应语言的完整介绍。
+
+## 近期指令与本地化更新
+
+- v0.39 加入职责安全的远征指令：只有相容单位会攻击或采集目标，混编选择中的不相容单位会移动到附近原地警戒，`C` 会清除指令并恢复自动行为，指令回执会显示准确执行结果。
+- v0.40 加入七语言菜单流程与本地化会话界面，并为每种支持语言提供对应的仓库介绍。
 
 ## 下载与运行
 

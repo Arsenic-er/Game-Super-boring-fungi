@@ -1,6 +1,7 @@
 extends Node2D
 
 const PixelAudio = preload("res://scripts/pixel_audio.gd")
+const UILocalization = preload("res://scripts/ui_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -378,6 +379,7 @@ var settings_ui_volume := 0.75
 var settings_world_volume := 0.65
 var settings_combat_volume := 0.70
 var settings_ambient_volume := 0.35
+var settings_locale := "zh_CN"
 var discovery_banner_title := ""
 var discovery_banner_detail := ""
 var discovery_banner_time := 0.0
@@ -4846,7 +4848,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ESCAPE and main_menu_page != "main":
 				_play_sound("ui_cancel")
-				main_menu_page = "main"
+				main_menu_page = "settings" if main_menu_page == "language" else "main"
 				queue_redraw()
 			elif event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 				if main_menu_page == "main":
@@ -4893,6 +4895,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				elif pause_menu_page == "restart_confirm" and game_over:
 					pause_menu_open = false
 					pause_menu_page = "main"
+				elif pause_menu_page == "language":
+					pause_menu_page = "settings"
 				else:
 					pause_menu_page = "main"
 				queue_redraw()
@@ -5776,14 +5780,37 @@ func _draw_splash(viewport: Vector2) -> void:
 	var logo_rect := Rect2(_pixel_snap(viewport * 0.5 - Vector2.ONE * logo_size * 0.5 - Vector2(0, 20)), Vector2.ONE * logo_size)
 	if splash_logo != null:
 		draw_texture_rect(splash_logo, logo_rect, false, Color(1.0, 1.0, 1.0, opacity))
-	var title := "Game: Super boring fungi"
+	var title := _ui("brand_title")
 	var title_width := fallback_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	var title_pos := Vector2(viewport.x * 0.5 - title_width * 0.5, viewport.y * 0.5 + logo_size * 0.37)
 	draw_string(fallback_font, _pixel_snap(title_pos), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.72, 0.95, 0.86, opacity * 0.92))
 
 
+func _ui(key: String) -> String:
+	return UILocalization.text(key, settings_locale)
+
+
+func _language_menu_labels() -> Array[String]:
+	var labels: Array[String] = []
+	for locale_id in UILocalization.LOCALES:
+		labels.append(UILocalization.locale_name(locale_id))
+	labels.append(_ui("back"))
+	return labels
+
+
+func _set_ui_locale(locale_id: String) -> void:
+	var normalized: String = UILocalization.normalize_locale(locale_id)
+	if settings_locale == normalized:
+		return
+	settings_locale = normalized
+	TranslationServer.set_locale(settings_locale)
+	_save_settings()
+	_play_sound("ui_confirm", 0.9, true)
+	queue_redraw()
+
+
 func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
-	if main_menu_page == "settings":
+	if main_menu_page == "settings" or main_menu_page == "language":
 		var very_compact := viewport.y <= 400.0
 		var compact_settings := viewport.y < 650.0
 		var settings_height := 24.0 if very_compact else (28.0 if compact_settings else 34.0)
@@ -5799,23 +5826,26 @@ func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
 
 
 func _main_menu_labels() -> Array[String]:
+	if main_menu_page == "language":
+		return _language_menu_labels()
 	if main_menu_page == "settings":
 		return [
-			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
-			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
-			"总音量　%d%%" % int(round(settings_master_volume * 100.0)),
-			"界面音效　%d%%" % int(round(settings_ui_volume * 100.0)),
-			"菌落音效　%d%%" % int(round(settings_world_volume * 100.0)),
-			"战斗音效　%d%%" % int(round(settings_combat_volume * 100.0)),
-			"背景音　%d%%" % int(round(settings_ambient_volume * 100.0)),
-			"返回"
+			_ui("language_label") % UILocalization.locale_name(settings_locale),
+			_ui("display_mode") % (_ui("fullscreen") if settings_fullscreen else _ui("windowed")),
+			_ui("pixel_cursor") % (_ui("enabled") if settings_pixel_cursor else _ui("disabled")),
+			_ui("volume_master") % int(round(settings_master_volume * 100.0)),
+			_ui("volume_ui") % int(round(settings_ui_volume * 100.0)),
+			_ui("volume_world") % int(round(settings_world_volume * 100.0)),
+			_ui("volume_combat") % int(round(settings_combat_volume * 100.0)),
+			_ui("volume_ambient") % int(round(settings_ambient_volume * 100.0)),
+			_ui("back")
 		]
 	if main_menu_page == "new_confirm":
-		return ["确认覆盖并开始", "取消"]
+		return [_ui("confirm_new"), _ui("cancel")]
 	if main_menu_has_save:
-		var continue_label := "查看失活培养" if game_started and game_over else ("继续培养" if game_started else "读取存档")
-		return [continue_label, "开始新培养", "设置", "退出"]
-	return ["开始培养", "设置", "退出"]
+		var continue_label := _ui("view_failed") if game_started and game_over else (_ui("continue_culture") if game_started else _ui("load_save"))
+		return [continue_label, _ui("start_new"), _ui("settings"), _ui("exit")]
+	return [_ui("start"), _ui("settings"), _ui("exit")]
 
 
 func _draw_main_menu(viewport: Vector2) -> void:
@@ -5827,12 +5857,12 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		var size := 2.0 if i % 4 else 4.0
 		draw_rect(Rect2(_pixel_snap(Vector2(x, y)), Vector2.ONE * size), Color(0.24, 0.70, 0.57, 0.10 if i % 3 else 0.18))
 	var compact := viewport.y < 500.0
-	if main_menu_page == "settings":
+	if main_menu_page == "settings" or main_menu_page == "language":
 		# 设置页使用紧凑标题，避免八个选项在低分辨率下与主菜单 Logo 重叠。
-		var settings_title := "设置 · 像素实验室星云"
+		var settings_title := _ui("language_title") if main_menu_page == "language" else _ui("settings_title")
 		var settings_title_size := fallback_font.get_string_size(settings_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18)
 		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - settings_title_size.x * 0.5, 38.0)), settings_title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, COLOR_HYPHA)
-		var settings_subtitle := "五路音量独立调节 · 0% 即静音"
+		var settings_subtitle := _ui("language_subtitle") if main_menu_page == "language" else _ui("settings_subtitle")
 		var settings_subtitle_size := fallback_font.get_string_size(settings_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
 		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - settings_subtitle_size.x * 0.5, 62.0)), settings_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 		draw_line(Vector2(viewport.x * 0.5 - 110.0, 72.0), Vector2(viewport.x * 0.5 + 110.0, 72.0), Color(0.24, 0.70, 0.57, 0.42), 2.0)
@@ -5843,10 +5873,10 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		var logo_rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - logo_size * 0.5, 8.0)), Vector2.ONE * logo_size)
 		if splash_logo != null:
 			draw_texture_rect(splash_logo, logo_rect, false)
-		var title := "Game: Super boring fungi"
+		var title := _ui("brand_title")
 		var title_size := fallback_font.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20)
 		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - title_size.x * 0.5, viewport.y * (0.29 if compact else 0.405))), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, COLOR_HYPHA)
-		var subtitle := "第一章 · 实验室培养"
+		var subtitle := _ui("chapter_subtitle")
 		var subtitle_size := fallback_font.get_string_size(subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
 		draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - subtitle_size.x * 0.5, viewport.y * (0.35 if compact else 0.445))), subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 
@@ -5859,11 +5889,13 @@ func _draw_main_menu(viewport: Vector2) -> void:
 		draw_style_box(_rounded_style(background, border, 10, 2), rect)
 		var label_size := fallback_font.get_string_size(labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
 		draw_string(fallback_font, _pixel_snap(Vector2(rect.get_center().x - label_size.x * 0.5, rect.position.y + rect.size.y * 0.64)), labels[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("dff7e8"))
-	var hint := "检测到培养记录 · 可继续或开始新培养" if main_menu_has_save else "尚无培养记录 · 将从一个孢子核心开始"
+	var hint := _ui("hint_save") if main_menu_has_save else _ui("hint_no_save")
 	if main_menu_page == "settings":
-		hint = "设置会自动保存 · Esc 返回"
+		hint = _ui("hint_settings")
+	elif main_menu_page == "language":
+		hint = _ui("language_hint")
 	elif main_menu_page == "new_confirm":
-		hint = "现有培养记录将被永久覆盖"
+		hint = _ui("hint_new_confirm")
 	var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
 	var hint_y := _main_menu_button_rect(viewport, labels.size() - 1).end.y + (22.0 if compact else 28.0)
 	draw_string(fallback_font, _pixel_snap(Vector2(viewport.x * 0.5 - hint_size.x * 0.5, hint_y)), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f") if main_menu_page == "new_confirm" else COLOR_MUTED)
@@ -5876,17 +5908,24 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 		if not _main_menu_button_rect(viewport, i).has_point(pos):
 			continue
 		_play_sound("ui_click")
-		if main_menu_page == "settings":
+		if main_menu_page == "language":
+			if i < UILocalization.LOCALES.size():
+				_set_ui_locale(UILocalization.LOCALES[i])
+			else:
+				main_menu_page = "settings"
+		elif main_menu_page == "settings":
 			if i == 0:
+				main_menu_page = "language"
+			elif i == 1:
 				settings_fullscreen = not settings_fullscreen
 				_apply_settings()
 				_save_settings()
-			elif i == 1:
+			elif i == 2:
 				settings_pixel_cursor = not settings_pixel_cursor
 				_apply_settings()
 				_save_settings()
-			elif i >= 2 and i <= 6:
-				_cycle_audio_volume(i - 2)
+			elif i >= 3 and i <= 7:
+				_cycle_audio_volume(i - 3)
 			else:
 				_play_sound("panel_close")
 				main_menu_page = "main"
@@ -6076,6 +6115,7 @@ func _load_settings() -> void:
 		settings_world_volume = clampf(float(parsed.get("world_volume", 0.65)), 0.0, 1.0)
 		settings_combat_volume = clampf(float(parsed.get("combat_volume", 0.70)), 0.0, 1.0)
 		settings_ambient_volume = clampf(float(parsed.get("ambient_volume", 0.35)), 0.0, 1.0)
+		settings_locale = UILocalization.normalize_locale(String(parsed.get("locale", "zh_CN")))
 
 
 func _save_settings() -> void:
@@ -6088,11 +6128,13 @@ func _save_settings() -> void:
 			"ui_volume": settings_ui_volume,
 			"world_volume": settings_world_volume,
 			"combat_volume": settings_combat_volume,
-			"ambient_volume": settings_ambient_volume
+			"ambient_volume": settings_ambient_volume,
+			"locale": settings_locale
 		}))
 
 
 func _apply_settings() -> void:
+	TranslationServer.set_locale(settings_locale)
 	if DisplayServer.get_name() != "headless":
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings_fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
 		if settings_pixel_cursor and cursor_texture != null:
@@ -8537,10 +8579,10 @@ func _draw_game_over(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.01, 0.01, 0.025, 0.78))
 	var rect := _game_over_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.055, 0.035, 0.055, 0.98), Color("c77888"), 12, 2), rect)
-	draw_string(fallback_font, rect.position + Vector2(32, 48), "菌落失活", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
-	draw_string(fallback_font, rect.position + Vector2(32, 86), "所有孢子核心的生物量均已归零", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, rect.position + Vector2(32, 120), "培养已真正暂停；你可以重新开始或返回主菜单。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	var labels := ["重新培养", "返回主菜单"]
+	draw_string(fallback_font, rect.position + Vector2(32, 48), _ui("game_over_title"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
+	draw_string(fallback_font, rect.position + Vector2(32, 86), _ui("game_over_detail"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(32, 120), _ui("game_over_body"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var labels := [_ui("game_over_restart"), _ui("back_main")]
 	for i in range(2):
 		var button := _game_over_button_rect(viewport, i)
 		var hovered := button.has_point(last_mouse)
@@ -8575,24 +8617,27 @@ func _handle_game_over_click(pos: Vector2) -> void:
 
 
 func _pause_menu_labels() -> Array[String]:
+	if pause_menu_page == "language":
+		return _language_menu_labels()
 	if pause_menu_page == "settings":
 		return [
-			"显示模式　%s" % ("全屏" if settings_fullscreen else "窗口"),
-			"像素鼠标　%s" % ("开启" if settings_pixel_cursor else "关闭"),
-			"总音量　%d%%" % int(round(settings_master_volume * 100.0)),
-			"界面音效　%d%%" % int(round(settings_ui_volume * 100.0)),
-			"菌落音效　%d%%" % int(round(settings_world_volume * 100.0)),
-			"战斗音效　%d%%" % int(round(settings_combat_volume * 100.0)),
-			"背景音　%d%%" % int(round(settings_ambient_volume * 100.0)),
-			"返回"
+			_ui("language_label") % UILocalization.locale_name(settings_locale),
+			_ui("display_mode") % (_ui("fullscreen") if settings_fullscreen else _ui("windowed")),
+			_ui("pixel_cursor") % (_ui("enabled") if settings_pixel_cursor else _ui("disabled")),
+			_ui("volume_master") % int(round(settings_master_volume * 100.0)),
+			_ui("volume_ui") % int(round(settings_ui_volume * 100.0)),
+			_ui("volume_world") % int(round(settings_world_volume * 100.0)),
+			_ui("volume_combat") % int(round(settings_combat_volume * 100.0)),
+			_ui("volume_ambient") % int(round(settings_ambient_volume * 100.0)),
+			_ui("back")
 		]
 	if pause_menu_page == "restart_confirm":
-		return ["确认覆盖并重新开始", "取消"]
-	return ["继续培养", "立即保存", "设置", "保存并返回主菜单", "重新开始培养"]
+		return [_ui("confirm_restart"), _ui("cancel")]
+	return [_ui("continue_culture"), _ui("save_now"), _ui("settings"), _ui("save_return"), _ui("restart_culture")]
 
 
 func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
-	var height := 410.0 if pause_menu_page == "main" else (480.0 if pause_menu_page == "settings" else 260.0)
+	var height := 410.0 if pause_menu_page == "main" else (480.0 if pause_menu_page == "settings" or pause_menu_page == "language" else 260.0)
 	var size := Vector2(minf(480.0, viewport.x - 40.0), minf(height, viewport.y - 40.0))
 	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
 
@@ -8610,11 +8655,13 @@ func _draw_pause_menu(viewport: Vector2) -> void:
 	var panel := _pause_menu_panel_rect(viewport)
 	var accent := Color("76f5ca") if pause_menu_page != "restart_confirm" else Color("ff9f9f")
 	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.995), accent, 14, 2), panel)
-	var title := "培养已暂停"
+	var title := _ui("pause_title")
 	if pause_menu_page == "settings":
-		title = "暂停设置"
+		title = _ui("pause_settings")
+	elif pause_menu_page == "language":
+		title = _ui("pause_language")
 	elif pause_menu_page == "restart_confirm":
-		title = "确认重新培养"
+		title = _ui("pause_restart_confirm")
 	draw_string(fallback_font, panel.position + Vector2(28, 42), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, accent)
 	var labels := _pause_menu_labels()
 	for i in range(labels.size()):
@@ -8629,9 +8676,11 @@ func _draw_pause_menu(viewport: Vector2) -> void:
 		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 26.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 	var hint := pause_menu_notice
 	if pause_menu_page == "restart_confirm":
-		hint = "当前培养记录将被永久覆盖，此操作不可撤销。"
+		hint = _ui("pause_hint_restart")
 	elif pause_menu_page == "main" and hint == "":
-		hint = "Esc 继续培养 · 暂停期间模拟完全冻结"
+		hint = _ui("pause_hint_main")
+	elif pause_menu_page == "language":
+		hint = _ui("language_hint")
 	if hint != "":
 		var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
 		draw_string(fallback_font, Vector2(panel.get_center().x - hint_size.x * 0.5, panel.end.y - 18.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffb0b0") if pause_menu_page == "restart_confirm" else COLOR_MUTED)
@@ -8668,17 +8717,24 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 		if not _pause_menu_button_rect(viewport, i).has_point(pos):
 			continue
 		_play_sound("ui_click")
-		if pause_menu_page == "settings":
+		if pause_menu_page == "language":
+			if i < UILocalization.LOCALES.size():
+				_set_ui_locale(UILocalization.LOCALES[i])
+			else:
+				pause_menu_page = "settings"
+		elif pause_menu_page == "settings":
 			if i == 0:
+				pause_menu_page = "language"
+			elif i == 1:
 				settings_fullscreen = not settings_fullscreen
 				_apply_settings()
 				_save_settings()
-			elif i == 1:
+			elif i == 2:
 				settings_pixel_cursor = not settings_pixel_cursor
 				_apply_settings()
 				_save_settings()
-			elif i >= 2 and i <= 6:
-				_cycle_audio_volume(i - 2)
+			elif i >= 3 and i <= 7:
+				_cycle_audio_volume(i - 3)
 			else:
 				_play_sound("panel_close")
 				pause_menu_page = "main"
@@ -8696,7 +8752,7 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 				1:
 					_save_game()
 					_play_sound("save")
-					pause_menu_notice = "培养记录已保存"
+					pause_menu_notice = _ui("save_notice")
 				2:
 					pause_menu_page = "settings"
 					pause_menu_notice = ""
