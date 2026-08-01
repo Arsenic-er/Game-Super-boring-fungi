@@ -4,7 +4,9 @@
 
 Ein Idle-Spiel über Evolution und Ausbreitung: Es beginnt mit einer mikroskopisch kleinen Spore und wächst über Ökosysteme, menschliche Gesellschaften und Staaten bis hin zum gesamten Planeten.
 
-Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.40.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
+Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.41.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
+
+v0.41 zeigt beim ersten Start einer Neuinstallation die Auswahl aus sieben Sprachen und stellt das Ressourcen-HUD, radiale Kernaktionen, den Kernstatus und häufige Hover-Hinweise, den Expeditionsstatus, Bakterienbeschreibungen sowie die Namen aller zehn Einheitentypen auf vereinfachtem und traditionellem Chinesisch, Englisch, Japanisch, Spanisch, Deutsch und Russisch bereit; der Upgrade-Shop und die vollständigen Texte der Langzeitziele sind noch nicht vollständig übersetzt.
 
 ## Download und Start
 

@@ -4,7 +4,9 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype, version `0.40.0`. Chapter 1 is a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores. Version 0.40 adds role-safe commands so units no longer gather or attack targets that do not match their specialization.
+The project is currently an early Windows prototype, version `0.41.0`. Chapter 1 is a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores. Version 0.40 adds role-safe commands so units no longer gather or attack targets that do not match their specialization.
+
+Version 0.41 shows the seven-language selector on the first launch of a new installation and provides Simplified Chinese, Traditional Chinese, English, Japanese, Spanish, German, and Russian text for the resource HUD, core radial actions, core status and common hover tooltips, expedition status, bacterial descriptions, and all ten unit names; the upgrade shop and full long-term-goal descriptions are not yet fully localized.
 
 ## Download and play
 

@@ -21,12 +21,13 @@ func _run() -> void:
 	game.selected_core = 0
 	game.mode = "normal"
 	game.menu_anim = 1.0
+	game.settings_locale = "zh_CN"
 
 	if not _check(game._dna_batch_size_from_modifiers(false, false) == 1 and game._dna_batch_size_from_modifiers(true, false) == 5 and game._dna_batch_size_from_modifiers(false, true) == 10 and game._dna_batch_size_from_modifiers(true, true) == 10, "DNA modifiers should map click, Shift, Ctrl, and both keys to 1, 5, 10, and 10"):
 		return
-	if not _check(game._dna_batch_tooltip_title(0, 5) == "生产 5 DNA　本批总计 900.0 秒" and game._dna_batch_tooltip_cost(5).contains("有机营养 150.000") and game._dna_batch_tooltip_cost(5).contains("矿物离子 5.000") and game._dna_batch_tooltip_cost(10).contains("有机营养 300.000") and game._dna_batch_tooltip_cost(10).contains("矿物离子 10.000"), "tooltip copy should scale quantity, total time, and both nutrient costs"):
+	if not _check(game._dna_batch_tooltip_title(0, 5) == "生产 5 DNA · 共 900.0 秒" and game._dna_batch_tooltip_cost(5).contains("有机营养 150.000") and game._dna_batch_tooltip_cost(5).contains("矿物离子 5.000") and game._dna_batch_tooltip_cost(10).contains("有机营养 300.000") and game._dna_batch_tooltip_cost(10).contains("矿物离子 10.000"), "localized tooltip copy should scale quantity, total time, and both nutrient costs"):
 		return
-	if not _check(game._dna_batch_tooltip_cost(1).contains("Shift：×5　Ctrl：×10"), "tooltip should teach both batch modifiers"):
+	if not _check(game._dna_batch_tooltip_cost(1).contains("Shift：×5 · Ctrl：×10"), "localized tooltip should teach both batch modifiers"):
 		return
 
 	var dna_button := _dna_button_pos(game)
@@ -86,7 +87,7 @@ func _run() -> void:
 	var source_file := FileAccess.open("res://scripts/main.gd", FileAccess.READ)
 	var main_source := source_file.get_as_text()
 	source_file = null
-	if not _check(main_source.contains("被摄食时会释放少量毒素") and main_source.contains("_handle_left_click(event.position, event.shift_pressed, event.ctrl_pressed)"), "source should explain bacterial toxin backlash and preserve real click modifiers"):
+	if not _check(main_source.contains('_gt("bacteria_toxin_1")') and main_source.contains('_gt("bacteria_toxin_2")') and main_source.contains("_handle_left_click(event.position, event.shift_pressed, event.ctrl_pressed)"), "source should localize bacterial toxin backlash and preserve real click modifiers"):
 		return
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))

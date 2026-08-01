@@ -41,6 +41,14 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game.autosave_enabled = false
+	game.first_locale_prompt = false
+
+	if not _check(game._should_prompt_for_locale(false, false), "a fresh install without settings or save should show the language prompt"):
+		return
+	if not _check(not game._should_prompt_for_locale(true, false), "legacy settings should prevent a forced language prompt"):
+		return
+	if not _check(not game._should_prompt_for_locale(false, true), "an existing save should prevent a forced language prompt even when settings are missing"):
+		return
 
 	game.main_menu_page = "settings"
 	game.pause_menu_page = "settings"
@@ -53,6 +61,13 @@ func _run() -> void:
 	for index in range(7):
 		if not _check(game._main_menu_labels()[index] == expected_names[index], "main language page should keep the canonical self-name order"):
 			return
+	game.first_locale_prompt = true
+	if not _check(game._main_menu_labels().size() == 7 and game._pause_menu_labels().size() == 8, "first-run language page should be modal while pause language keeps Back"):
+		return
+	for viewport in [Vector2(1280.0, 720.0), Vector2(960.0, 540.0), Vector2(640.0, 360.0)]:
+		if not _check(_main_layout_valid(game, viewport), "first-run language page should fit at %dx%d" % [int(viewport.x), int(viewport.y)]):
+			return
+	game.first_locale_prompt = false
 
 	for locale_id in expected_locales:
 		game.settings_locale = locale_id
@@ -89,11 +104,27 @@ func _run() -> void:
 	if not _check(game.settings_locale == "zh_CN", "invalid saved locale should fall back safely"):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(settings_path))
+	game.settings_locale = "zh_CN"
+	game.first_locale_prompt = true
+	game.main_menu_page = "language"
+	game._handle_main_menu_click(game._main_menu_button_rect(game.get_viewport_rect().size, 0).get_center())
+	if not _check(not game.first_locale_prompt and game.main_menu_page == "main" and FileAccess.file_exists(settings_path), "choosing the default locale on first run should persist and continue"):
+		return
+	game.settings_locale = "ru"
+	game._load_settings()
+	if not _check(game.settings_locale == "zh_CN", "the unchanged default locale should be written during first-run confirmation"):
+		return
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(settings_path))
 
 	game.main_menu_page = "language"
 	var esc := InputEventKey.new()
 	esc.keycode = KEY_ESCAPE
 	esc.pressed = true
+	game.first_locale_prompt = true
+	game._unhandled_input(esc)
+	if not _check(game.main_menu_page == "language" and game.first_locale_prompt, "Esc should not dismiss the first-run language page"):
+		return
+	game.first_locale_prompt = false
 	game._unhandled_input(esc)
 	if not _check(game.main_menu_page == "settings", "Esc should return from main language page to settings"):
 		return
@@ -105,7 +136,7 @@ func _run() -> void:
 	if not _check(game.pause_menu_open and game.pause_menu_page == "settings", "Esc should return from pause language page to pause settings"):
 		return
 
-	print("LOCALIZATION_OK locales=7 keys=", reference.size(), " settings=9 language_page=8 layouts=3 legacy=compatible")
+	print("LOCALIZATION_OK locales=7 keys=", reference.size(), " settings=9 language_page=8 first_run=modal layouts=3 legacy=compatible")
 	game.queue_free()
 	quit(0)
 

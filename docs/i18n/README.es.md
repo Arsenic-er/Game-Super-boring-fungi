@@ -4,7 +4,9 @@
 
 Un juego incremental de evolución y expansión que comienza con una espora microscópica y crece hasta alcanzar ecosistemas, sociedades humanas, países y, finalmente, todo el planeta.
 
-El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.40.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
+El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.41.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
+
+La v0.41 muestra la selección de siete idiomas al iniciar por primera vez una instalación nueva y ofrece chino simplificado, chino tradicional, inglés, japonés, español, alemán y ruso para el HUD de recursos, las acciones radiales del núcleo, el estado del núcleo y las ayudas emergentes habituales, el estado de las expediciones, las descripciones de las bacterias y los nombres de las diez clases de unidad; la tienda de mejoras y el texto completo de los objetivos a largo plazo aún no están totalmente traducidos.
 
 ## Descarga y ejecución
 

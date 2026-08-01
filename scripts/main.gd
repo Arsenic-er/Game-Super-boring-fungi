@@ -2,6 +2,7 @@ extends Node2D
 
 const PixelAudio = preload("res://scripts/pixel_audio.gd")
 const UILocalization = preload("res://scripts/ui_localization.gd")
+const GameplayLocalization = preload("res://scripts/gameplay_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -368,6 +369,7 @@ var splash_time := 0.0
 var main_menu_active := true
 var main_menu_page := "main"
 var main_menu_has_save := false
+var first_locale_prompt := false
 var game_started := false
 var pause_menu_open := false
 var pause_menu_page := "main"
@@ -418,6 +420,7 @@ var audio_hover_target := ""
 
 
 func _ready() -> void:
+	var settings_file_existed := FileAccess.file_exists(SETTINGS_PATH)
 	fallback_font = ThemeDB.fallback_font
 	var bundled_font = load(UI_FONT_PATH)
 	if bundled_font is FontFile:
@@ -445,6 +448,9 @@ func _ready() -> void:
 	rng.seed = 0xF00D47
 	_generate_world()
 	main_menu_has_save = FileAccess.file_exists(save_path)
+	first_locale_prompt = _should_prompt_for_locale(settings_file_existed, main_menu_has_save)
+	if first_locale_prompt:
+		main_menu_page = "language"
 	set_process(true)
 	queue_redraw()
 
@@ -4847,6 +4853,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_handle_main_menu_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ESCAPE and main_menu_page != "main":
+				if main_menu_page == "language" and first_locale_prompt:
+					return
 				_play_sound("ui_cancel")
 				main_menu_page = "settings" if main_menu_page == "language" else "main"
 				queue_redraw()
@@ -5282,12 +5290,12 @@ func _current_dna_batch_size() -> int:
 
 func _dna_batch_tooltip_title(core_id: int, batch_size: int) -> String:
 	var amount := clampi(batch_size, 1, 10)
-	return "生产 %d DNA　本批总计 %.1f 秒" % [amount, _dna_job_duration(core_id) * amount]
+	return _gt("core_dna_title_fmt") % [amount, _dna_job_duration(core_id) * amount]
 
 
 func _dna_batch_tooltip_cost(batch_size: int) -> String:
 	var amount := clampi(batch_size, 1, 10)
-	return "有机营养 %.3f\n矿物离子 %.3f\nShift：×5　Ctrl：×10" % [DNA_ORGANIC_COST * amount, DNA_MINERAL_COST * amount]
+	return _gt("core_dna_cost_fmt") % [DNA_ORGANIC_COST * amount, DNA_MINERAL_COST * amount]
 
 
 func _queue_dna(core_id: int, batch_size: int = 1) -> bool:
@@ -5790,17 +5798,35 @@ func _ui(key: String) -> String:
 	return UILocalization.text(key, settings_locale)
 
 
-func _language_menu_labels() -> Array[String]:
+func _gt(key: String) -> String:
+	return GameplayLocalization.text(key, settings_locale)
+
+
+func _fit_font_size(text_value: String, max_width: float, preferred: int = UI_FONT_SIZE, minimum: int = 8) -> int:
+	var font_size := maxi(minimum, preferred)
+	if fallback_font == null:
+		return font_size
+	while font_size > minimum and fallback_font.get_string_size(text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+		font_size -= 1
+	return font_size
+
+
+func _should_prompt_for_locale(settings_file_existed: bool, has_save: bool) -> bool:
+	return not settings_file_existed and not has_save
+
+
+func _language_menu_labels(include_back: bool = true) -> Array[String]:
 	var labels: Array[String] = []
 	for locale_id in UILocalization.LOCALES:
 		labels.append(UILocalization.locale_name(locale_id))
-	labels.append(_ui("back"))
+	if include_back:
+		labels.append(_ui("back"))
 	return labels
 
 
-func _set_ui_locale(locale_id: String) -> void:
+func _set_ui_locale(locale_id: String, force_persist: bool = false) -> void:
 	var normalized: String = UILocalization.normalize_locale(locale_id)
-	if settings_locale == normalized:
+	if settings_locale == normalized and not force_persist:
 		return
 	settings_locale = normalized
 	TranslationServer.set_locale(settings_locale)
@@ -5827,7 +5853,7 @@ func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
 
 func _main_menu_labels() -> Array[String]:
 	if main_menu_page == "language":
-		return _language_menu_labels()
+		return _language_menu_labels(not first_locale_prompt)
 	if main_menu_page == "settings":
 		return [
 			_ui("language_label") % UILocalization.locale_name(settings_locale),
@@ -5893,7 +5919,7 @@ func _draw_main_menu(viewport: Vector2) -> void:
 	if main_menu_page == "settings":
 		hint = _ui("hint_settings")
 	elif main_menu_page == "language":
-		hint = _ui("language_hint")
+		hint = _ui("first_language_hint") if first_locale_prompt else _ui("language_hint")
 	elif main_menu_page == "new_confirm":
 		hint = _ui("hint_new_confirm")
 	var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
@@ -5910,7 +5936,11 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 		_play_sound("ui_click")
 		if main_menu_page == "language":
 			if i < UILocalization.LOCALES.size():
-				_set_ui_locale(UILocalization.LOCALES[i])
+				var completing_first_prompt := first_locale_prompt
+				_set_ui_locale(UILocalization.LOCALES[i], completing_first_prompt)
+				if completing_first_prompt:
+					first_locale_prompt = false
+					main_menu_page = "main"
 			else:
 				main_menu_page = "settings"
 		elif main_menu_page == "settings":
@@ -6845,25 +6875,38 @@ func _draw_unit_filter_bar() -> void:
 
 
 func _resource_bar_rect() -> Rect2:
-	return Rect2(18, 16, 708, 48)
+	# Keep a visible gutter before the right-side minimap, including at 640 px.
+	var available_width := get_viewport_rect().size.x - 260.0
+	return Rect2(18, 16, clampf(available_width, 320.0, 708.0), 48)
+
+
+func _resource_column_rect(panel: Rect2, index: int) -> Rect2:
+	var column_width := panel.size.x / 4.0
+	return Rect2(panel.position + Vector2(column_width * clampi(index, 0, 3), 0.0), Vector2(column_width, panel.size.y))
 
 
 func _draw_top_resources() -> void:
 	var panel := _resource_bar_rect()
 	draw_style_box(_panel_style(), panel)
-	var x := 36.0
-	_draw_resource_readout(Vector2(x, 47), COLOR_WATER, "水分  ∞")
-	x += 132
-	_draw_resource_readout(Vector2(x, 47), COLOR_ORGANIC, "有机营养  %.3f" % organic)
-	x += 224
-	_draw_resource_readout(Vector2(x, 47), COLOR_MINERAL, "矿物  %.3f" % mineral)
-	x += 184
-	_draw_resource_readout(Vector2(x, 47), Color("75e6c0"), "DNA  %d" % dna)
+	var keys: Array[String] = ["hud_water_fmt", "hud_organic_fmt", "hud_mineral_fmt", "hud_dna_fmt"]
+	if panel.size.x < 420.0:
+		keys = ["hud_water_compact_fmt", "hud_organic_compact_fmt", "hud_mineral_compact_fmt", "hud_dna_compact_fmt"]
+	var texts: Array[String] = [
+		_gt(keys[0]),
+		_gt(keys[1]) % organic,
+		_gt(keys[2]) % mineral,
+		_gt(keys[3]) % dna
+	]
+	var colors: Array[Color] = [COLOR_WATER, COLOR_ORGANIC, COLOR_MINERAL, Color("75e6c0")]
+	for index in range(4):
+		_draw_resource_readout(_resource_column_rect(panel, index), colors[index], texts[index])
 
 
-func _draw_resource_readout(pos: Vector2, color: Color, text_value: String) -> void:
-	draw_rect(Rect2(_pixel_snap(pos + Vector2(-3, -9)), Vector2(6, 6)), color)
-	draw_string(fallback_font, pos + Vector2(11, 0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+func _draw_resource_readout(rect: Rect2, color: Color, text_value: String) -> void:
+	draw_rect(Rect2(_pixel_snap(rect.position + Vector2(8, 22)), Vector2(6, 6)), color)
+	var max_text_width := maxf(24.0, rect.size.x - 21.0)
+	var font_size := _fit_font_size(text_value, max_text_width)
+	draw_string(fallback_font, rect.position + Vector2(18, 31), text_value, HORIZONTAL_ALIGNMENT_LEFT, max_text_width, font_size, COLOR_TEXT)
 
 
 func _minimap_rect() -> Rect2:
@@ -6967,7 +7010,9 @@ func _draw_minimap(_viewport: Vector2) -> void:
 	bottom_right.y = clampf(bottom_right.y, -WORLD_HALF, WORLD_HALF)
 	var view_rect := Rect2(_world_to_minimap(top_left, inner), _world_to_minimap(bottom_right, inner) - _world_to_minimap(top_left, inner))
 	draw_rect(view_rect, Color(0.72, 0.95, 0.92, 0.82), false, 1.2)
-	draw_string(fallback_font, rect.position + Vector2(12, 22), "探索 %.1f%%　发现 %d" % [_explored_fraction() * 100.0, _discovered_hotspot_count()], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var exploration_text := _gt("hud_explore_fmt") % [_explored_fraction() * 100.0, _discovered_hotspot_count()]
+	var exploration_size := _fit_font_size(exploration_text, rect.size.x - 24.0)
+	draw_string(fallback_font, rect.position + Vector2(12, 22), exploration_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, exploration_size, COLOR_MUTED)
 
 
 func _world_to_minimap(p: Vector2, rect: Rect2) -> Vector2:
@@ -7012,7 +7057,9 @@ func _draw_pause_hud(_viewport: Vector2) -> void:
 	var rect := _pause_hud_rect()
 	var hovered := rect.has_point(last_mouse)
 	draw_style_box(_rounded_style(Color(0.08, 0.24, 0.22, 0.96) if hovered else COLOR_PANEL, Color("76f5ca") if hovered else COLOR_BORDER, 6, 1), rect)
-	draw_string(fallback_font, rect.position + Vector2(10, 22), "暂停", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	var label := _gt("hud_pause")
+	var font_size := _fit_font_size(label, rect.size.x - 20.0)
+	draw_string(fallback_font, rect.position + Vector2(10, 22), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20.0, font_size, COLOR_TEXT)
 
 
 func _draw_speed_controls(_viewport: Vector2) -> void:
@@ -7037,7 +7084,9 @@ func _upgrade_hud_rect() -> Rect2:
 func _draw_upgrade_hud(_viewport: Vector2) -> void:
 	var rect := _upgrade_hud_rect()
 	draw_style_box(_rounded_style(Color(0.04, 0.14, 0.18, 0.94), Color(COLOR_ORGANIC, 0.78), 7, 2), rect)
-	draw_string(fallback_font, rect.position + Vector2(15, 21), "升级 [E]", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
+	var label := _gt("hud_upgrade")
+	var font_size := _fit_font_size(label, rect.size.x - 28.0)
+	draw_string(fallback_font, rect.position + Vector2(15, 21), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 28.0, font_size, COLOR_ORGANIC)
 
 
 func _goals_hud_rect() -> Rect2:
@@ -7051,8 +7100,9 @@ func _draw_goals_hud(_viewport: Vector2) -> void:
 			ready += 1
 	var rect := _goals_hud_rect()
 	draw_style_box(_rounded_style(Color(0.04, 0.12, 0.18, 0.94), Color(COLOR_MINERAL, 0.78), 7, 2), rect)
-	var label := "目标 [G]" if ready == 0 else "目标 [G]  %d" % ready
-	draw_string(fallback_font, rect.position + Vector2(13, 21), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MINERAL)
+	var label := _gt("hud_goals") if ready == 0 else _gt("hud_goals_ready_fmt") % ready
+	var font_size := _fit_font_size(label, rect.size.x - 24.0)
+	draw_string(fallback_font, rect.position + Vector2(13, 21), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, font_size, COLOR_MINERAL)
 
 
 func _goal_tracker_hud_rect(viewport: Vector2) -> Rect2:
@@ -8097,20 +8147,20 @@ func _draw_help(viewport: Vector2) -> void:
 
 func _expedition_state_name(state: String) -> String:
 	match state:
-		"moving": return "移动"
-		"gathering": return "采集"
-		"attacking": return "猎食细菌"
-		"attacking_fungus": return "攻击竞争真菌"
-		"attacking_hypha": return "切断敌方菌丝"
-		"attacking_guard": return "迎战竞争菌守卫"
-		"deploying": return "展开部署囊体"
-		"deployed": return "作用区已展开"
-		"returning": return "返巢卸载"
-		"retreating": return "负伤撤退"
-		"repairing": return "兵营修复"
-		"wounded": return "重伤等待兵营"
-		"guarding": return "警戒"
-	return "待命"
+		"moving": return _gt("state_moving")
+		"gathering": return _gt("state_gathering")
+		"attacking": return _gt("state_attack_bacteria")
+		"attacking_fungus": return _gt("state_attack_fungus")
+		"attacking_hypha": return _gt("state_attack_hypha")
+		"attacking_guard": return _gt("state_attack_guard")
+		"deploying": return _gt("state_deploying")
+		"deployed": return _gt("state_deployed")
+		"returning": return _gt("state_returning")
+		"retreating": return _gt("state_retreating")
+		"repairing": return _gt("state_repairing")
+		"wounded": return _gt("state_wounded")
+		"guarding": return _gt("state_guarding")
+	return _gt("state_idle")
 
 
 func _draw_expedition_tooltip() -> bool:
@@ -8129,22 +8179,22 @@ func _draw_expedition_tooltip() -> bool:
 	var biomass := clampf(float(unit.get("biomass", maximum)), 0.0, maximum)
 	var home_id := int(unit.get("home_core_id", -1))
 	var lines := [
-		String(BARRACK_UNIT_NAMES.get(unit_type, "体外孢子")),
-		"生物量 %.3f / %.3f（%.1f%%）" % [biomass, maximum, biomass / maximum * 100.0],
-		"状态　%s" % _expedition_state_name(String(unit.get("state", "idle"))),
-		"携带　有机 %.3f　矿物 %.3f" % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
-		"归属兵营　%s" % ("核心 %d" % (home_id + 1) if _expedition_home_is_barracks(unit) else "暂无可用兵营")
+		_localized_unit_name(unit_type),
+		_gt("hover_biomass_fmt") % [biomass, maximum, biomass / maximum * 100.0],
+		_gt("hover_state_fmt") % _expedition_state_name(String(unit.get("state", "idle"))),
+		_gt("hover_cargo_fmt") % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
+		_gt("hover_home_fmt") % (_gt("hover_home_core_fmt") % (home_id + 1) if _expedition_home_is_barracks(unit) else _gt("hover_no_barracks"))
 	]
 	if bool(unit.get("defense_enabled", false)):
 		var zone := _defense_rect(unit)
-		lines.append("持久防区　%.0f × %.0f μm" % [zone.size.x / 2.0, zone.size.y / 2.0])
+		lines.append(_gt("hover_defense_zone_fmt") % [zone.size.x / 2.0, zone.size.y / 2.0])
 	if bool(unit.get("harvest_enabled", false)):
 		var harvest_zone := _harvest_rect(unit)
-		var harvest_kind := "矿物" if _harvest_resource_kind(unit) == 1 else "有机"
-		lines.append("持久采区　%s　%.0f × %.0f μm" % [harvest_kind, harvest_zone.size.x / 2.0, harvest_zone.size.y / 2.0])
+		var harvest_kind := _gt("resource_mineral") if _harvest_resource_kind(unit) == 1 else _gt("resource_organic")
+		lines.append(_gt("hover_harvest_zone_fmt") % [harvest_kind, harvest_zone.size.x / 2.0, harvest_zone.size.y / 2.0])
 	if bool(unit.get("purge_enabled", false)):
 		var purge_zone := _purge_rect(unit)
-		lines.append("细菌清剿区　%.0f × %.0f μm" % [purge_zone.size.x / 2.0, purge_zone.size.y / 2.0])
+		lines.append(_gt("hover_purge_zone_fmt") % [purge_zone.size.x / 2.0, purge_zone.size.y / 2.0])
 	if unit_type == "suppressor":
 		var deploy_state := String(unit.get("state", "idle"))
 		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
@@ -8187,19 +8237,20 @@ func _draw_bacteria_tooltip() -> void:
 		return
 	var stored := float(bacterium.get("stored", 0.0))
 	var strain := String(bacterium.get("strain", "normal"))
-	var bacteria_name := "暴发型细菌" if strain == "bloom" else "静止细菌"
-	var behavior_text := "生态事件中的高活性局部菌群" if strain == "bloom" else "原地吸收并分裂扩张"
+	var bacteria_name := _gt("bacteria_bloom") if strain == "bloom" else _gt("bacteria_normal")
+	var behavior_text := _gt("bacteria_behavior_bloom") if strain == "bloom" else _gt("bacteria_behavior_normal")
 	var lines := [
 		bacteria_name,
 		behavior_text,
-		"吸收 %.3f/秒　真菌初始速率的 1/20" % BACTERIA_ABSORB_RATE,
-		"分裂营养 %.3f / %.3f" % [stored, BACTERIA_DIVISION_NUTRIENT],
-		"自身基因组复制　不消耗真菌 DNA",
-		"被摄食时会释放少量毒素，使体外孢子缓慢损失生物量"
+		_gt("bacteria_absorb_fmt") % BACTERIA_ABSORB_RATE,
+		_gt("bacteria_division_fmt") % [stored, BACTERIA_DIVISION_NUTRIENT],
+		_gt("bacteria_genome"),
+		_gt("bacteria_toxin_1"),
+		_gt("bacteria_toxin_2")
 	]
 	if bool(bacterium.get("suppressed", false)):
-		var source_text := "前沿抑菌囊体" if bool(bacterium.get("suppressed_by_deployment", false)) else "核心抗生素"
-		lines.append("受%s抑制　代谢速度 %.0f%%" % [source_text, float(bacterium.get("suppression_multiplier", 1.0)) * 100.0])
+		var source_text := _gt("suppress_source_capsule") if bool(bacterium.get("suppressed_by_deployment", false)) else _gt("suppress_source_core")
+		lines.append(_gt("bacteria_suppressed_fmt") % [source_text, float(bacterium.get("suppression_multiplier", 1.0)) * 100.0])
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
@@ -8221,8 +8272,8 @@ func _draw_core_tooltip() -> bool:
 	var core: Dictionary = cores[core_id]
 	var maximum := maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS)))
 	var percent := clampf(float(core.get("biomass", maximum)) / maximum * 100.0, 0.0, 100.0)
-	var core_name := "兵营核心" if String(core.get("kind", "normal")) == "barracks" else "孢子核心"
-	var text_value := "%s %d　生物量 %.1f%%" % [core_name, core_id + 1, percent]
+	var core_name := _gt("core_type_barracks") if String(core.get("kind", "normal")) == "barracks" else _gt("core_type_spore")
+	var text_value := _gt("hover_core_fmt") % [core_name, core_id + 1, percent]
 	var size := fallback_font.get_string_size(text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE) + Vector2(28.0, 18.0)
 	var viewport := get_viewport_rect().size
 	var pos := last_mouse + Vector2(18, 14)
@@ -8352,6 +8403,14 @@ func _bacterium_at(screen_pos: Vector2) -> Dictionary:
 	return best
 
 
+func _localized_unit_name(unit_type: String) -> String:
+	var key := "unit_" + unit_type
+	var localized := _gt(key)
+	if localized == key:
+		return String(BARRACK_UNIT_NAMES.get(unit_type, unit_type))
+	return localized
+
+
 func _current_menu_buttons() -> Array:
 	var result: Array = []
 	if selected_core >= 0 and selected_core < cores.size() and mode == "normal":
@@ -8362,19 +8421,21 @@ func _current_menu_buttons() -> Array:
 		var production_unit := String(cores[selected_core].get("production_unit", "forager"))
 		if not _available_barracks_units().has(production_unit):
 			production_unit = "forager"
-		var production_name := String(BARRACK_UNIT_NAMES.get(production_unit, "游猎孢子"))
-		var production_cost_text := "有机 %.3f\n矿物 %.3f" % [float(UNIT_ORGANIC_COSTS.get(production_unit, EXPEDITION_SPORE_ORGANIC_COST)), float(UNIT_MINERAL_COSTS.get(production_unit, EXPEDITION_SPORE_MINERAL_COST))]
+		var production_name := _localized_unit_name(production_unit)
+		var production_cost_text := _gt("core_produce_cost_fmt") % [float(UNIT_ORGANIC_COSTS.get(production_unit, EXPEDITION_SPORE_ORGANIC_COST)), float(UNIT_MINERAL_COSTS.get(production_unit, EXPEDITION_SPORE_MINERAL_COST))]
 		var dna_batch_size := _current_dna_batch_size()
 		var dna_tooltip_title := _dna_batch_tooltip_title(selected_core, dna_batch_size)
 		var dna_tooltip_cost := _dna_batch_tooltip_cost(dna_batch_size)
-		var upgrade_cost_text := "已达到当前上限" if range_level >= MAX_FEEDER_RANGE_LEVEL else "范围 %.0f → %.0f μm\nDNA 速度 +%d%% → +%d%%\n有机营养 %.3f" % [current_range_um, current_range_um + FEEDER_RANGE_PER_LEVEL / 2.0, int(_dna_speed_bonus(selected_core) * 100.0), int((_dna_speed_bonus(selected_core) + DNA_SPEED_BONUS_PER_NODE_LEVEL) * 100.0), _feeder_upgrade_cost(selected_core)]
+		var upgrade_cost_text := _gt("core_upgrade_max")
+		if range_level < MAX_FEEDER_RANGE_LEVEL:
+			upgrade_cost_text = (_gt("core_upgrade_range_fmt") % [current_range_um, current_range_um + FEEDER_RANGE_PER_LEVEL / 2.0]) + "\n" + (_gt("core_upgrade_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), int((_dna_speed_bonus(selected_core) + DNA_SPEED_BONUS_PER_NODE_LEVEL) * 100.0)]) + "\n" + (_gt("core_upgrade_cost_fmt") % _feeder_upgrade_cost(selected_core))
 		var specs := [
-			[Vector2(-90, -34), "延伸", "extend_core", COLOR_HYPHA, "延伸主菌丝", "有机营养 1.000 / 11 μm\n最终消耗按长度向上取整"],
-			[Vector2(-34, -92), "生产" if is_barracks else "DNA", "queue_spore" if is_barracks else "dna", COLOR_MINERAL, "生产%s　%.1f 秒" % [production_name, float(UNIT_BUILD_SECONDS.get(production_unit, EXPEDITION_SPORE_BUILD_SECONDS))] if is_barracks else dna_tooltip_title, production_cost_text if is_barracks else dna_tooltip_cost],
-			[Vector2(34, -92), "强化", "upgrade_feeder_range", COLOR_ORGANIC, "增强细菌丝延展范围　Lv.%d" % range_level, upgrade_cost_text],
-			[Vector2(90, -34), "状态", "status", COLOR_WATER, "查看核心状态", "不消耗资源"],
-			[Vector2(90, 34), "修复", "repair_core", Color("ff9f8f"), "添加缓慢修复储备", "储备最多 +%.3f\n恢复速度 %.3f / 秒\n有机营养 %.3f" % [_repair_reserve_purchase_amount(), _repair_recovery_rate(), CORE_REPAIR_ORGANIC_COST]],
-			[Vector2(34, 92), "切换" if is_barracks else "兵营", "cycle_spore_unit" if is_barracks else "barracks_mode", Color("76f5ca"), "当前兵种：%s" % production_name if is_barracks else "选择菌丝末端建造兵营", "点击切换已解锁兵种\n商店 → 兵营/食性专属升级" if is_barracks else "有机 %.3f\n矿物 %.3f\nDNA %d" % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]]
+			[Vector2(-90, -34), _gt("core_action_extend_short"), "extend_core", COLOR_HYPHA, _gt("core_extend_title"), _gt("core_extend_cost")],
+			[Vector2(-34, -92), _gt("core_action_produce_short") if is_barracks else _gt("core_action_dna_short"), "queue_spore" if is_barracks else "dna", COLOR_MINERAL, _gt("core_produce_title_fmt") % [production_name, float(UNIT_BUILD_SECONDS.get(production_unit, EXPEDITION_SPORE_BUILD_SECONDS))] if is_barracks else dna_tooltip_title, production_cost_text if is_barracks else dna_tooltip_cost],
+			[Vector2(34, -92), _gt("core_action_upgrade_short"), "upgrade_feeder_range", COLOR_ORGANIC, _gt("core_upgrade_title_fmt") % range_level, upgrade_cost_text],
+			[Vector2(90, -34), _gt("core_action_status_short"), "status", COLOR_WATER, _gt("core_status_title"), _gt("core_no_cost")],
+			[Vector2(90, 34), _gt("core_action_repair_short"), "repair_core", Color("ff9f8f"), _gt("core_repair_title"), _gt("core_repair_cost_fmt") % [_repair_reserve_purchase_amount(), _repair_recovery_rate(), CORE_REPAIR_ORGANIC_COST]],
+			[Vector2(34, 92), _gt("core_action_switch_short") if is_barracks else _gt("core_action_barracks_short"), "cycle_spore_unit" if is_barracks else "barracks_mode", Color("76f5ca"), _gt("core_current_unit_fmt") % production_name if is_barracks else _gt("core_barracks_build_title"), _gt("core_switch_hint") if is_barracks else _gt("core_barracks_build_cost_fmt") % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]]
 		]
 		for i in range(specs.size()):
 			var progress := clampf(menu_anim * 1.35 - i * 0.12, 0.0, 1.0)
@@ -8383,9 +8444,9 @@ func _current_menu_buttons() -> Array:
 	elif selected_tip_valid and mode == "normal":
 		var center := world_to_screen(selected_tip)
 		var specs := [
-			[Vector2(-62, -52), "延伸", "extend_tip", COLOR_HYPHA, "继续延伸主菌丝", "有机营养 1.000 / 11 μm\n最终消耗按长度向上取整"],
-			[Vector2(0, -88), "核心", "new_core", COLOR_ORGANIC, "形成次级孢子核心", "有机营养 70.000\n矿物离子 6.000"],
-			[Vector2(62, -52), "兵营", "new_barracks", Color("7bd6a3"), "形成兵营核心", "有机 %.3f\n矿物 %.3f\nDNA %d" % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]]
+			[Vector2(-62, -52), _gt("core_action_extend_short"), "extend_tip", COLOR_HYPHA, _gt("core_extend_tip_title"), _gt("core_extend_cost")],
+			[Vector2(0, -88), _gt("core_action_core_short"), "new_core", COLOR_ORGANIC, _gt("core_new_core_title"), _gt("core_new_core_cost")],
+			[Vector2(62, -52), _gt("core_action_barracks_short"), "new_barracks", Color("7bd6a3"), _gt("core_barracks_build_title"), _gt("core_barracks_build_cost_fmt") % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]]
 		]
 		for i in range(specs.size()):
 			var progress := clampf(menu_anim * 1.4 - i * 0.14, 0.0, 1.0)
@@ -8408,8 +8469,9 @@ func _draw_selection_menu() -> void:
 		var rect := Rect2(_pixel_snap(p - Vector2.ONE * radius), Vector2.ONE * radius * 2.0)
 		draw_style_box(_rounded_style(Color(0.025, 0.09, 0.13, 0.96 * alpha), Color(color.r, color.g, color.b, 0.82 * alpha), 8, 2), rect)
 		var label: String = button["label"]
-		var width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x
-		draw_string(fallback_font, _pixel_snap(p + Vector2(-width * 0.5, 5)), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_TEXT, alpha))
+		var label_size := _fit_font_size(label, maxf(8.0, radius * 2.0 - 8.0), UI_FONT_SIZE, 8)
+		var width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
+		draw_string(fallback_font, _pixel_snap(p + Vector2(-width * 0.5, float(label_size) * 0.4)), label, HORIZONTAL_ALIGNMENT_LEFT, -1, label_size, Color(COLOR_TEXT, alpha))
 		if alpha >= 0.82 and last_mouse.distance_to(p) <= radius:
 			hovered = button
 	if not hovered.is_empty():
@@ -8491,26 +8553,29 @@ func _draw_status_panel(viewport: Vector2) -> void:
 	var is_barracks := String(core.get("kind", "normal")) == "barracks"
 	var rect := _status_panel_rect()
 	draw_style_box(_panel_style(), rect)
-	draw_string(fallback_font, rect.position + Vector2(16, 28), "%s %d" % ["兵营核心" if is_barracks else "孢子核心", selected_core + 1], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("a7f4d7") if is_barracks else COLOR_TEXT)
+	var core_type := _gt("core_type_barracks") if is_barracks else _gt("core_type_spore")
+	draw_string(fallback_font, rect.position + Vector2(16, 28), _gt("core_name_fmt") % [core_type, selected_core + 1], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("a7f4d7") if is_barracks else COLOR_TEXT)
 	var biomass_percent := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS))) * 100.0
-	draw_string(fallback_font, rect.position + Vector2(16, 57), "生物量　%.1f%%" % biomass_percent, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
-	draw_string(fallback_font, rect.position + Vector2(16, 82), "修复储备　%.3f　(+%.3f / 秒)" % [float(core.get("repair_reserve", 0.0)), _repair_recovery_rate()], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f"))
-	draw_string(fallback_font, rect.position + Vector2(16, 107), "毒素伤害　%.3f / 秒" % float(core.get("toxin_pressure", 0.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("c794e8"))
-	draw_string(fallback_font, rect.position + Vector2(16, 132), "营生方式　腐生", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, rect.position + Vector2(16, 157), "菌丝长度　%d / %d μm" % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	var queue_text := "%s队列　%d / 10" % [BARRACK_UNIT_NAMES.get(String(core.get("production_unit", "forager")), "游猎孢子"), (core.get("spore_jobs", []) as Array).size()] if is_barracks else "DNA 队列　%d" % (core["jobs"] as Array).size()
-	draw_string(fallback_font, rect.position + Vector2(16, 182), queue_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, rect.position + Vector2(16, 207), "水分供应　稳定（无限）", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_WATER)
-	draw_string(fallback_font, rect.position + Vector2(16, 232), "细菌丝范围　%.0f μm　Lv.%d" % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
+	draw_string(fallback_font, rect.position + Vector2(16, 57), _gt("stat_biomass_fmt") % biomass_percent, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
+	draw_string(fallback_font, rect.position + Vector2(16, 82), _gt("stat_repair_fmt") % [float(core.get("repair_reserve", 0.0)), _repair_recovery_rate()], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f"))
+	draw_string(fallback_font, rect.position + Vector2(16, 107), _gt("stat_toxin_fmt") % float(core.get("toxin_pressure", 0.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("c794e8"))
+	draw_string(fallback_font, rect.position + Vector2(16, 132), _gt("stat_lifestyle"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(16, 157), _gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var queue_text := _gt("stat_unit_queue_fmt") % [_localized_unit_name(String(core.get("production_unit", "forager"))), (core.get("spore_jobs", []) as Array).size(), BARRACKS_QUEUE_CAPACITY] if is_barracks else _gt("stat_dna_queue_fmt") % (core["jobs"] as Array).size()
+	var queue_font_size := _fit_font_size(queue_text, rect.size.x - 32.0)
+	draw_string(fallback_font, rect.position + Vector2(16, 182), queue_text, HORIZONTAL_ALIGNMENT_LEFT, -1, queue_font_size, COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(16, 207), _gt("stat_water"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_WATER)
+	draw_string(fallback_font, rect.position + Vector2(16, 232), _gt("stat_feeder_fmt") % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
 	var barracks_radius := SCOUT_OPERATING_RADIUS if String(core.get("production_unit", "forager")) == "scout" else EXPEDITION_OPERATING_RADIUS
 	var barracks_counts := _barracks_expedition_status_counts(selected_core) if is_barracks else {}
-	var final_text := "活动 %.0f μm　现役 %d　负伤 %d　返巢 %d　修复 %d" % [barracks_radius / 2.0, int(barracks_counts.get("total", 0)), int(barracks_counts.get("injured", 0)), int(barracks_counts.get("returning", 0)), int(barracks_counts.get("repairing", 0))] if is_barracks else "DNA 速度　+%d%%　%.1f 秒/点" % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
-	draw_string(fallback_font, rect.position + Vector2(16, 257), final_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("76f5ca") if is_barracks else COLOR_MINERAL)
+	var final_text := (_gt("stat_barracks_range_fmt") % (barracks_radius / 2.0)) + " · " + (_gt("stat_barracks_counts_fmt") % [int(barracks_counts.get("total", 0)), int(barracks_counts.get("injured", 0)), int(barracks_counts.get("returning", 0)), int(barracks_counts.get("repairing", 0))]) if is_barracks else _gt("stat_dna_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
+	var final_font_size := _fit_font_size(final_text, rect.size.x - 32.0)
+	draw_string(fallback_font, rect.position + Vector2(16, 257), final_text, HORIZONTAL_ALIGNMENT_LEFT, -1, final_font_size, Color("76f5ca") if is_barracks else COLOR_MINERAL)
 	if is_barracks:
 		var jobs: Array = core.get("spore_jobs", [])
 		var auto_unit := String(core.get("auto_replenish_unit", "forager"))
 		var auto_target := int(core.get("auto_replenish_target", 4))
-		draw_string(fallback_font, rect.position + Vector2(16, 286), "生产队列　%d / %d" % [jobs.size(), BARRACKS_QUEUE_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, rect.position + Vector2(16, 286), _gt("stat_build_queue_fmt") % [jobs.size(), BARRACKS_QUEUE_CAPACITY], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 		for i in range(BARRACKS_QUEUE_CAPACITY):
 			var slot := Rect2(rect.position + Vector2(16 + i * 35, 300), Vector2(28, 28))
 			var slot_border := COLOR_BORDER
@@ -8975,9 +9040,14 @@ func _rounded_style(background: Color, border: Color, radius: int, border_width 
 	return style
 
 
-func toast(message: String, seconds := 2.5) -> void:
+func toast(message: String, seconds := 2.5, severity: String = "auto") -> void:
 	toast_text = message
 	toast_time = seconds
+	if severity == "error":
+		_play_sound("ui_error")
+		return
+	if severity != "auto":
+		return
 	for marker in ["不足", "需要先", "无法", "不能", "太近", "已达到", "队列已满", "请点击"]:
 		if message.contains(marker):
 			_play_sound("ui_error")

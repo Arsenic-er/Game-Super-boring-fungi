@@ -17,6 +17,8 @@ func _run() -> void:
 	game.save_path = "user://session_flow_smoke.json"
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
 	game.main_menu_has_save = false
+	game.first_locale_prompt = false
+	game.main_menu_page = "main"
 	if not _check(game._main_menu_labels().size() == 3, "main menu without a save should have three actions"):
 		return
 
