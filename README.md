@@ -6,7 +6,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.41.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.42.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Languages
 
@@ -17,6 +17,7 @@ The main menu, settings, pause/session screens, and repository introduction supp
 - v0.39 introduced role-safe expedition commands: only compatible units attack or gather from a target, incompatible members of mixed selections fall back to a nearby hold position, `C` clears orders and restores automatic behavior, and command receipts report exact results.
 - v0.40 adds the seven-language menu flow and localized session interface, together with matching repository documentation for every supported language.
 - v0.41 shows the seven-language selector on the first launch of a new installation and provides Simplified Chinese, Traditional Chinese, English, Japanese, Spanish, German, and Russian text for the resource HUD, core radial actions, core status and common hover tooltips, expedition status, bacterial descriptions, and all ten unit names; the upgrade shop and full long-term-goal descriptions are not yet fully localized.
+- v0.42 localizes all 22 long-term goals, the evolution-shop shell, node and survival upgrades, structure upgrades, the general barracks page, the lower barracks status panel, and detailed text for three specialist units in all seven languages. Diet detail pages, bacterial components, diet-exclusive unit pages, purchase and barracks interaction toasts, and chapter guidance, ecology-event, and Rival Sporefall text remain for later localization.
 
 ## Download and play
 
@@ -106,7 +107,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.41.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.42.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 语言支持
 
@@ -117,6 +118,7 @@ The source code, visual assets, game design, text, and other repository contents
 - v0.39 加入职责安全的远征指令：只有相容单位会攻击或采集目标，混编选择中的不相容单位会移动到附近原地警戒，`C` 会清除指令并恢复自动行为，指令回执会显示准确执行结果。
 - v0.40 加入七语言菜单流程与本地化会话界面，并为每种支持语言提供对应的仓库介绍。
 - v0.41 在全新安装首次启动时显示七语选择，并为资源 HUD、核心径向动作、核心状态与常用悬停提示、远征状态、细菌说明及 10 种兵种名称提供简体中文、繁体中文、英语、日语、西班牙语、德语与俄语；升级商店和长期目标正文尚未完成全量翻译。
+- v0.42 已将全部 22 个长期目标、进化商店外壳、节点与生存升级、结构升级、通用兵营页、兵营状态面板下半区，以及三种特种兵的详细说明扩展为七语。食性详情、细菌组件、食性专属单位页面、购买提示、兵营交互提示，以及章节引导、生态事件和竞争孢子雨文案仍待后续本地化。
 
 ## 下载与运行
 

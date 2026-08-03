@@ -3,6 +3,9 @@ extends Node2D
 const PixelAudio = preload("res://scripts/pixel_audio.gd")
 const UILocalization = preload("res://scripts/ui_localization.gd")
 const GameplayLocalization = preload("res://scripts/gameplay_localization.gd")
+const GoalLocalization = preload("res://scripts/goal_localization.gd")
+const BarracksLocalization = preload("res://scripts/barracks_localization.gd")
+const UpgradeLocalization = preload("res://scripts/upgrade_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -5802,6 +5805,30 @@ func _gt(key: String) -> String:
 	return GameplayLocalization.text(key, settings_locale)
 
 
+func _goal_text(key: String) -> String:
+	return GoalLocalization.text(key, settings_locale)
+
+func _bt(key: String) -> String:
+	return BarracksLocalization.text(key, settings_locale)
+
+
+func _localized_barracks_directive_name(directive_id: String) -> String:
+	if BarracksLocalization.DIRECTIVE_IDS.has(directive_id):
+		return _bt("directive_%s" % directive_id)
+	return directive_id
+
+
+func _localized_barracks_unit_short(unit_id: String) -> String:
+	if BarracksLocalization.UNIT_IDS.has(unit_id):
+		return _bt("unit_%s_short" % unit_id)
+	return "?"
+
+
+
+func _up(key: String) -> String:
+	return UpgradeLocalization.text(key, settings_locale)
+
+
 func _fit_font_size(text_value: String, max_width: float, preferred: int = UI_FONT_SIZE, minimum: int = 8) -> int:
 	var font_size := maxi(minimum, preferred)
 	if fallback_font == null:
@@ -7111,14 +7138,16 @@ func _goal_tracker_hud_rect(viewport: Vector2) -> Rect2:
 	return Rect2(left, 116.0, minf(480.0, maxf(160.0, right - left)), 32.0)
 
 
+
 func _draw_goal_tracker_hud(viewport: Vector2) -> void:
 	var rect := _goal_tracker_hud_rect(viewport)
 	var goal := _goal_definition(tracked_goal_id)
 	var hovered := rect.has_point(last_mouse)
 	if goal.is_empty():
-		var empty_text := "全部目标已完成" if _all_goals_claimed() else "未追踪目标 · 点击打开"
+		var empty_text := _goal_text("all_done") if _all_goals_claimed() else _goal_text("not_tracked")
 		draw_style_box(_rounded_style(Color(0.035, 0.075, 0.105, 0.95), Color(COLOR_BORDER, 0.72), 7, 1), rect)
-		draw_string(fallback_font, rect.position + Vector2(12, 21), empty_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, UI_FONT_SIZE, COLOR_MUTED)
+		var empty_size := _fit_font_size(empty_text, rect.size.x - 24.0)
+		draw_string(fallback_font, rect.position + Vector2(12, 21), empty_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, empty_size, COLOR_MUTED)
 		return
 	var goal_id := String(goal["id"])
 	var complete := _goal_complete(goal_id)
@@ -7129,8 +7158,10 @@ func _draw_goal_tracker_hud(viewport: Vector2) -> void:
 	var inner := rect.grow(-3.0)
 	draw_rect(Rect2(inner.position + Vector2(0.0, inner.size.y - 4.0), Vector2(inner.size.x, 4.0)), Color(0.01, 0.035, 0.055, 0.92))
 	draw_rect(Rect2(inner.position + Vector2(0.0, inner.size.y - 4.0), Vector2(inner.size.x * fraction, 4.0)), Color(accent, 0.88))
-	var label := "可领取｜%s｜%s" % [String(goal["title"]), String(goal["reward_text"])] if complete else "追踪｜%s｜%s" % [String(goal["title"]), _goal_progress_text(goal_id)]
-	draw_string(fallback_font, rect.position + Vector2(11, 20), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 22.0, UI_FONT_SIZE, accent if complete else COLOR_TEXT)
+	var label := _goal_text("tracker_claimable_fmt") % [String(goal["title"]), String(goal["reward_text"])] if complete else _goal_text("tracker_active_fmt") % [String(goal["title"]), _goal_progress_text(goal_id)]
+	var label_size := _fit_font_size(label, rect.size.x - 22.0)
+	draw_string(fallback_font, rect.position + Vector2(11, 20), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 22.0, label_size, accent if complete else COLOR_TEXT)
+
 
 
 func _draw_goal_tracker_tooltip(viewport: Vector2) -> void:
@@ -7139,18 +7170,20 @@ func _draw_goal_tracker_tooltip(viewport: Vector2) -> void:
 	if goal.is_empty() or not tracker.has_point(last_mouse) or offline_report_open or chapter_report_open or pause_menu_open:
 		return
 	var goal_id := String(goal["id"])
-	var lines := [String(goal["title"]), String(goal["desc"]), "进度：%s" % _goal_progress_text(goal_id), "奖励：%s" % String(goal["reward_text"]), "点击打开目标面板"]
+	var lines := [String(goal["title"]), String(goal["desc"]), _goal_text("tooltip_progress_fmt") % _goal_progress_text(goal_id), _goal_text("tooltip_reward_fmt") % String(goal["reward_text"]), _goal_text("tooltip_open")]
 	var width := 0.0
 	for line in lines:
 		width = maxf(width, fallback_font.get_string_size(String(line), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
-	var size := Vector2(width + 28.0, 18.0 + lines.size() * 22.0)
+	var size := Vector2(minf(width + 28.0, viewport.x - 24.0), 18.0 + lines.size() * 22.0)
 	var tip_pos := Vector2(tracker.position.x, tracker.end.y + 8.0)
-	tip_pos.x = clampf(tip_pos.x, 12.0, viewport.x - size.x - 12.0)
-	tip_pos.y = clampf(tip_pos.y, 70.0, viewport.y - size.y - 12.0)
+	tip_pos.x = clampf(tip_pos.x, 12.0, maxf(12.0, viewport.x - size.x - 12.0))
+	tip_pos.y = clampf(tip_pos.y, 70.0, maxf(70.0, viewport.y - size.y - 12.0))
 	var tip := Rect2(_pixel_snap(tip_pos), size)
 	draw_style_box(_rounded_style(Color(0.018, 0.055, 0.085, 0.99), Color(COLOR_MINERAL, 0.88), 8, 2), tip)
 	for index in range(lines.size()):
-		draw_string(fallback_font, tip.position + Vector2(14, 24 + index * 22), String(lines[index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if index == 0 else COLOR_MUTED)
+		var line := String(lines[index])
+		var font_size := _fit_font_size(line, tip.size.x - 28.0)
+		draw_string(fallback_font, tip.position + Vector2(14, 24 + index * 22), line, HORIZONTAL_ALIGNMENT_LEFT, tip.size.x - 28.0, font_size, COLOR_TEXT if index == 0 else COLOR_MUTED)
 
 
 func _ecology_event_hud_rect() -> Rect2:
@@ -7327,31 +7360,38 @@ func _handle_enemy_threat_click(pos: Vector2) -> bool:
 	return true
 
 
+
 func _goal_definitions() -> Array:
-	return [
-		{"id": "first_hypha", "title": "初次萌发", "desc": "形成第一段主菌丝", "reward": {"organic": 25.0}, "reward_text": "有机营养 +25.000"},
-		{"id": "mineral_trace", "title": "矿物脉络", "desc": "累计吸收 1.000 矿物离子", "reward": {"mineral": 5.0}, "reward_text": "矿物离子 +5.000"},
-		{"id": "second_core", "title": "双核心网络", "desc": "形成第二个孢子核心", "reward": {"dna": 2}, "reward_text": "DNA +2"},
-		{"id": "network_1mm", "title": "一毫米网络", "desc": "主菌丝总长度达到 1000 μm", "reward": {"organic": 80.0, "mineral": 8.0}, "reward_text": "有机 +80.000　矿物 +8.000"},
-		{"id": "primary_diet", "title": "确立主食性", "desc": "解锁第一条生物食性", "reward": {"dna": 3}, "reward_text": "DNA +3"},
-		{"id": "bacterial_bloom", "title": "培养皿中的新生命", "desc": "观察累计25次细菌分裂", "reward": {"mineral": 3.0}, "reward_text": "矿物离子 +3.000"},
-		{"id": "first_bacterium", "title": "首次微型捕食", "desc": "完整消化第一个细菌", "reward": {"organic": 20.0}, "reward_text": "有机营养 +20.000"},
-		{"id": "bacteria_control", "title": "菌落控制", "desc": "累计完整消化25个细菌", "reward": {"dna": 3}, "reward_text": "DNA +3"},
-		{"id": "first_structure", "title": "结构突变", "desc": "购买第一级通用结构进化", "reward": {"organic": 40.0}, "reward_text": "有机营养 +40.000"},
-		{"id": "bacteria_specialist", "title": "细菌专家", "desc": "将任一细菌专属组件升至3级", "reward": {"dna": 4, "mineral": 2.0}, "reward_text": "DNA +4　矿物 +2.000"},
-		{"id": "culture_survey", "title": "培养环境勘探", "desc": "永久记录3处异常资源区", "reward": {"dna": 2}, "reward_text": "DNA +2"},
-		{"id": "expedition_supply", "title": "远征补给线", "desc": "体外部队累计带回10.000有机与0.500矿物", "reward": {"dna": 1, "mineral": 2.0}, "reward_text": "DNA +1　矿物 +2.000"},
-		{"id": "expedition_control", "title": "主动菌落压制", "desc": "体外部队累计消灭10个细菌", "reward": {"dna": 3, "organic": 30.0}, "reward_text": "DNA +3　有机 +30.000"},
-		{"id": "barracks_directive", "title": "自动菌落编制", "desc": "为任一兵营保存一次持续防区、采区或猎区", "reward": {"dna": 2, "mineral": 1.0}, "reward_text": "DNA +2　矿物 +1.000"},
-		{"id": "ecology_response", "title": "生态应答", "desc": "成功应对1次细菌生态事件", "reward": {"dna": 2, "mineral": 2.0}, "reward_text": "DNA +2　矿物 +2.000"},
-		{"id": "suppression_field", "title": "静菌封锁", "desc": "用抑菌囊体控制1次细菌暴发", "reward": {"dna": 2, "organic": 15.0}, "reward_text": "DNA +2　有机 +15.000"},
-		{"id": "disperser_burst", "title": "群落裂解", "desc": "单次范围裂解命中8个细菌", "reward": {"dna": 2, "organic": 20.0}, "reward_text": "DNA +2　有机 +20.000"},
-		{"id": "rival_colony", "title": "竞争者清除", "desc": "使1座竞争性真菌核心失活", "reward": {"dna": 4, "mineral": 3.0}, "reward_text": "DNA +4　矿物 +3.000"},
-		{"id": "rival_guard", "title": "前线拦截", "desc": "累计击败5个竞争菌守卫孢子", "reward": {"dna": 2, "organic": 15.0}, "reward_text": "DNA +2　有机营养 +15.000"},
-		{"id": "hypha_severing", "title": "断丝战术", "desc": "累计切断3段敌方菌丝", "reward": {"dna": 2, "organic": 10.0}, "reward_text": "DNA +2　有机 +10.000"},
-		{"id": "antifungal_lockdown", "title": "真菌封锁", "desc": "在抗真菌区内使1座竞争核心失活", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"},
-		{"id": "sporefall_guard", "title": "孢子雨守卫", "desc": "击退3轮竞争孢子雨", "reward": {"dna": 3, "mineral": 2.0}, "reward_text": "DNA +3　矿物 +2.000"}
+	var goals := [
+		{"id": "first_hypha", "reward": {"organic": 25.0}},
+		{"id": "mineral_trace", "reward": {"mineral": 5.0}},
+		{"id": "second_core", "reward": {"dna": 2}},
+		{"id": "network_1mm", "reward": {"organic": 80.0, "mineral": 8.0}},
+		{"id": "primary_diet", "reward": {"dna": 3}},
+		{"id": "bacterial_bloom", "reward": {"mineral": 3.0}},
+		{"id": "first_bacterium", "reward": {"organic": 20.0}},
+		{"id": "bacteria_control", "reward": {"dna": 3}},
+		{"id": "first_structure", "reward": {"organic": 40.0}},
+		{"id": "bacteria_specialist", "reward": {"dna": 4, "mineral": 2.0}},
+		{"id": "culture_survey", "reward": {"dna": 2}},
+		{"id": "expedition_supply", "reward": {"dna": 1, "mineral": 2.0}},
+		{"id": "expedition_control", "reward": {"dna": 3, "organic": 30.0}},
+		{"id": "barracks_directive", "reward": {"dna": 2, "mineral": 1.0}},
+		{"id": "ecology_response", "reward": {"dna": 2, "mineral": 2.0}},
+		{"id": "suppression_field", "reward": {"dna": 2, "organic": 15.0}},
+		{"id": "disperser_burst", "reward": {"dna": 2, "organic": 20.0}},
+		{"id": "rival_colony", "reward": {"dna": 4, "mineral": 3.0}},
+		{"id": "rival_guard", "reward": {"dna": 2, "organic": 15.0}},
+		{"id": "hypha_severing", "reward": {"dna": 2, "organic": 10.0}},
+		{"id": "antifungal_lockdown", "reward": {"dna": 3, "mineral": 2.0}},
+		{"id": "sporefall_guard", "reward": {"dna": 3, "mineral": 2.0}}
 	]
+	for goal in goals:
+		var goal_id := String(goal["id"])
+		goal["title"] = _goal_text("goal_%s_title" % goal_id)
+		goal["desc"] = _goal_text("goal_%s_desc" % goal_id)
+		goal["reward_text"] = GoalLocalization.reward_text(goal["reward"], settings_locale)
+	return goals
 
 
 func _total_hypha_length() -> float:
@@ -7410,52 +7450,32 @@ func _goal_complete(goal_id: String) -> bool:
 	return false
 
 
+
 func _goal_progress_text(goal_id: String) -> String:
+	var count_fmt := _goal_text("progress_count_fmt")
 	match goal_id:
-		"first_hypha":
-			return "%d / 1" % mini(segments.size(), 1)
-		"mineral_trace":
-			return "%.3f / 1.000" % minf(lifetime_mineral_absorbed, 1.0)
-		"second_core":
-			return "%d / 2" % mini(cores.size(), 2)
-		"network_1mm":
-			return "%.0f / 1000 μm" % minf(_total_hypha_length() / 2.0, 1000.0)
-		"primary_diet":
-			return "%d / 1" % mini(diet_order.size(), 1)
-		"bacterial_bloom":
-			return "%d / 25" % mini(lifetime_bacteria_births, 25)
-		"first_bacterium":
-			return "%d / 1" % mini(lifetime_bacteria_consumed, 1)
-		"bacteria_control":
-			return "%d / 25" % mini(lifetime_bacteria_consumed, 25)
-		"first_structure":
-			return "%d / 1" % mini(_total_structure_levels(), 1)
-		"bacteria_specialist":
-			return "%d / 3" % mini(_max_bacteria_component_level(), 3)
-		"culture_survey":
-			return "%d / 3 处" % mini(_discovered_hotspot_count(), 3)
-		"expedition_supply":
-			return "有机 %.3f/10.000　矿物 %.3f/0.500" % [minf(lifetime_expedition_organic_returned, 10.0), minf(lifetime_expedition_mineral_returned, 0.5)]
-		"expedition_control":
-			return "%d / 10" % mini(lifetime_expedition_bacteria_killed, 10)
-		"barracks_directive":
-			return "%d / 1" % int(barracks_directive_ever_set)
-		"ecology_response":
-			return "%d / 1" % mini(lifetime_ecology_events_contained, 1)
-		"suppression_field":
-			return "%d / 1" % mini(lifetime_suppressed_blooms_contained, 1)
-		"disperser_burst":
-			return "%d / 8" % mini(lifetime_disperser_best_hit, 8)
-		"rival_colony":
-			return "%d / 1" % mini(lifetime_enemy_fungi_defeated, 1)
-		"rival_guard":
-			return "%d / 5" % mini(lifetime_enemy_guards_defeated, 5)
-		"hypha_severing":
-			return "%d / 3" % mini(lifetime_enemy_hyphae_severed, 3)
-		"antifungal_lockdown":
-			return "%d / 1" % mini(lifetime_antifungal_assisted_kills, 1)
-		"sporefall_guard":
-			return "%d / 3" % mini(lifetime_fungal_incursions_defeated, 3)
+		"first_hypha": return count_fmt % [mini(segments.size(), 1), 1]
+		"mineral_trace": return _goal_text("progress_decimal_fmt") % [minf(lifetime_mineral_absorbed, 1.0), 1.0]
+		"second_core": return count_fmt % [mini(cores.size(), 2), 2]
+		"network_1mm": return _goal_text("progress_length_fmt") % [minf(_total_hypha_length() / 2.0, 1000.0), 1000]
+		"primary_diet": return count_fmt % [mini(diet_order.size(), 1), 1]
+		"bacterial_bloom": return count_fmt % [mini(lifetime_bacteria_births, 25), 25]
+		"first_bacterium": return count_fmt % [mini(lifetime_bacteria_consumed, 1), 1]
+		"bacteria_control": return count_fmt % [mini(lifetime_bacteria_consumed, 25), 25]
+		"first_structure": return count_fmt % [mini(_total_structure_levels(), 1), 1]
+		"bacteria_specialist": return count_fmt % [mini(_max_bacteria_component_level(), 3), 3]
+		"culture_survey": return _goal_text("progress_areas_fmt") % [mini(_discovered_hotspot_count(), 3), 3]
+		"expedition_supply": return _goal_text("progress_supply_fmt") % [minf(lifetime_expedition_organic_returned, 10.0), 10.0, minf(lifetime_expedition_mineral_returned, 0.5), 0.5]
+		"expedition_control": return count_fmt % [mini(lifetime_expedition_bacteria_killed, 10), 10]
+		"barracks_directive": return count_fmt % [int(barracks_directive_ever_set), 1]
+		"ecology_response": return count_fmt % [mini(lifetime_ecology_events_contained, 1), 1]
+		"suppression_field": return count_fmt % [mini(lifetime_suppressed_blooms_contained, 1), 1]
+		"disperser_burst": return count_fmt % [mini(lifetime_disperser_best_hit, 8), 8]
+		"rival_colony": return count_fmt % [mini(lifetime_enemy_fungi_defeated, 1), 1]
+		"rival_guard": return count_fmt % [mini(lifetime_enemy_guards_defeated, 5), 5]
+		"hypha_severing": return count_fmt % [mini(lifetime_enemy_hyphae_severed, 3), 3]
+		"antifungal_lockdown": return count_fmt % [mini(lifetime_antifungal_assisted_kills, 1), 1]
+		"sporefall_guard": return count_fmt % [mini(lifetime_fungal_incursions_defeated, 3), 3]
 	return ""
 
 
@@ -7537,7 +7557,7 @@ func _set_tracked_goal(goal_id: String) -> bool:
 		tracked_goal_id = ""
 		tracked_goal_completion_notified = false
 		_play_sound("ui_cancel")
-		toast("已取消目标追踪", 2.0)
+		toast(_goal_text("tracking_cancelled"), 2.0)
 		return true
 	var goal := _goal_definition(goal_id)
 	if goal.is_empty() or bool(goals_claimed.get(goal_id, false)):
@@ -7545,7 +7565,7 @@ func _set_tracked_goal(goal_id: String) -> bool:
 	tracked_goal_id = goal_id
 	tracked_goal_completion_notified = false
 	_play_sound("ui_confirm")
-	toast("正在追踪：%s" % String(goal["title"]), 2.2)
+	toast(_goal_text("tracking_fmt") % String(goal["title"]), 2.2)
 	return true
 
 
@@ -7569,7 +7589,7 @@ func _update_tracked_goal_notification() -> void:
 	if _goal_complete(tracked_goal_id) and toast_time <= 0.0:
 		tracked_goal_completion_notified = true
 		_play_sound("ui_confirm", 1.1)
-		toast("目标完成：%s，打开目标面板领取奖励" % String(goal["title"]), 4.0)
+		toast(_goal_text("completed_fmt") % String(goal["title"]), 4.0)
 
 
 func _total_structure_levels() -> int:
@@ -7600,7 +7620,7 @@ func _claim_goal(goal_id: String) -> void:
 		if tracked_goal_id == goal_id:
 			_advance_tracked_goal(goal_id)
 		_play_sound("goal")
-		toast("目标奖励已领取：%s" % goal["reward_text"], 4.0)
+		toast(_goal_text("reward_claimed_fmt") % String(goal["reward_text"]), 4.0)
 		return
 
 
@@ -7654,19 +7674,23 @@ func _handle_goals_click(pos: Vector2) -> void:
 			return
 
 
+
 func _draw_goals_panel(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.0, 0.015, 0.03, 0.80))
 	var panel := _goals_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.018, 0.06, 0.095, 0.99), Color(COLOR_MINERAL, 0.78), 12, 2), panel)
-	draw_string(fallback_font, panel.position + Vector2(32, 38), "长期目标", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, panel.position + Vector2(156, 38), "不同目标提供不同奖励", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var panel_title := _goal_text("panel_title")
+	var panel_subtitle := _goal_text("panel_subtitle")
+	draw_string(fallback_font, panel.position + Vector2(32, 38), panel_title, HORIZONTAL_ALIGNMENT_LEFT, 118.0, _fit_font_size(panel_title, 118.0), COLOR_TEXT)
+	draw_string(fallback_font, panel.position + Vector2(156, 38), panel_subtitle, HORIZONTAL_ALIGNMENT_LEFT, maxf(80.0, panel.size.x - 332.0), _fit_font_size(panel_subtitle, maxf(80.0, panel.size.x - 332.0)), COLOR_MUTED)
 	var close_rect := Rect2(panel.end - Vector2(54, panel.size.y - 20), Vector2(34, 28))
 	draw_style_box(_rounded_style(Color(0.08, 0.12, 0.16, 1.0), COLOR_BORDER, 6, 2), close_rect)
 	draw_string(fallback_font, close_rect.position + Vector2(12, 19), "X", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
 	var goals := _goal_definitions()
 	var page_count := maxi(1, int(ceil(float(goals.size()) / GOALS_PER_PAGE)))
 	goal_page = clampi(goal_page, 0, page_count - 1)
-	draw_string(fallback_font, panel.position + Vector2(panel.size.x - 144, 38), "%d / %d 页" % [goal_page + 1, page_count], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var page_text := _goal_text("page_fmt") % [goal_page + 1, page_count]
+	draw_string(fallback_font, panel.position + Vector2(panel.size.x - 144, 38), page_text, HORIZONTAL_ALIGNMENT_LEFT, 90.0, _fit_font_size(page_text, 90.0), COLOR_MUTED)
 	var start := goal_page * GOALS_PER_PAGE
 	var finish := mini(start + GOALS_PER_PAGE, goals.size())
 	for goal_index in range(start, finish):
@@ -7678,28 +7702,27 @@ func _draw_goals_panel(viewport: Vector2) -> void:
 		var tracked := tracked_goal_id == String(goal["id"])
 		var accent := Color(COLOR_MINERAL) if tracked else (COLOR_HYPHA if complete else COLOR_BORDER)
 		draw_style_box(_rounded_style(Color(0.025, 0.095, 0.125, 0.96), Color(accent, 0.72), 9, 2), card)
-		if tracked:
-			draw_rect(Rect2(card.position + Vector2(4, 10), Vector2(5, 50)), Color(COLOR_MINERAL, 0.92))
-		draw_string(fallback_font, card.position + Vector2(16, 24), goal["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(16, 49), goal["desc"], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		if tracked: draw_rect(Rect2(card.position + Vector2(4, 10), Vector2(5, 50)), Color(COLOR_MINERAL, 0.92))
+		var copy_width := maxf(96.0, minf(260.0, card.size.x - 280.0))
+		var title := String(goal["title"]); var desc := String(goal["desc"])
+		draw_string(fallback_font, card.position + Vector2(16, 24), title, HORIZONTAL_ALIGNMENT_LEFT, copy_width, _fit_font_size(title, copy_width), COLOR_TEXT)
+		draw_string(fallback_font, card.position + Vector2(16, 49), desc, HORIZONTAL_ALIGNMENT_LEFT, copy_width, _fit_font_size(desc, copy_width), COLOR_MUTED)
 		var info_width := maxf(80.0, card.size.x - 564.0)
-		draw_string(fallback_font, card.position + Vector2(300, 24), _goal_progress_text(goal["id"]), HORIZONTAL_ALIGNMENT_LEFT, info_width, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(300, 49), goal["reward_text"], HORIZONTAL_ALIGNMENT_LEFT, info_width, UI_FONT_SIZE, COLOR_ORGANIC if goal["reward"].has("organic") else COLOR_MINERAL)
-		var button := _goal_button_rect(panel, i)
-		var track_button := _goal_track_button_rect(panel, i)
-		var track_available := not claimed
+		var progress := _goal_progress_text(String(goal["id"])); var reward_text := String(goal["reward_text"])
+		draw_string(fallback_font, card.position + Vector2(300, 24), progress, HORIZONTAL_ALIGNMENT_LEFT, info_width, _fit_font_size(progress, info_width), COLOR_TEXT)
+		draw_string(fallback_font, card.position + Vector2(300, 49), reward_text, HORIZONTAL_ALIGNMENT_LEFT, info_width, _fit_font_size(reward_text, info_width), COLOR_ORGANIC if goal["reward"].has("organic") else COLOR_MINERAL)
+		var button := _goal_button_rect(panel, i); var track_button := _goal_track_button_rect(panel, i)
 		draw_style_box(_rounded_style(Color(0.10, 0.12, 0.20, 1.0) if tracked else Color(0.05, 0.075, 0.09, 1.0), Color(COLOR_MINERAL, 0.88) if tracked else COLOR_BORDER, 7, 2 if tracked else 1), track_button)
-		var track_text := "取消追踪" if tracked else ("已领取" if claimed else "追踪")
-		draw_string(fallback_font, track_button.position + Vector2(17, 21), track_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if track_available else COLOR_MUTED)
-
+		var track_text := _goal_text("untrack") if tracked else (_goal_text("claimed") if claimed else _goal_text("track"))
+		draw_string(fallback_font, track_button.position + Vector2(8, 21), track_text, HORIZONTAL_ALIGNMENT_CENTER, track_button.size.x - 16.0, _fit_font_size(track_text, track_button.size.x - 16.0), COLOR_TEXT if not claimed else COLOR_MUTED)
 		var button_bg := Color(0.08, 0.23, 0.18, 1.0) if complete and not claimed else Color(0.05, 0.075, 0.09, 1.0)
 		draw_style_box(_rounded_style(button_bg, Color(COLOR_HYPHA, 0.82) if complete and not claimed else COLOR_BORDER, 7, 2), button)
-		var button_text := "已领取" if claimed else ("领取" if complete else "进行中")
-		draw_string(fallback_font, button.position + Vector2(22, 21), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if complete and not claimed else COLOR_MUTED)
-	for nav in [[_goal_prev_rect(panel), "上一页"], [_goal_next_rect(panel), "下一页"]]:
-		var nav_rect: Rect2 = nav[0]
+		var button_text := _goal_text("claimed") if claimed else (_goal_text("claim") if complete else _goal_text("in_progress"))
+		draw_string(fallback_font, button.position + Vector2(8, 21), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, _fit_font_size(button_text, button.size.x - 16.0), COLOR_TEXT if complete and not claimed else COLOR_MUTED)
+	for nav in [[_goal_prev_rect(panel), _goal_text("prev_page")], [_goal_next_rect(panel), _goal_text("next_page")]]:
+		var nav_rect: Rect2 = nav[0]; var nav_text := String(nav[1])
 		draw_style_box(_rounded_style(Color(0.05, 0.11, 0.15, 1.0), COLOR_BORDER, 6, 2), nav_rect)
-		draw_string(fallback_font, nav_rect.position + Vector2(18, 19), nav[1], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, nav_rect.position + Vector2(8, 19), nav_text, HORIZONTAL_ALIGNMENT_CENTER, nav_rect.size.x - 16.0, _fit_font_size(nav_text, nav_rect.size.x - 16.0), COLOR_TEXT)
 
 
 func _upgrade_panel_rect(viewport: Vector2) -> Rect2:
@@ -7865,19 +7888,20 @@ func _draw_upgrade_panel(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.0, 0.015, 0.03, 0.80))
 	var panel := _upgrade_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.018, 0.065, 0.095, 0.99), Color(0.38, 0.78, 0.68, 0.88), 12, 2), panel)
-	draw_string(fallback_font, panel.position + Vector2(34, 39), "进化与结构", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, panel.position + Vector2(174, 39), "DNA %d" % dna, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MINERAL)
-	draw_string(fallback_font, panel.position + Vector2(292, 39), "模拟继续运行", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 39), _up("title"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("title"), 130.0), COLOR_TEXT)
+	draw_string(fallback_font, panel.position + Vector2(174, 39), _up("dna_fmt") % dna, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MINERAL)
+	draw_string(fallback_font, panel.position + Vector2(292, 39), _up("simulation_running"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("simulation_running"), maxf(90.0, panel.size.x - 380.0)), COLOR_MUTED)
 	var close_rect := _upgrade_close_rect(panel)
 	draw_style_box(_rounded_style(Color(0.08, 0.12, 0.16, 1.0), COLOR_BORDER, 6, 2), close_rect)
 	draw_string(fallback_font, close_rect.position + Vector2(12, 19), "X", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	var tab_names := ["自身能力", "食性", "结构", "兵营", "环境适应"]
+	var tab_names := [_up("tab_self"), _up("tab_diet"), _up("tab_structure"), _up("tab_barracks"), _up("tab_environment")]
 	var tabs := _upgrade_tab_rects(panel)
 	for i in range(tabs.size()):
 		var tab_rect: Rect2 = tabs[i]
 		var active := upgrade_tab == i
 		draw_style_box(_rounded_style(Color(0.11, 0.30, 0.28, 0.96) if active else Color(0.025, 0.10, 0.14, 0.96), Color(0.52, 0.91, 0.72, 0.90) if active else COLOR_BORDER, 7, 2), tab_rect)
-		draw_string(fallback_font, tab_rect.position + Vector2(18, 22), tab_names[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if active else COLOR_MUTED)
+		var tab_text: String = tab_names[i]
+		draw_string(fallback_font, tab_rect.position + Vector2(8, 22), tab_text, HORIZONTAL_ALIGNMENT_CENTER, tab_rect.size.x - 16.0, _fit_font_size(tab_text, tab_rect.size.x - 16.0), COLOR_TEXT if active else COLOR_MUTED)
 	if upgrade_tab == 0:
 		_draw_node_upgrade_card(panel)
 	elif upgrade_tab == 1:
@@ -7890,7 +7914,7 @@ func _draw_upgrade_panel(viewport: Vector2) -> void:
 	elif upgrade_tab == 3:
 		_draw_barracks_upgrade_cards(panel)
 	else:
-		_draw_upgrade_placeholders(panel, "实验室环境无需气候适应；该分页留给后续章节")
+		_draw_upgrade_placeholders(panel, _up("environment_placeholder"))
 
 
 func _draw_node_upgrade_card(panel: Rect2) -> void:
@@ -7899,43 +7923,44 @@ func _draw_node_upgrade_card(panel: Rect2) -> void:
 	draw_style_box(_rounded_style(Color(0.025, 0.105, 0.13, 0.98), Color(COLOR_ORGANIC, 0.72), 10, 2), card)
 	var level := int(cores[upgrade_core_id].get("feeder_range_level", 0))
 	var range_um := _feeder_range_for_core(upgrade_core_id) / 2.0
-	draw_string(fallback_font, card.position + Vector2(22, 34), "吸收节点　Lv.%d / %d" % [level, MAX_FEEDER_RANGE_LEVEL], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
-	draw_string(fallback_font, card.position + Vector2(22, 70), "孢子核心 %d" % (upgrade_core_id + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, card.position + Vector2(22, 104), "细菌丝范围　%.0f μm" % range_um, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, card.position + Vector2(22, 136), "DNA 生产速度　+%d%%" % int(_dna_speed_bonus(upgrade_core_id) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, card.position + Vector2(22, 168), "单次 DNA 时间　%.1f 秒" % _dna_job_duration(upgrade_core_id), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, card.position + Vector2(22, 210), "每级：范围 +12 μm，DNA 速度 +15%", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, card.position + Vector2(22, 242), "升级只消耗有机营养，不消耗 DNA", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, card.position + Vector2(22, 34), _up("node_level_fmt") % [level, MAX_FEEDER_RANGE_LEVEL], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
+	draw_string(fallback_font, card.position + Vector2(22, 70), _up("node_core_fmt") % (upgrade_core_id + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, card.position + Vector2(22, 104), _up("node_range_fmt") % range_um, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, card.position + Vector2(22, 136), _up("node_speed_fmt") % int(_dna_speed_bonus(upgrade_core_id) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, card.position + Vector2(22, 168), _up("node_time_fmt") % _dna_job_duration(upgrade_core_id), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, card.position + Vector2(22, 210), _up("node_per_level"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("node_per_level"), card.size.x - 44.0), COLOR_MUTED)
+	draw_string(fallback_font, card.position + Vector2(22, 242), _up("node_cost_note"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("node_cost_note"), card.size.x - 44.0), COLOR_MUTED)
 	var button := _upgrade_node_button_rect(panel)
 	var maxed := level >= MAX_FEEDER_RANGE_LEVEL
 	draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.06, 0.08, 0.10, 1.0), Color(COLOR_ORGANIC, 0.88) if not maxed else COLOR_MUTED, 8, 2), button)
-	var button_text := "已满级" if maxed else "强化  %.3f" % _feeder_upgrade_cost(upgrade_core_id)
-	draw_string(fallback_font, button.position + Vector2(17, 27), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not maxed else COLOR_MUTED)
+	var button_text := _up("maxed") if maxed else _up("node_action_fmt") % _feeder_upgrade_cost(upgrade_core_id)
+	draw_string(fallback_font, button.position + Vector2(8, 27), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, _fit_font_size(button_text, button.size.x - 16.0), COLOR_TEXT if not maxed else COLOR_MUTED)
 	var side := _survival_panel_rect(panel)
 	draw_style_box(_rounded_style(Color(0.02, 0.08, 0.11, 0.94), COLOR_BORDER, 10, 2), side)
-	draw_string(fallback_font, side.position + Vector2(16, 28), "核心生存进化", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, side.position + Vector2(16, 28), _up("survival_title"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("survival_title"), side.size.x - 32.0), COLOR_TEXT)
 	for i in range(SURVIVAL_IDS.size()):
 		var survival_id: String = SURVIVAL_IDS[i]
 		var survival_level := int(survival_levels.get(survival_id, 0))
 		var row := Rect2(side.position + Vector2(12, 42 + i * 70), Vector2(side.size.x - 24, 62))
 		draw_style_box(_rounded_style(Color(0.035, 0.10, 0.125, 0.96), Color(COLOR_HYPHA, 0.48), 7, 1), row)
-		draw_string(fallback_font, row.position + Vector2(10, 20), "%s　%d/4" % [SURVIVAL_NAMES[survival_id], survival_level], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		var survival_name := _up("survival_%s" % survival_id)
+		draw_string(fallback_font, row.position + Vector2(10, 20), _up("survival_level_fmt") % [survival_name, survival_level], HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("survival_level_fmt") % [survival_name, survival_level], maxf(40.0, row.size.x - 112.0)), COLOR_TEXT)
 		var effect_text := ""
 		match survival_id:
 			"wall":
-				effect_text = "核心上限 %.3f" % _core_max_biomass_value()
+				effect_text = _up("survival_wall_effect_fmt") % _core_max_biomass_value()
 			"detox":
-				effect_text = "毒素伤害 %d%%" % int(_toxin_damage_multiplier() * 100.0)
+				effect_text = _up("survival_detox_effect_fmt") % int(_toxin_damage_multiplier() * 100.0)
 			"repair":
-				effect_text = "自然 %.3f　储备 %.3f" % [_passive_recovery_rate(), _repair_recovery_rate()]
+				effect_text = _up("survival_repair_effect_fmt") % [_passive_recovery_rate(), _repair_recovery_rate()]
 			"storage":
-				effect_text = "每次储备 %.3f" % _repair_reserve_purchase_amount()
+				effect_text = _up("survival_storage_effect_fmt") % _repair_reserve_purchase_amount()
 		draw_string(fallback_font, row.position + Vector2(10, 45), effect_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 		var survival_button := _survival_button_rect(panel, i)
 		var survival_maxed := survival_level >= 4
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not survival_maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.78) if not survival_maxed else COLOR_MUTED, 6, 1), survival_button)
-		var survival_button_text := "已满" if survival_maxed else "%d DNA" % _survival_cost(survival_id)
-		draw_string(fallback_font, survival_button.position + Vector2(12, 19), survival_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not survival_maxed else COLOR_MUTED)
+		var survival_button_text := _up("maxed_short") if survival_maxed else _up("dna_cost_fmt") % _survival_cost(survival_id)
+		draw_string(fallback_font, survival_button.position + Vector2(5, 19), survival_button_text, HORIZONTAL_ALIGNMENT_CENTER, survival_button.size.x - 10.0, _fit_font_size(survival_button_text, survival_button.size.x - 10.0), COLOR_TEXT if not survival_maxed else COLOR_MUTED)
 
 
 func _draw_diet_upgrade_cards(panel: Rect2) -> void:
@@ -8041,11 +8066,12 @@ func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
 		var card := _barracks_unit_card_rect(panel, i)
 		var accent := Color("76f5ca") if unlocked else COLOR_BORDER
 		draw_style_box(_rounded_style(Color(0.025, 0.10, 0.125, 0.98), Color(accent, 0.82), 10, 2), card)
-		draw_string(fallback_font, card.position + Vector2(18, 28), BARRACK_UNIT_NAMES[unit_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
-		draw_string(fallback_font, card.position + Vector2(18, 55), BARRACK_UNIT_DESCRIPTIONS[unit_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		var stat_text := "已掌握，可在兵营切换" if unlocked else "解锁后进入所有兵营"
+		draw_string(fallback_font, card.position + Vector2(18, 28), _localized_unit_name(unit_id), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
+		var unit_desc := _up("unit_%s_desc" % unit_id)
+		draw_string(fallback_font, card.position + Vector2(18, 55), unit_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(unit_desc, card.size.x - 36.0), COLOR_MUTED)
+		var stat_text := _up("barracks_mastered") if unlocked else _up("barracks_unlock_all")
 		if unit_id == "scout" and unlocked:
-			stat_text = "感知 Lv.%d　运动 Lv.%d　视野 %.0f μm" % [int(scout_upgrade_levels.get("vision", 0)), int(scout_upgrade_levels.get("speed", 0)), _scout_reveal_radius() / 2.0]
+			stat_text = _up("scout_stats_fmt") % [int(scout_upgrade_levels.get("vision", 0)), int(scout_upgrade_levels.get("speed", 0)), _scout_reveal_radius() / 2.0]
 		draw_string(fallback_font, card.position + Vector2(18, 88), stat_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC if unlocked else COLOR_MUTED)
 		if unit_id == "scout" and unlocked:
 			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
@@ -8053,14 +8079,15 @@ func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
 				var scout_maxed := scout_level >= MAX_SCOUT_UPGRADE_LEVEL
 				var scout_button := _scout_upgrade_button_rect(panel, scout_upgrade_id)
 				draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not scout_maxed else Color(0.05, 0.07, 0.09, 1.0), Color(Color("5edcf5"), 0.82) if not scout_maxed else COLOR_BORDER, 7, 2), scout_button)
-				var scout_button_text := "已满级" if scout_maxed else "%s %d DNA" % [SCOUT_UPGRADE_NAMES[scout_upgrade_id], _scout_upgrade_cost(scout_upgrade_id)]
-				draw_string(fallback_font, scout_button.position + Vector2(9, 20), scout_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not scout_maxed else COLOR_MUTED)
+				var scout_name := _up("scout_%s" % scout_upgrade_id)
+				var scout_button_text := _up("maxed") if scout_maxed else _up("scout_upgrade_fmt") % [scout_name, _scout_upgrade_cost(scout_upgrade_id)]
+				draw_string(fallback_font, scout_button.position + Vector2(5, 20), scout_button_text, HORIZONTAL_ALIGNMENT_CENTER, scout_button.size.x - 10.0, _fit_font_size(scout_button_text, scout_button.size.x - 10.0), COLOR_TEXT if not scout_maxed else COLOR_MUTED)
 			continue
 		var button := _barracks_unit_button_rect(panel, i)
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(Color("76f5ca"), 0.82) if available and not unlocked else COLOR_BORDER, 7, 2), button)
-		var button_text := "已掌握" if unlocked else ("解锁 %d DNA" % int(BARRACK_UNIT_UNLOCK_COSTS.get(unit_id, 0)) if available else "尚未开放")
-		draw_string(fallback_font, button.position + Vector2(10, 20), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available and not unlocked else COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 512), "通用兵种在此解锁；食性特攻部队位于各食性的“专属升级”页面。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_text := _up("mastered") if unlocked else (_up("unlock_dna_fmt") % int(BARRACK_UNIT_UNLOCK_COSTS.get(unit_id, 0)) if available else _up("locked"))
+		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("barracks_footer"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("barracks_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
 func _draw_structure_upgrade_cards(panel: Rect2) -> void:
@@ -8069,32 +8096,34 @@ func _draw_structure_upgrade_cards(panel: Rect2) -> void:
 		var level := int(structure_levels.get(structure_id, 0))
 		var card := _structure_card_rect(panel, i)
 		draw_style_box(_rounded_style(Color(0.025, 0.10, 0.125, 0.98), Color(COLOR_HYPHA, 0.72), 10, 2), card)
-		draw_string(fallback_font, card.position + Vector2(18, 28), "%s　Lv.%d / 4" % [STRUCTURE_NAMES[structure_id], level], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(18, 55), STRUCTURE_DESCRIPTIONS[structure_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var structure_name := _up("structure_%s_name" % structure_id)
+		draw_string(fallback_font, card.position + Vector2(18, 28), _up("structure_level_fmt") % [structure_name, level], HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("structure_level_fmt") % [structure_name, level], card.size.x - 36.0), COLOR_TEXT)
+		var structure_desc := _up("structure_%s_desc" % structure_id)
+		draw_string(fallback_font, card.position + Vector2(18, 55), structure_desc, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(structure_desc, card.size.x - 36.0), COLOR_MUTED)
 		var effect_text := ""
 		match structure_id:
 			"branching":
-				effect_text = "每个核心容量　%.0f μm" % (_hypha_capacity_for_core(0) / 2.0)
+				effect_text = _up("structure_capacity_fmt") % (_hypha_capacity_for_core(0) / 2.0)
 			"elongation":
-				effect_text = "单段上限　%.0f μm" % (_max_segment_length() / 2.0)
+				effect_text = _up("structure_segment_fmt") % (_max_segment_length() / 2.0)
 			"feeders":
-				effect_text = "同时吸收　%d 条" % _active_feeder_capacity()
+				effect_text = _up("structure_feeders_fmt") % _active_feeder_capacity()
 			"growth":
-				effect_text = "生长时间　%.1f 秒" % _hypha_growth_seconds()
+				effect_text = _up("structure_growth_fmt") % _hypha_growth_seconds()
 		draw_string(fallback_font, card.position + Vector2(18, 88), effect_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
 		var button := _structure_button_rect(panel, i)
 		var maxed := level >= 4
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_HYPHA, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := "已满级" if maxed else "进化 %d DNA" % _structure_cost(structure_id)
-		draw_string(fallback_font, button.position + Vector2(10, 20), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not maxed else COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 512), "结构升级对所有孢子核心生效，同一阶段内可以继续追加等级。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _structure_cost(structure_id)
+		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("structure_footer"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("structure_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
 func _draw_upgrade_placeholders(panel: Rect2, message: String) -> void:
 	var card := Rect2(panel.position + Vector2(34, 132), Vector2(panel.size.x - 68, 342))
 	draw_style_box(_rounded_style(Color(0.02, 0.08, 0.11, 0.94), COLOR_BORDER, 10, 2), card)
-	draw_string(fallback_font, card.position + Vector2(26, 42), "分页已建立", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, card.position + Vector2(26, 82), message, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	draw_string(fallback_font, card.position + Vector2(26, 42), _up("placeholder_title"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, card.position + Vector2(26, 82), message, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(message, card.size.x - 52.0), COLOR_MUTED)
 
 
 func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
@@ -8197,29 +8226,34 @@ func _draw_expedition_tooltip() -> bool:
 		lines.append(_gt("hover_purge_zone_fmt") % [purge_zone.size.x / 2.0, purge_zone.size.y / 2.0])
 	if unit_type == "suppressor":
 		var deploy_state := String(unit.get("state", "idle"))
-		var detail := "右键指定位置后展开；范围 70 μm，细菌代谢 30%"
+		var radius_um := SUPPRESSOR_ZONE_RADIUS / 2.0
+		var metabolism_percent := SUPPRESSOR_BACTERIA_MULTIPLIER * 100.0
+		var detail := _bt("hover_suppressor_ready_fmt") % [radius_um, metabolism_percent]
 		if deploy_state == "deploying":
-			detail = "展开 %.1f / %.1f 秒　·　范围 70 μm" % [float(unit.get("deploy_progress", 0.0)), SUPPRESSOR_DEPLOY_SECONDS]
+			detail = _bt("hover_suppressor_deploying_fmt") % [float(unit.get("deploy_progress", 0.0)), SUPPRESSOR_DEPLOY_SECONDS, radius_um]
 		elif deploy_state == "deployed":
-			detail = "抑菌半径 70 μm　·　细菌吸收与分裂速度 30%"
+			detail = _bt("hover_suppressor_deployed_fmt") % [radius_um, metabolism_percent]
 		lines.append(detail)
 	elif unit_type == "disperser":
 		var cooldown := maxf(0.0, float(unit.get("burst_cooldown", DISPERSER_WINDUP_SECONDS)))
-		lines.append("远程 %.0f μm　裂解半径 %.0f μm　下次释放 %.1f 秒" % [DISPERSER_ATTACK_RANGE / 2.0, DISPERSER_BURST_RADIUS / 2.0, cooldown])
-		lines.append("单次伤害 %.3f × 食性效率　上次命中 %d" % [DISPERSER_BURST_DAMAGE, int(unit.get("last_burst_hits", 0))])
+		lines.append(_bt("hover_disperser_range_fmt") % [DISPERSER_ATTACK_RANGE / 2.0, DISPERSER_BURST_RADIUS / 2.0, cooldown])
+		lines.append(_bt("hover_disperser_damage_fmt") % [DISPERSER_BURST_DAMAGE, int(unit.get("last_burst_hits", 0))])
 	elif unit_type == "antifungal":
 		var deploy_state := String(unit.get("state", "idle"))
-		var detail := "右键指定位置后展开；范围 75 μm，敌菌吸收与扩张 35%"
+		var radius_um := ANTIFUNGAL_ZONE_RADIUS / 2.0
+		var growth_percent := ANTIFUNGAL_GROWTH_MULTIPLIER * 100.0
+		var decay_percent := ANTIFUNGAL_DISCONNECTED_DECAY_MULTIPLIER * 100.0
+		var detail := _bt("hover_antifungal_ready_fmt") % [radius_um, growth_percent]
 		if deploy_state == "deploying":
-			detail = "展开 %.1f / %.1f 秒　·　范围 75 μm" % [float(unit.get("deploy_progress", 0.0)), ANTIFUNGAL_DEPLOY_SECONDS]
+			detail = _bt("hover_antifungal_deploying_fmt") % [float(unit.get("deploy_progress", 0.0)), ANTIFUNGAL_DEPLOY_SECONDS, radius_um]
 		elif deploy_state == "deployed":
-			detail = "封锁半径 75 μm　·　断联敌菌丝衰败速度 200%"
+			detail = _bt("hover_antifungal_deployed_fmt") % [radius_um, decay_percent]
 		lines.append(detail)
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
-	var size := Vector2(max_width + 28.0, 18.0 + lines.size() * 22.0)
 	var viewport := get_viewport_rect().size
+	var size := Vector2(minf(max_width + 28.0, maxf(160.0, viewport.x - 24.0)), 18.0 + lines.size() * 22.0)
 	var pos := last_mouse + Vector2(18, 14)
 	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
 	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
@@ -8227,7 +8261,9 @@ func _draw_expedition_tooltip() -> bool:
 	var accent := _unit_color(unit_type)
 	draw_style_box(_rounded_style(Color(0.018, 0.065, 0.075, 0.98), Color(accent, 0.88), 8, 2), rect)
 	for i in range(lines.size()):
-		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), String(lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if i == 0 else COLOR_MUTED)
+		var line_text := String(lines[i])
+		var line_font_size := _fit_font_size(line_text, size.x - 28.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, line_font_size, COLOR_TEXT if i == 0 else COLOR_MUTED)
 	return true
 
 
@@ -8593,40 +8629,49 @@ func _draw_status_panel(viewport: Vector2) -> void:
 				draw_rect(Rect2(slot.position + Vector2(2, 2), Vector2((slot.size.x - 4.0) * slot_progress, slot.size.y - 4.0)), Color(slot_border, 0.20))
 			if i < jobs.size():
 				var slot_type := String((jobs[i] as Dictionary).get("unit_type", "forager"))
-				var short_name: String = String({"forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "disperser": "散", "piercer": "穿", "coil": "缠", "antifungal": "封"}.get(slot_type, "?"))
-				draw_string(fallback_font, slot.position + Vector2(8, 19), short_name, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, _unit_color(slot_type))
+				var short_name := _localized_barracks_unit_short(slot_type)
+				var short_font_size := _fit_font_size(short_name, slot.size.x - 8.0, UI_FONT_SIZE, 8)
+				draw_string(fallback_font, slot.position + Vector2(8, 19), short_name, HORIZONTAL_ALIGNMENT_LEFT, -1, short_font_size, _unit_color(slot_type))
 		var auto_available := _available_barracks_units().has(auto_unit)
-		var auto_text := "自动补员：%s　%s %d / %d" % [
-			"开" if bool(core.get("auto_replenish", false)) else "关",
-			BARRACK_UNIT_NAMES.get(auto_unit, auto_unit),
+		var auto_enabled := bool(core.get("auto_replenish", false))
+		var auto_text := _bt("stat_auto_replenish_fmt") % [
+			_bt("common_enabled") if auto_enabled else _bt("common_disabled"), _localized_unit_name(auto_unit),
 			_barracks_unit_count(selected_core, auto_unit, true),
 			auto_target
 		]
-		if bool(core.get("auto_replenish", false)) and not auto_available:
-			auto_text = "自动补员暂停：食性条件失效（%s）" % BARRACK_UNIT_NAMES.get(auto_unit, auto_unit)
-		draw_string(fallback_font, rect.position + Vector2(16, 352), auto_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffad78") if bool(core.get("auto_replenish", false)) and not auto_available else COLOR_MUTED)
+		if auto_enabled and not auto_available:
+			auto_text = _bt("stat_auto_replenish_paused_diet_fmt") % _localized_unit_name(auto_unit)
+		var auto_status_font_size := _fit_font_size(auto_text, rect.size.x - 32.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, rect.position + Vector2(16, 352), auto_text, HORIZONTAL_ALIGNMENT_LEFT, -1, auto_status_font_size, Color("ffad78") if auto_enabled and not auto_available else COLOR_MUTED)
 		var auto_button := _barracks_auto_button_rect()
 		var target_button := _barracks_target_button_rect()
 		var rally_button := _barracks_rally_button_rect()
 		draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("76f5ca"), 7, 1), auto_button)
 		draw_style_box(_rounded_style(Color(0.045, 0.12, 0.18, 0.98), Color("5edcf5"), 7, 1), target_button)
 		draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("56f08d"), 7, 1), rally_button)
-		draw_string(fallback_font, auto_button.position + Vector2(12, 21), "自动补员：%s" % ("开" if bool(core.get("auto_replenish", false)) else "关"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, target_button.position + Vector2(10, 21), "目标 %d" % auto_target, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, rally_button.position + Vector2(9, 21), "清除集结" if bool(core.get("rally_enabled", false)) else "设置集结", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		var auto_button_text := _bt("button_auto_replenish_fmt") % (_bt("common_on_short") if auto_enabled else _bt("common_off_short"))
+		var target_button_text := _bt("button_auto_target_fmt") % auto_target
+		var rally_button_text := _bt("button_rally_clear") if bool(core.get("rally_enabled", false)) else _bt("button_rally_set")
+		var auto_button_font_size := _fit_font_size(auto_button_text, auto_button.size.x - 20.0, UI_FONT_SIZE, 8)
+		var target_button_font_size := _fit_font_size(target_button_text, target_button.size.x - 18.0, UI_FONT_SIZE, 8)
+		var rally_button_font_size := _fit_font_size(rally_button_text, rally_button.size.x - 18.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, auto_button.position + Vector2(10, 21), auto_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, auto_button_font_size, COLOR_TEXT)
+		draw_string(fallback_font, target_button.position + Vector2(9, 21), target_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, target_button_font_size, COLOR_TEXT)
+		draw_string(fallback_font, rally_button.position + Vector2(9, 21), rally_button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, rally_button_font_size, COLOR_TEXT)
 		var directive_enabled := bool(core.get("directive_enabled", false))
 		var directive_type := String(core.get("directive_type", ""))
 		var directive_unit := String(core.get("directive_unit", "forager"))
-		var directive_text := "持续任务：未设置"
+		var directive_text := _bt("stat_directive_unset")
 		var directive_color := COLOR_MUTED
 		if directive_enabled:
-			directive_text = "持续任务：%s · %s　现役编制 %d　新补员自动接班" % [BARRACK_UNIT_NAMES.get(directive_unit, directive_unit), BARRACKS_DIRECTIVE_NAMES.get(directive_type, directive_type), _barracks_directive_member_count(selected_core)]
+			directive_text = _bt("stat_directive_active_fmt") % [_localized_unit_name(directive_unit), _localized_barracks_directive_name(directive_type), _barracks_directive_member_count(selected_core)]
 			directive_color = Color("76f5ca")
 			if not _barracks_directive_valid(selected_core, true):
-				directive_text = "持续任务暂停：兵种、食性或区域条件失效"
+				directive_text = _bt("stat_directive_paused")
 				directive_color = Color("ffad78")
-		draw_string(fallback_font, rect.position + Vector2(16, 426), directive_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, directive_color)
-		var directive_labels := ["防区", "采区", "猎区", "清任务"]
+		var directive_status_font_size := _fit_font_size(directive_text, rect.size.x - 32.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, rect.position + Vector2(16, 426), directive_text, HORIZONTAL_ALIGNMENT_LEFT, -1, directive_status_font_size, directive_color)
+		var directive_labels := [_bt("directive_defense_short"), _bt("directive_harvest_short"), _bt("directive_purge_short"), _bt("directive_clear_short")]
 		var directive_colors := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER)]
 		var setup_unit := String(core.get("auto_replenish_unit", "forager")) if bool(core.get("auto_replenish", false)) else String(core.get("production_unit", "forager"))
 		for directive_index in range(4):
@@ -8635,7 +8680,8 @@ func _draw_status_panel(viewport: Vector2) -> void:
 			var active := directive_index < 3 and mode == "barracks_%s_zone" % String(BARRACKS_DIRECTIVE_TYPES[directive_index])
 			var button_color: Color = directive_colors[directive_index] if available else Color(COLOR_BORDER, 0.45)
 			draw_style_box(_rounded_style(Color(0.05, 0.20, 0.16, 0.98) if active else Color(0.035, 0.12, 0.13, 0.96), button_color, 6, 2 if active else 1), directive_button)
-			draw_string(fallback_font, directive_button.position + Vector2(10, 21), String(directive_labels[directive_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
+			var directive_font_size := _fit_font_size(String(directive_labels[directive_index]), directive_button.size.x - 18.0, UI_FONT_SIZE, 8)
+			draw_string(fallback_font, directive_button.position + Vector2(9, 21), String(directive_labels[directive_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, directive_font_size, COLOR_TEXT if available else COLOR_MUTED)
 	if viewport.x < 800:
 		return
 
