@@ -6,6 +6,7 @@ const GameplayLocalization = preload("res://scripts/gameplay_localization.gd")
 const GoalLocalization = preload("res://scripts/goal_localization.gd")
 const BarracksLocalization = preload("res://scripts/barracks_localization.gd")
 const UpgradeLocalization = preload("res://scripts/upgrade_localization.gd")
+const GuideLocalization = preload("res://scripts/guide_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -31,6 +32,14 @@ const SETTINGS_PATH := "user://settings.json"
 const UI_FONT_PATH := "res://assets/fonts/fusion-bold/fusion-bold-pixel-12px-proportional-zh_hans.ttf"
 const SPLASH_LOGO_PATH := "res://assets/branding/splash-logo.png"
 const CURSOR_TEXTURE_PATH := "res://assets/ui/cursor-green.svg"
+const GUIDE_TEXTURE_PATHS: Array[String] = [
+	"res://assets/guide/guide_germination.png",
+	"res://assets/guide/guide_resources_dna.png",
+	"res://assets/guide/guide_evolution.png",
+	"res://assets/guide/guide_barracks_command.png",
+	"res://assets/guide/guide_exploration_goals.png",
+	"res://assets/guide/guide_survival_failure.png"
+]
 const UI_FONT_SIZE := 12
 const SPLASH_FADE_IN_SECONDS := 0.90
 const SPLASH_HOLD_SECONDS := 1.10
@@ -377,6 +386,7 @@ var game_started := false
 var pause_menu_open := false
 var pause_menu_page := "main"
 var pause_menu_notice := ""
+var pause_guide_page := 0
 var settings_fullscreen := false
 var settings_pixel_cursor := true
 var settings_master_volume := 0.80
@@ -418,6 +428,7 @@ var enemy_threat_pos := Vector2.INF
 var fallback_font: Font
 var splash_logo: Texture2D
 var cursor_texture: Texture2D
+var guide_textures: Array[Texture2D] = []
 var pixel_audio: Node
 var audio_hover_target := ""
 
@@ -440,6 +451,7 @@ func _ready() -> void:
 	var bundled_cursor = load(CURSOR_TEXTURE_PATH)
 	if bundled_cursor is Texture2D:
 		cursor_texture = bundled_cursor
+	_load_guide_textures()
 	# Windows export smoke tests use Dummy display/audio drivers. Avoid constructing
 	# native audio players on that non-gameplay path; normal Windows launches and
 	# Linux headless regression tests retain the complete audio system.
@@ -456,6 +468,25 @@ func _ready() -> void:
 		main_menu_page = "language"
 	set_process(true)
 	queue_redraw()
+
+
+func _load_guide_textures() -> void:
+	guide_textures.clear()
+	for texture_path in GUIDE_TEXTURE_PATHS:
+		var texture: Texture2D = null
+		if ResourceLoader.exists(texture_path):
+			var imported_resource = ResourceLoader.load(texture_path)
+			if imported_resource is Texture2D:
+				texture = imported_resource
+		if texture == null:
+			var raw_image := Image.load_from_file(texture_path)
+			if raw_image != null and not raw_image.is_empty():
+				texture = ImageTexture.create_from_image(raw_image)
+		if texture != null:
+			guide_textures.append(texture)
+		else:
+			push_warning("Guide texture could not be loaded: " + texture_path)
+			guide_textures.append(null)
 
 
 func _notification(what: int) -> void:
@@ -4900,7 +4931,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 				_handle_pause_menu_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo:
-			if event.keycode == KEY_ESCAPE:
+			if pause_menu_page == "guide" and event.keycode in [KEY_LEFT, KEY_PAGEUP]:
+				_change_pause_guide_page(-1)
+			elif pause_menu_page == "guide" and event.keycode in [KEY_RIGHT, KEY_PAGEDOWN, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
+				_change_pause_guide_page(1)
+			elif pause_menu_page == "guide" and event.keycode == KEY_HOME:
+				_set_pause_guide_page(0)
+			elif pause_menu_page == "guide" and event.keycode == KEY_END:
+				_set_pause_guide_page(_pause_guide_page_count() - 1)
+			elif event.keycode == KEY_ESCAPE:
 				if pause_menu_page == "main":
 					_close_pause_menu()
 				elif pause_menu_page == "restart_confirm" and game_over:
@@ -4908,6 +4947,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					pause_menu_page = "main"
 				elif pause_menu_page == "language":
 					pause_menu_page = "settings"
+				elif pause_menu_page == "guide":
+					pause_menu_page = "main"
+					pause_guide_page = 0
 				else:
 					pause_menu_page = "main"
 				queue_redraw()
@@ -5827,6 +5869,10 @@ func _localized_barracks_unit_short(unit_id: String) -> String:
 
 func _up(key: String) -> String:
 	return UpgradeLocalization.text(key, settings_locale)
+
+
+func _guide(key: String) -> String:
+	return GuideLocalization.text(key, settings_locale)
 
 
 func _fit_font_size(text_value: String, max_width: float, preferred: int = UI_FONT_SIZE, minimum: int = 8) -> int:
@@ -8728,6 +8774,8 @@ func _handle_game_over_click(pos: Vector2) -> void:
 
 
 func _pause_menu_labels() -> Array[String]:
+	if pause_menu_page == "guide":
+		return [_guide("guide_prev"), _guide("guide_next"), _guide("guide_back")]
 	if pause_menu_page == "language":
 		return _language_menu_labels()
 	if pause_menu_page == "settings":
@@ -8744,10 +8792,13 @@ func _pause_menu_labels() -> Array[String]:
 		]
 	if pause_menu_page == "restart_confirm":
 		return [_ui("confirm_restart"), _ui("cancel")]
-	return [_ui("continue_culture"), _ui("save_now"), _ui("settings"), _ui("save_return"), _ui("restart_culture")]
+	return [_ui("continue_culture"), _ui("save_now"), _ui("settings"), _ui("save_return"), _ui("restart_culture"), _guide("menu_guide")]
 
 
 func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
+	if pause_menu_page == "guide":
+		var guide_size := Vector2(minf(1040.0, viewport.x - 40.0), minf(600.0, viewport.y - 40.0))
+		return Rect2(_pixel_snap(viewport * 0.5 - guide_size * 0.5), guide_size)
 	var height := 410.0 if pause_menu_page == "main" else (480.0 if pause_menu_page == "settings" or pause_menu_page == "language" else 260.0)
 	var size := Vector2(minf(480.0, viewport.x - 40.0), minf(height, viewport.y - 40.0))
 	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
@@ -8755,10 +8806,129 @@ func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
 
 func _pause_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := _pause_menu_panel_rect(viewport)
+	if pause_menu_page == "guide":
+		var compact := panel.size.y < 420.0
+		var height := 28.0 if compact else 36.0
+		var gap := 10.0 if compact else 14.0
+		var width := minf(140.0, (panel.size.x - 48.0 - gap * 2.0) / 3.0)
+		var total_width := width * 3.0 + gap * 2.0
+		var start_x := panel.get_center().x - total_width * 0.5
+		return Rect2(_pixel_snap(Vector2(start_x + index * (width + gap), panel.end.y - height - (8.0 if compact else 14.0))), Vector2(width, height))
 	var count := maxi(1, _pause_menu_labels().size())
 	var step := minf(54.0, (panel.size.y - 118.0) / float(count))
 	var size := Vector2(minf(330.0, panel.size.x - 48.0), clampf(step - 4.0, 20.0, 42.0))
 	return Rect2(_pixel_snap(Vector2(panel.get_center().x - size.x * 0.5, panel.position.y + 72.0 + index * step)), size)
+
+
+func _pause_guide_page_count() -> int:
+	return GuideLocalization.PAGE_IDS.size()
+
+
+func _set_pause_guide_page(page_index: int, play_cue: bool = true) -> void:
+	pause_guide_page = clampi(page_index, 0, _pause_guide_page_count() - 1)
+	if play_cue:
+		_play_sound("ui_click")
+	queue_redraw()
+
+
+func _change_pause_guide_page(delta: int, play_cue: bool = true) -> void:
+	pause_guide_page = wrapi(pause_guide_page + delta, 0, _pause_guide_page_count())
+	if play_cue:
+		_play_sound("ui_click")
+	queue_redraw()
+
+
+func _pause_guide_content_rect(panel: Rect2) -> Rect2:
+	var compact := panel.size.y < 420.0
+	var padding := 12.0 if compact else 24.0
+	var header := 46.0 if compact else 64.0
+	var footer := 50.0 if compact else 70.0
+	return Rect2(panel.position + Vector2(padding, header), Vector2(panel.size.x - padding * 2.0, panel.size.y - header - footer))
+
+
+func _pause_guide_image_rect(panel: Rect2) -> Rect2:
+	var content := _pause_guide_content_rect(panel)
+	var gap := 12.0 if panel.size.y < 420.0 else 22.0
+	var side := floorf(minf(content.size.y, content.size.x * 0.42))
+	return Rect2(_pixel_snap(Vector2(content.end.x - side, content.get_center().y - side * 0.5)), Vector2.ONE * side)
+
+
+func _pause_guide_text_rect(panel: Rect2) -> Rect2:
+	var content := _pause_guide_content_rect(panel)
+	var image_rect := _pause_guide_image_rect(panel)
+	var gap := 12.0 if panel.size.y < 420.0 else 22.0
+	return Rect2(content.position, Vector2(image_rect.position.x - gap - content.position.x, content.size.y))
+
+
+func _wrap_guide_text(text_value: String, max_width: float, font_size: int) -> Array[String]:
+	var lines: Array[String] = []
+	for paragraph_value in text_value.split("\n"):
+		var paragraph := String(paragraph_value)
+		if paragraph == "":
+			lines.append("")
+			continue
+		var current := ""
+		if paragraph.contains(" "):
+			for word_value in paragraph.split(" ", false):
+				var word := String(word_value)
+				var candidate := word if current == "" else current + " " + word
+				if current != "" and fallback_font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+					lines.append(current)
+					current = word
+				else:
+					current = candidate
+		else:
+			for character_index in range(paragraph.length()):
+				var character := paragraph.substr(character_index, 1)
+				var candidate := current + character
+				if current != "" and fallback_font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+					lines.append(current)
+					current = character
+				else:
+					current = candidate
+		if current != "":
+			lines.append(current)
+	return lines
+
+
+func _draw_pause_guide(panel: Rect2) -> void:
+	pause_guide_page = clampi(pause_guide_page, 0, _pause_guide_page_count() - 1)
+	var page_id: String = GuideLocalization.PAGE_IDS[pause_guide_page]
+	var page: Dictionary = GuideLocalization.page(page_id, settings_locale)
+	var compact := panel.size.y < 420.0
+	var text_rect := _pause_guide_text_rect(panel)
+	var image_rect := _pause_guide_image_rect(panel)
+	var page_text := _guide("guide_page_fmt") % [pause_guide_page + 1, _pause_guide_page_count()]
+	var page_font_size := _fit_font_size(page_text, 86.0, UI_FONT_SIZE, 8)
+	draw_string(fallback_font, panel.position + Vector2(panel.size.x - 112.0, 38.0 if not compact else 30.0), page_text, HORIZONTAL_ALIGNMENT_RIGHT, 86.0, page_font_size, COLOR_MUTED)
+	if not compact:
+		var key_hint := _guide("guide_keys_hint")
+		draw_string(fallback_font, panel.position + Vector2(260.0, 39.0), key_hint, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 396.0, _fit_font_size(key_hint, panel.size.x - 396.0, 10, 8), COLOR_MUTED)
+	var card_color := Color(0.015, 0.045, 0.080, 0.98)
+	draw_style_box(_rounded_style(card_color, Color(COLOR_BORDER, 0.78), 10, 2), image_rect.grow(4.0))
+	if pause_guide_page < guide_textures.size() and guide_textures[pause_guide_page] != null:
+		draw_texture_rect(guide_textures[pause_guide_page], image_rect, false)
+	var title := String(page["title"])
+	var title_size := _fit_font_size(title, text_rect.size.x, 16 if not compact else 14, 10)
+	draw_string(fallback_font, text_rect.position + Vector2(0.0, float(title_size) + 2.0), title, HORIZONTAL_ALIGNMENT_LEFT, text_rect.size.x, title_size, COLOR_HYPHA)
+	var body_size := 12 if not compact else 10
+	var body_lines := _wrap_guide_text(String(page["body"]), text_rect.size.x, body_size)
+	var body_top := text_rect.position.y + (48.0 if not compact else 38.0)
+	var hint_height := 42.0 if not compact else 34.0
+	var available_body_height := text_rect.end.y - hint_height - 10.0 - body_top
+	var line_step := float(body_size + (8 if not compact else 6))
+	while body_size > 8 and body_lines.size() * line_step > available_body_height:
+		body_size -= 1
+		line_step = float(body_size + (8 if not compact else 6))
+		body_lines = _wrap_guide_text(String(page["body"]), text_rect.size.x, body_size)
+	var max_lines := maxi(1, int(floor(available_body_height / line_step)))
+	for line_index in range(mini(body_lines.size(), max_lines)):
+		draw_string(fallback_font, Vector2(text_rect.position.x, body_top + float(body_size) + line_index * line_step), body_lines[line_index], HORIZONTAL_ALIGNMENT_LEFT, text_rect.size.x, body_size, COLOR_TEXT)
+	var hint_rect := Rect2(Vector2(text_rect.position.x, text_rect.end.y - hint_height), Vector2(text_rect.size.x, hint_height))
+	draw_style_box(_rounded_style(Color(0.07, 0.16, 0.15, 0.96), Color(COLOR_ORGANIC, 0.72), 7, 1), hint_rect)
+	var hint := String(page["hint"])
+	var hint_size := _fit_font_size(hint, hint_rect.size.x - 20.0, UI_FONT_SIZE if not compact else 10, 8)
+	draw_string(fallback_font, hint_rect.position + Vector2(10.0, hint_rect.size.y * 0.5 + hint_size * 0.35), hint, HORIZONTAL_ALIGNMENT_LEFT, hint_rect.size.x - 20.0, hint_size, COLOR_ORGANIC)
 
 
 func _draw_pause_menu(viewport: Vector2) -> void:
@@ -8773,7 +8943,11 @@ func _draw_pause_menu(viewport: Vector2) -> void:
 		title = _ui("pause_language")
 	elif pause_menu_page == "restart_confirm":
 		title = _ui("pause_restart_confirm")
+	elif pause_menu_page == "guide":
+		title = _guide("guide_title")
 	draw_string(fallback_font, panel.position + Vector2(28, 42), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, accent)
+	if pause_menu_page == "guide":
+		_draw_pause_guide(panel)
 	var labels := _pause_menu_labels()
 	for i in range(labels.size()):
 		var button := _pause_menu_button_rect(viewport, i)
@@ -8783,8 +8957,8 @@ func _draw_pause_menu(viewport: Vector2) -> void:
 		var background := Color(0.24, 0.07, 0.09, 0.98) if danger and hovered else (Color(0.10, 0.34, 0.27, 0.98) if hovered else Color(0.035, 0.16, 0.16, 0.98))
 		draw_style_box(_rounded_style(background, border, 8, 2 if hovered else 1), button)
 		var label := String(labels[i])
-		var label_size := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
-		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 26.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		var button_font_size := _fit_font_size(label, button.size.x - 16.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, Vector2(button.position.x + 8.0, button.get_center().y + button_font_size * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, button_font_size, COLOR_TEXT)
 	var hint := pause_menu_notice
 	if pause_menu_page == "restart_confirm":
 		hint = _ui("pause_hint_restart")
@@ -8792,9 +8966,11 @@ func _draw_pause_menu(viewport: Vector2) -> void:
 		hint = _ui("pause_hint_main")
 	elif pause_menu_page == "language":
 		hint = _ui("language_hint")
+	elif pause_menu_page == "guide":
+		hint = ""
 	if hint != "":
-		var hint_size := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE)
-		draw_string(fallback_font, Vector2(panel.get_center().x - hint_size.x * 0.5, panel.end.y - 18.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffb0b0") if pause_menu_page == "restart_confirm" else COLOR_MUTED)
+		var hint_font_size := _fit_font_size(hint, panel.size.x - 40.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, Vector2(panel.position.x + 20.0, panel.end.y - 18.0), hint, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x - 40.0, hint_font_size, Color("ffb0b0") if pause_menu_page == "restart_confirm" else COLOR_MUTED)
 
 
 func _open_pause_menu() -> void:
@@ -8804,6 +8980,7 @@ func _open_pause_menu() -> void:
 	_play_sound("panel_open")
 	pause_menu_page = "main"
 	pause_menu_notice = ""
+	pause_guide_page = 0
 	selected_core = -1
 	selected_tip_valid = false
 	show_status = false
@@ -8818,6 +8995,7 @@ func _close_pause_menu() -> void:
 	_play_sound("panel_close")
 	pause_menu_page = "main"
 	pause_menu_notice = ""
+	pause_guide_page = 0
 	queue_redraw()
 
 
@@ -8828,7 +9006,14 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 		if not _pause_menu_button_rect(viewport, i).has_point(pos):
 			continue
 		_play_sound("ui_click")
-		if pause_menu_page == "language":
+		if pause_menu_page == "guide":
+			match i:
+				0: _change_pause_guide_page(-1, false)
+				1: _change_pause_guide_page(1, false)
+				2:
+					pause_menu_page = "main"
+					pause_guide_page = 0
+		elif pause_menu_page == "language":
 			if i < UILocalization.LOCALES.size():
 				_set_ui_locale(UILocalization.LOCALES[i])
 			else:
@@ -8871,6 +9056,10 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 				4:
 					pause_menu_page = "restart_confirm"
 					pause_menu_notice = ""
+				5:
+					pause_menu_page = "guide"
+					pause_guide_page = 0
+					pause_menu_notice = ""
 		queue_redraw()
 		return
 
@@ -8884,6 +9073,7 @@ func _return_to_main_menu() -> void:
 	pause_menu_open = false
 	pause_menu_page = "main"
 	pause_menu_notice = ""
+	pause_guide_page = 0
 	selected_core = -1
 	selected_tip_valid = false
 	selected_expedition_ids.clear()

@@ -6,7 +6,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.42.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.43.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Languages
 
@@ -18,6 +18,7 @@ The main menu, settings, pause/session screens, and repository introduction supp
 - v0.40 adds the seven-language menu flow and localized session interface, together with matching repository documentation for every supported language.
 - v0.41 shows the seven-language selector on the first launch of a new installation and provides Simplified Chinese, Traditional Chinese, English, Japanese, Spanish, German, and Russian text for the resource HUD, core radial actions, core status and common hover tooltips, expedition status, bacterial descriptions, and all ten unit names; the upgrade shop and full long-term-goal descriptions are not yet fully localized.
 - v0.42 localizes all 22 long-term goals, the evolution-shop shell, node and survival upgrades, structure upgrades, the general barracks page, the lower barracks status panel, and detailed text for three specialist units in all seven languages. Diet detail pages, bacterial components, diet-exclusive unit pages, purchase and barracks interaction toasts, and chapter guidance, ecology-event, and Rival Sporefall text remain for later localization.
+- v0.43 adds a six-page illustrated gameplay guide to the Esc pause menu. It explains germination, nutrients and DNA, evolution, barracks commands, exploration and goals, and colony survival in all seven interface languages, with a dedicated coarse-pixel image beside every topic.
 
 ## Download and play
 
@@ -61,6 +62,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Role-safe expedition orders prevent incompatible units from attacking or gathering the wrong target; mixed selections fall back to a nearby hold position, and `C` restores healthy units to role-appropriate automation.
 - Up to two hours of resource-faithful offline progress; expedition combat is capped at ten minutes and toxin exposure at one minute, with offline replenishment and a detailed return report.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
+- A six-page, seven-language gameplay guide in the Esc pause menu, with topic-specific coarse-pixel illustrations and mouse or keyboard page navigation.
 - An original procedural “pixel laboratory nebula” soundscape with interaction, growth, nutrient, DNA, RTS, combat, warning, and looping ambient cues; five independently adjustable audio channels remain rate-limited during accelerated play.
 
 ## Controls
@@ -83,7 +85,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - `E`: evolution shop
 - `G`: long-term goals
 - `F5`: save immediately
-- `Esc`: close the current panel, cancel an action, or pause/resume
+- `Esc`: close the current panel, cancel an action, or pause/resume; choose Gameplay guide in the pause menu, then use ←/→ to turn pages
 
 ## Planned scale progression
 
@@ -107,7 +109,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.42.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.43.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 语言支持
 
@@ -119,6 +121,7 @@ The source code, visual assets, game design, text, and other repository contents
 - v0.40 加入七语言菜单流程与本地化会话界面，并为每种支持语言提供对应的仓库介绍。
 - v0.41 在全新安装首次启动时显示七语选择，并为资源 HUD、核心径向动作、核心状态与常用悬停提示、远征状态、细菌说明及 10 种兵种名称提供简体中文、繁体中文、英语、日语、西班牙语、德语与俄语；升级商店和长期目标正文尚未完成全量翻译。
 - v0.42 已将全部 22 个长期目标、进化商店外壳、节点与生存升级、结构升级、通用兵营页、兵营状态面板下半区，以及三种特种兵的详细说明扩展为七语。食性详情、细菌组件、食性专属单位页面、购买提示、兵营交互提示，以及章节引导、生态事件和竞争孢子雨文案仍待后续本地化。
+- v0.43 在 Esc 暂停菜单中加入六页带插图的玩法指引，以七种界面语言说明萌发菌丝、营养与 DNA、进化、兵营指挥、探索目标和菌落生存；每个主题旁都有独立的粗像素插图。
 
 ## 下载与运行
 
@@ -161,6 +164,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。
 - 最多两小时、严格消耗地图真实资源的离线结算；体外单位战斗最多结算十分钟、毒素伤害最多一分钟，期间会执行自动补员，返回后显示详细报告。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
+- Esc 暂停菜单内置六页七语玩法指引，每个主题配一张独立粗像素插图，并支持鼠标按钮与键盘翻页。
 - 新增原创程序化“像素实验室星云”声音系统，覆盖界面交互、菌丝生长、营养吸收、DNA、RTS指令、战斗、警报和循环背景音；总音量、界面、菌落、战斗与背景五路可独立调节，加速时仍会限频。
 
 ## 操作方式
@@ -183,7 +187,7 @@ The source code, visual assets, game design, text, and other repository contents
 - `G`：长期目标
 - 目标面板：点击目标卡片上的“追踪 / 取消追踪”；点击 HUD 追踪条可返回对应目标页面
 - `F5`：立即保存
-- `Esc`：关闭当前面板、取消操作或暂停/继续
+- `Esc`：关闭当前面板、取消操作或暂停/继续；暂停菜单中可进入“玩法指引”，再用 ←/→ 翻页
 
 ## 计划中的尺度阶段
 
