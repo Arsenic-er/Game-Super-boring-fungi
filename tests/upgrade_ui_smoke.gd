@@ -50,28 +50,30 @@ func _run() -> void:
 	game.barracks_unit_unlocks["scout"] = true
 	game.scout_upgrade_levels["vision"] = 2
 	game.scout_upgrade_levels["speed"] = 1
-	for tab in range(5):
-		game.upgrade_tab = tab
-		game.queue_redraw()
-		await process_frame
-		await process_frame
 	game.diet_levels["bacteria"] = 1
 	game.diet_order.append("bacteria")
-	game.upgrade_tab = 1
-	game.diet_detail_id = "bacteria"
-	game.diet_detail_tab = 0
-	game.queue_redraw()
-	await process_frame
-	await process_frame
-	game.diet_detail_tab = 1
-	game.queue_redraw()
-	await process_frame
-	await process_frame
 	game.diet_levels["fungi"] = 1
-	game.diet_detail_id = "fungi"
-	game.queue_redraw()
-	await process_frame
-	await process_frame
+	for locale_id in ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]:
+		game.settings_locale = locale_id
+		for tab in range(5):
+			game.upgrade_tab = tab
+			game.diet_detail_id = ""
+			game.queue_redraw()
+			await process_frame
+			await process_frame
+		game.upgrade_tab = 1
+		for diet_id in ["bacteria", "fungi", "animal", "plant"]:
+			game.diet_detail_id = diet_id
+			game.diet_detail_tab = 0
+			game.queue_redraw()
+			await process_frame
+			await process_frame
+			if diet_id == "bacteria":
+				game.diet_detail_tab = 1
+				game.queue_redraw()
+				await process_frame
+				await process_frame
+	game.settings_locale = "zh_CN"
 	game.upgrade_open = false
 	game.goals_open = true
 	game.goal_page = 0

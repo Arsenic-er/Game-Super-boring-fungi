@@ -4,13 +4,14 @@
 
 Un juego incremental de evolución y expansión que comienza con una espora microscópica y crece hasta alcanzar ecosistemas, sociedades humanas, países y, finalmente, todo el planeta.
 
-El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.43.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
+El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.44.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
 
 La v0.41 muestra la selección de siete idiomas al iniciar por primera vez una instalación nueva y ofrece chino simplificado, chino tradicional, inglés, japonés, español, alemán y ruso para el HUD de recursos, las acciones radiales del núcleo, el estado del núcleo y las ayudas emergentes habituales, el estado de las expediciones, las descripciones de las bacterias y los nombres de las diez clases de unidad; la tienda de mejoras y el texto completo de los objetivos a largo plazo aún no están totalmente traducidos.
 
 La v0.42 traduce a los siete idiomas los 22 objetivos a largo plazo, el marco de la tienda de evolución, las mejoras de nodo y supervivencia, las mejoras estructurales, la página de unidades generales del cuartel, la mitad inferior del panel de estado del cuartel y los detalles de tres unidades especiales. Siguen pendientes las páginas de detalle de dietas, los componentes bacterianos, las páginas de unidades exclusivas de cada dieta, los avisos de compra e interacción del cuartel y los textos de guía del capítulo, eventos ecológicos y lluvia de esporas rival.
 
 La v0.43 añade al menú de pausa de Esc una guía ilustrada de seis páginas. Explica germinación, nutrientes y ADN, evolución, órdenes del cuartel, exploración y objetivos, y supervivencia de la colonia en los siete idiomas, con una imagen de píxeles gruesos para cada tema.
+La v0.44 completa en siete idiomas las páginas de dietas, componentes bacterianos y unidades especializadas, y traduce las compras, desbloqueos y avisos de error de evolución. Las etiquetas largas se ajustan ahora dentro de la interfaz de píxeles.
 
 ## Descarga y ejecución
 

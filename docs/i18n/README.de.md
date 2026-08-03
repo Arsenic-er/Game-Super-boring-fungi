@@ -4,13 +4,14 @@
 
 Ein Idle-Spiel über Evolution und Ausbreitung: Es beginnt mit einer mikroskopisch kleinen Spore und wächst über Ökosysteme, menschliche Gesellschaften und Staaten bis hin zum gesamten Planeten.
 
-Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.43.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
+Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.44.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
 
 v0.41 zeigt beim ersten Start einer Neuinstallation die Auswahl aus sieben Sprachen und stellt das Ressourcen-HUD, radiale Kernaktionen, den Kernstatus und häufige Hover-Hinweise, den Expeditionsstatus, Bakterienbeschreibungen sowie die Namen aller zehn Einheitentypen auf vereinfachtem und traditionellem Chinesisch, Englisch, Japanisch, Spanisch, Deutsch und Russisch bereit; der Upgrade-Shop und die vollständigen Texte der Langzeitziele sind noch nicht vollständig übersetzt.
 
 v0.42 lokalisiert alle 22 Langzeitziele, den Rahmen des Evolutionsladens, Knoten- und Überlebens-Upgrades, Struktur-Upgrades, die Seite allgemeiner Kaserneneinheiten, die untere Hälfte des Kasernenstatus sowie die Detailtexte von drei Spezialeinheiten in allen sieben Sprachen. Noch ausstehend sind Ernährungsdetailseiten, Bakterienkomponenten, Seiten ernährungsspezifischer Einheiten, Kauf- und Kaserneninteraktionsmeldungen sowie Texte zu Kapitelanleitung, Ökologieereignissen und konkurrierendem Sporenfall.
 
 v0.43 ergänzt das Esc-Pausenmenü um eine sechsseitige, bebilderte Spielanleitung. Sie erklärt Keimung, Nährstoffe und DNA, Evolution, Kasernenbefehle, Erkundung und Ziele sowie das Überleben der Kolonie in allen sieben Sprachen; jedes Thema erhält eine eigene grobe Pixelgrafik.
+v0.44 vervollständigt die sieben Sprachfassungen der Ernährungsdetails, Bakterienkomponenten und Spezialtruppen und übersetzt Evolutionskäufe, Freischaltungen und Fehlermeldungen. Lange Beschriftungen skalieren nun innerhalb der Pixel-UI.
 
 ## Download und Start
 

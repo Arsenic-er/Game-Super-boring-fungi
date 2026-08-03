@@ -5308,17 +5308,17 @@ func _upgrade_feeder_range(core_id: int) -> void:
 		return
 	var level := int(cores[core_id].get("feeder_range_level", 0))
 	if level >= MAX_FEEDER_RANGE_LEVEL:
-		toast("细菌丝延展范围已达到当前上限", 3.0)
+		toast(_up("toast_node_max"), 3.0, "error")
 		return
 	var cost := _feeder_upgrade_cost(core_id)
 	if organic < cost:
-		toast("有机营养不足：本次强化需要 %.3f" % cost, 3.0)
+		toast(_up("toast_node_need_fmt") % cost, 3.0, "error")
 		return
 	organic -= cost
 	level += 1
 	cores[core_id]["feeder_range_level"] = level
 	_play_sound("upgrade")
-	toast("节点 Lv.%d　范围 %.0f μm　DNA 速度 +%d%%" % [level, _feeder_range_for_core(core_id) / 2.0, int(_dna_speed_bonus(core_id) * 100.0)], 4.0)
+	toast(_up("toast_node_done_fmt") % [level, _feeder_range_for_core(core_id) / 2.0, int(_dna_speed_bonus(core_id) * 100.0)], 4.0, "info")
 
 
 func _dna_batch_size_from_modifiers(shift_pressed: bool, ctrl_pressed: bool) -> int:
@@ -5399,25 +5399,25 @@ func _purchase_diet(diet_id: String) -> void:
 	if level == 0:
 		var unlock_cost := _diet_unlock_cost()
 		if dna < unlock_cost:
-			toast("DNA 不足：建立新食性需要 %d" % unlock_cost, 3.0)
+			toast(_up("toast_diet_need_fmt") % unlock_cost, 3.0, "error")
 			return
 		dna -= unlock_cost
 		diet_levels[diet_id] = 1
 		diet_order.append(diet_id)
 		_play_sound("upgrade")
-		toast("已确立%s　初始吸收效率 20%%" % DIET_NAMES[diet_id], 4.0)
+		toast(_up("toast_diet_established_fmt") % _localized_diet_name(diet_id), 4.0, "info")
 		return
 	if level >= 5:
-		toast("%s吸收效率已达到 100%%" % DIET_NAMES[diet_id], 3.0)
+		toast(_up("toast_diet_max_fmt") % _localized_diet_name(diet_id), 3.0, "error")
 		return
 	var level_cost := _diet_level_cost(diet_id)
 	if dna < level_cost:
-		toast("DNA 不足：效率升级需要 %d" % level_cost, 3.0)
+		toast(_up("toast_diet_level_need_fmt") % level_cost, 3.0, "error")
 		return
 	dna -= level_cost
 	diet_levels[diet_id] = level + 1
 	_play_sound("upgrade")
-	toast("%s效率提升至 %d%%" % [DIET_NAMES[diet_id], int(_diet_efficiency(diet_id) * 100.0)], 4.0)
+	toast(_up("toast_diet_done_fmt") % [_localized_diet_name(diet_id), int(_diet_efficiency(diet_id) * 100.0)], 4.0, "info")
 
 
 func _purchase_barracks_unit(unit_id: String) -> void:
@@ -5427,12 +5427,12 @@ func _purchase_barracks_unit(unit_id: String) -> void:
 	if cost <= 0:
 		return
 	if dna < cost:
-		toast("DNA 不足：解锁%s需要 %d" % [BARRACK_UNIT_NAMES.get(unit_id, unit_id), cost], 3.0)
+		toast(_up("toast_unlock_need_fmt") % [_localized_unit_name(unit_id), cost], 3.0, "error")
 		return
 	dna -= cost
 	barracks_unit_unlocks[unit_id] = true
 	_play_sound("upgrade")
-	toast("已解锁%s；现在可在兵营切换生产" % BARRACK_UNIT_NAMES.get(unit_id, unit_id), 4.0)
+	toast(_up("toast_barracks_unlocked_fmt") % _localized_unit_name(unit_id), 4.0, "info")
 
 
 func _scout_upgrade_cost(upgrade_id: String) -> int:
@@ -5447,11 +5447,11 @@ func _purchase_scout_upgrade(upgrade_id: String) -> void:
 		return
 	var level := int(scout_upgrade_levels.get(upgrade_id, 0))
 	if level >= MAX_SCOUT_UPGRADE_LEVEL:
-		toast("%s已达到最高等级" % SCOUT_UPGRADE_NAMES[upgrade_id], 3.0)
+		toast(_up("toast_upgrade_max_fmt") % _up("scout_%s" % upgrade_id), 3.0, "error")
 		return
 	var cost := _scout_upgrade_cost(upgrade_id)
 	if dna < cost:
-		toast("DNA 不足：强化%s需要 %d" % [SCOUT_UPGRADE_NAMES[upgrade_id], cost], 3.0)
+		toast(_up("toast_upgrade_need_fmt") % [_up("scout_%s" % upgrade_id), cost], 3.0, "error")
 		return
 	dna -= cost
 	scout_upgrade_levels[upgrade_id] = level + 1
@@ -5461,12 +5461,12 @@ func _purchase_scout_upgrade(upgrade_id: String) -> void:
 			if String(unit.get("unit_type", "forager")) == "scout":
 				unit["reveal_cell"] = -1
 		_update_exploration()
-	toast("%s提升至 Lv.%d" % [SCOUT_UPGRADE_NAMES[upgrade_id], level + 1], 3.0)
+	toast(_up("toast_upgrade_done_fmt") % [_up("scout_%s" % upgrade_id), level + 1], 3.0, "info")
 
 
 func _purchase_diet_unit(diet_id: String, unit_id: String) -> void:
 	if int(diet_levels.get(diet_id, 0)) <= 0:
-		toast("需要先确立%s" % DIET_NAMES.get(diet_id, "对应食性"), 3.0)
+		toast(_up("toast_diet_required_fmt") % _localized_diet_name(diet_id), 3.0, "error")
 		return
 	if bool(diet_unit_unlocks.get(unit_id, false)):
 		return
@@ -5478,16 +5478,16 @@ func _purchase_diet_unit(diet_id: String, unit_id: String) -> void:
 	if definition.is_empty():
 		return
 	if not bool(definition.get("available", false)):
-		toast(String(definition.get("requirement", "该生态尚未开放")), 3.0)
+		toast(_localized_diet_unit_requirement(diet_id, false), 3.0, "error")
 		return
 	var cost := int(definition.get("cost", 0))
 	if dna < cost:
-		toast("DNA 不足：解锁%s需要 %d" % [definition.get("name", unit_id), cost], 3.0)
+		toast(_up("toast_unlock_need_fmt") % [_localized_upgrade_unit_name(unit_id), cost], 3.0, "error")
 		return
 	dna -= cost
 	diet_unit_unlocks[unit_id] = true
 	_play_sound("upgrade")
-	toast("已解锁%s；兵营生产列表已更新" % definition.get("name", unit_id), 4.0)
+	toast(_up("toast_unit_unlocked_fmt") % _localized_upgrade_unit_name(unit_id), 4.0, "info")
 
 
 func _bacteria_component_cost(component_id: String) -> int:
@@ -5499,22 +5499,22 @@ func _bacteria_component_cost(component_id: String) -> int:
 
 func _purchase_bacteria_component(component_id: String) -> void:
 	if int(diet_levels.get("bacteria", 0)) <= 0:
-		toast("需要先确立细菌食性", 3.0)
+		toast(_up("toast_diet_required_fmt") % _localized_diet_name("bacteria"), 3.0, "error")
 		return
 	if not BACTERIA_COMPONENT_IDS.has(component_id):
 		return
 	var level := int(bacteria_components.get(component_id, 0))
 	if level >= 3:
-		toast("%s已达到当前上限" % BACTERIA_COMPONENT_NAMES[component_id], 3.0)
+		toast(_up("toast_current_max_fmt") % _localized_component_name(component_id), 3.0, "error")
 		return
 	var cost := _bacteria_component_cost(component_id)
 	if dna < cost:
-		toast("DNA 不足：本次进化需要 %d" % cost, 3.0)
+		toast(_up("toast_component_need_fmt") % cost, 3.0, "error")
 		return
 	dna -= cost
 	bacteria_components[component_id] = level + 1
 	_play_sound("upgrade")
-	toast("%s　Lv.%d / 3" % [BACTERIA_COMPONENT_NAMES[component_id], level + 1], 4.0)
+	toast(_up("toast_level3_fmt") % [_localized_component_name(component_id), level + 1], 4.0, "info")
 
 
 func _bacteria_capture_radius() -> float:
@@ -5546,16 +5546,16 @@ func _purchase_structure(structure_id: String) -> void:
 		return
 	var level := int(structure_levels.get(structure_id, 0))
 	if level >= 4:
-		toast("%s已达到当前上限" % STRUCTURE_NAMES[structure_id], 3.0)
+		toast(_up("toast_current_max_fmt") % _up("structure_%s_name" % structure_id), 3.0, "error")
 		return
 	var cost := _structure_cost(structure_id)
 	if dna < cost:
-		toast("DNA 不足：本次结构进化需要 %d" % cost, 3.0)
+		toast(_up("toast_structure_need_fmt") % cost, 3.0, "error")
 		return
 	dna -= cost
 	structure_levels[structure_id] = level + 1
 	_play_sound("upgrade")
-	toast("%s　Lv.%d / 4" % [STRUCTURE_NAMES[structure_id], level + 1], 4.0)
+	toast(_up("toast_level4_fmt") % [_up("structure_%s_name" % structure_id), level + 1], 4.0, "info")
 
 
 func _hypha_capacity_for_core(_core_id: int) -> float:
@@ -5586,11 +5586,11 @@ func _purchase_survival(survival_id: String) -> void:
 		return
 	var level := int(survival_levels.get(survival_id, 0))
 	if level >= 4:
-		toast("%s已达到当前上限" % SURVIVAL_NAMES[survival_id], 3.0)
+		toast(_up("toast_current_max_fmt") % _up("survival_%s" % survival_id), 3.0, "error")
 		return
 	var cost := _survival_cost(survival_id)
 	if dna < cost:
-		toast("DNA 不足：本次生存进化需要 %d" % cost, 3.0)
+		toast(_up("toast_survival_need_fmt") % cost, 3.0, "error")
 		return
 	dna -= cost
 	survival_levels[survival_id] = level + 1
@@ -5601,7 +5601,7 @@ func _purchase_survival(survival_id: String) -> void:
 			core["max_biomass"] = float(core.get("max_biomass", CORE_MAX_BIOMASS)) + 25.0
 			if _is_core_alive(core_id):
 				core["biomass"] = minf(float(core["max_biomass"]), float(core.get("biomass", 0.0)) + 25.0)
-	toast("%s　Lv.%d / 4" % [SURVIVAL_NAMES[survival_id], level + 1], 4.0)
+	toast(_up("toast_level4_fmt") % [_up("survival_%s" % survival_id), level + 1], 4.0, "info")
 
 
 func _core_max_biomass_value() -> float:
@@ -5869,6 +5869,39 @@ func _localized_barracks_unit_short(unit_id: String) -> String:
 
 func _up(key: String) -> String:
 	return UpgradeLocalization.text(key, settings_locale)
+
+func _localized_diet_name(diet_id: String) -> String:
+	var key := "diet_%s_name" % diet_id
+	var value := _up(key)
+	return value if value != key else diet_id
+
+
+func _localized_diet_target(diet_id: String) -> String:
+	return _up("diet_%s_target" % diet_id)
+
+
+func _localized_component_name(component_id: String) -> String:
+	return _up("component_%s_name" % component_id)
+
+
+func _localized_component_description(component_id: String) -> String:
+	return _up("component_%s_desc" % component_id)
+
+
+func _localized_upgrade_unit_name(unit_id: String) -> String:
+	if BarracksLocalization.UNIT_IDS.has(unit_id):
+		return _localized_unit_name(unit_id)
+	return _up("unit_%s" % unit_id)
+
+
+func _localized_upgrade_unit_description(unit_id: String) -> String:
+	return _up("unit_%s_desc" % unit_id)
+
+
+func _localized_diet_unit_requirement(diet_id: String, available: bool) -> String:
+	if available:
+		return _up("unit_available")
+	return _up("unit_future_%s" % diet_id) if diet_id == "animal" or diet_id == "plant" else _up("unit_future")
 
 
 func _guide(key: String) -> String:
@@ -8017,40 +8050,40 @@ func _draw_diet_upgrade_cards(panel: Rect2) -> void:
 		var unlocked := level > 0
 		var accent := COLOR_ORGANIC if unlocked else COLOR_BORDER
 		draw_style_box(_rounded_style(Color(0.025, 0.10, 0.125, 0.98), Color(accent, 0.82), 10, 2), card)
-		draw_string(fallback_font, card.position + Vector2(18, 28), DIET_NAMES[diet_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(18, 53), DIET_TARGETS[diet_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		draw_string(fallback_font, card.position + Vector2(18, 28), _localized_diet_name(diet_id), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_localized_diet_name(diet_id), card.size.x - 36.0), COLOR_TEXT)
+		draw_string(fallback_font, card.position + Vector2(18, 53), _localized_diet_target(diet_id), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_localized_diet_target(diet_id), card.size.x - 36.0), COLOR_MUTED)
 		if unlocked:
 			var order_index := diet_order.find(diet_id) + 1
-			draw_string(fallback_font, card.position + Vector2(18, 82), "第 %d 食性　Lv.%d / 5" % [order_index, level], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
-			draw_string(fallback_font, card.position + Vector2(18, 108), "吸收效率　%d%%" % int(_diet_efficiency(diet_id) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+			draw_string(fallback_font, card.position + Vector2(18, 82), _up("diet_order_level_fmt") % [order_index, level], HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_up("diet_order_level_fmt") % [order_index, level], card.size.x - 36.0), COLOR_ORGANIC)
+			draw_string(fallback_font, card.position + Vector2(18, 108), _up("diet_efficiency_fmt") % int(_diet_efficiency(diet_id) * 100.0), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_up("diet_efficiency_fmt") % int(_diet_efficiency(diet_id) * 100.0), card.size.x - 36.0), COLOR_TEXT)
 			var components_button := _diet_components_button_rect(panel, i)
 			var detail_color := COLOR_BACTERIA if diet_id == "bacteria" else COLOR_ORGANIC
 			draw_style_box(_rounded_style(Color(0.08, 0.15, 0.23, 1.0), Color(detail_color, 0.82), 7, 2), components_button)
-			draw_string(fallback_font, components_button.position + Vector2(13, 20), "专属升级", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, detail_color)
+			draw_string(fallback_font, components_button.position + Vector2(5, 20), _up("diet_special"), HORIZONTAL_ALIGNMENT_CENTER, components_button.size.x - 10.0, _fit_font_size(_up("diet_special"), components_button.size.x - 10.0), detail_color)
 		else:
-			draw_string(fallback_font, card.position + Vector2(18, 86), "尚未确立　新食性成本按十倍增长", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+			draw_string(fallback_font, card.position + Vector2(18, 86), _up("diet_unset"), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_up("diet_unset"), card.size.x - 36.0), COLOR_MUTED)
 		var button := _diet_button_rect(panel, i)
 		var maxed := level >= 5
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := "已满级" if maxed else ("升级 %d DNA" % _diet_level_cost(diet_id) if unlocked else "确立 %d DNA" % _diet_unlock_cost())
-		draw_string(fallback_font, button.position + Vector2(10, 20), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not maxed else COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 512), "腐生始终是实验室阶段的基础能力；食性决定未来可利用的生物对象。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_text := _up("maxed") if maxed else (_up("evolve_dna_fmt") % _diet_level_cost(diet_id) if unlocked else _up("establish_dna_fmt") % _diet_unlock_cost())
+		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("diet_footer"), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("diet_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
 func _draw_diet_detail(panel: Rect2) -> void:
 	var back := _bacteria_components_back_rect(panel)
 	draw_style_box(_rounded_style(Color(0.05, 0.10, 0.14, 1.0), COLOR_BORDER, 7, 2), back)
-	draw_string(fallback_font, back.position + Vector2(20, 22), "返回食性", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, back.position + Vector2(5, 22), _up("diet_back"), HORIZONTAL_ALIGNMENT_CENTER, back.size.x - 10.0, _fit_font_size(_up("diet_back"), back.size.x - 10.0), COLOR_TEXT)
 	if diet_detail_id == "bacteria":
 		for i in range(2):
 			var tab_rect := _diet_detail_tab_rect(panel, i)
 			var active := diet_detail_tab == i
 			draw_style_box(_rounded_style(Color(0.10, 0.24, 0.22, 1.0) if active else Color(0.04, 0.10, 0.14, 1.0), Color(COLOR_BACTERIA, 0.82) if active else COLOR_BORDER, 6, 1), tab_rect)
-			draw_string(fallback_font, tab_rect.position + Vector2(15, 20), "能力组件" if i == 0 else "专属兵种", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if active else COLOR_MUTED)
+			draw_string(fallback_font, tab_rect.position + Vector2(5, 20), _up("diet_components_tab") if i == 0 else _up("diet_units_tab"), HORIZONTAL_ALIGNMENT_CENTER, tab_rect.size.x - 10.0, _fit_font_size(_up("diet_components_tab") if i == 0 else _up("diet_units_tab"), tab_rect.size.x - 10.0), COLOR_TEXT if active else COLOR_MUTED)
 	else:
 		var tab_rect := _diet_detail_tab_rect(panel, 0)
 		draw_style_box(_rounded_style(Color(0.10, 0.24, 0.22, 1.0), Color(COLOR_ORGANIC, 0.82), 6, 1), tab_rect)
-		draw_string(fallback_font, tab_rect.position + Vector2(15, 20), "专属兵种", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		draw_string(fallback_font, tab_rect.position + Vector2(5, 20), _up("diet_units_tab"), HORIZONTAL_ALIGNMENT_CENTER, tab_rect.size.x - 10.0, _fit_font_size(_up("diet_units_tab"), tab_rect.size.x - 10.0), COLOR_TEXT)
 	if diet_detail_id == "bacteria" and diet_detail_tab == 0:
 		_draw_bacteria_components(panel)
 	else:
@@ -8063,23 +8096,23 @@ func _draw_bacteria_components(panel: Rect2) -> void:
 		var level := int(bacteria_components.get(component_id, 0))
 		var card := Rect2(panel.position + Vector2(34, 164 + i * 112), Vector2(panel.size.x - 68, 96))
 		draw_style_box(_rounded_style(Color(0.035, 0.095, 0.125, 0.98), Color(COLOR_BACTERIA, 0.66), 9, 2), card)
-		draw_string(fallback_font, card.position + Vector2(18, 28), "%s　Lv.%d / 3" % [BACTERIA_COMPONENT_NAMES[component_id], level], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-		draw_string(fallback_font, card.position + Vector2(18, 56), BACTERIA_COMPONENT_DESCRIPTIONS[component_id], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		draw_string(fallback_font, card.position + Vector2(18, 28), _up("component_level_fmt") % [_localized_component_name(component_id), level], HORIZONTAL_ALIGNMENT_LEFT, 390.0, _fit_font_size(_up("component_level_fmt") % [_localized_component_name(component_id), level], 390.0), COLOR_TEXT)
+		draw_string(fallback_font, card.position + Vector2(18, 56), _localized_component_description(component_id), HORIZONTAL_ALIGNMENT_LEFT, 390.0, _fit_font_size(_localized_component_description(component_id), 390.0), COLOR_MUTED)
 		var effect_text := ""
 		match component_id:
 			"trap":
-				effect_text = "捕获距离 %.0f μm" % (_bacteria_capture_radius() / 2.0)
+				effect_text = _up("component_trap_effect_fmt") % (_bacteria_capture_radius() / 2.0)
 			"enzymes":
-				effect_text = "消化速度 ×%.2f" % _bacteria_digestion_multiplier()
+				effect_text = _up("component_enzymes_effect_fmt") % _bacteria_digestion_multiplier()
 			"antibiotic":
-				effect_text = "抑制半径 %.0f μm　细菌速度 %d%%" % [_antibiotic_radius() / 2.0, int(_antibiotic_bacteria_multiplier() * 100.0)] if level > 0 else "尚未形成抑菌区"
-		draw_string(fallback_font, card.position + Vector2(430, 56), effect_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
+				effect_text = _up("component_antibiotic_effect_fmt") % [_antibiotic_radius() / 2.0, int(_antibiotic_bacteria_multiplier() * 100.0)] if level > 0 else _up("component_antibiotic_none")
+		draw_string(fallback_font, card.position + Vector2(430, 56), effect_text, HORIZONTAL_ALIGNMENT_RIGHT, card.size.x - 448.0, _fit_font_size(effect_text, card.size.x - 448.0), COLOR_ORGANIC)
 		var button := _bacteria_component_button_rect(panel, i)
 		var maxed := level >= 3
 		draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_BACTERIA, 0.84) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := "已满级" if maxed else "进化 %d DNA" % _bacteria_component_cost(component_id)
-		draw_string(fallback_font, button.position + Vector2(13, 22), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if not maxed else COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 510), "三个组件可以并行升级；抗生素会同时减慢细菌吸收与分裂冷却。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _bacteria_component_cost(component_id)
+		draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 510), _up("component_footer"), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("component_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
 func _draw_diet_special_units(panel: Rect2, diet_id: String) -> void:
@@ -8092,16 +8125,16 @@ func _draw_diet_special_units(panel: Rect2, diet_id: String) -> void:
 		var card := Rect2(panel.position + Vector2(34, 164 + i * 112), Vector2(panel.size.x - 68, 96))
 		var accent := COLOR_BACTERIA if diet_id == "bacteria" else COLOR_ORGANIC
 		draw_style_box(_rounded_style(Color(0.035, 0.095, 0.125, 0.98), Color(accent, 0.66 if available else 0.34), 9, 2), card)
-		draw_string(fallback_font, card.position + Vector2(18, 28), String(item.get("name", unit_id)), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available else COLOR_MUTED)
-		draw_string(fallback_font, card.position + Vector2(18, 56), String(item.get("desc", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		var requirement := "解锁后进入兵营生产列表" if available else String(item.get("requirement", "后续开放"))
-		draw_string(fallback_font, card.position + Vector2(430, 56), requirement, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent if available else COLOR_MUTED)
+		draw_string(fallback_font, card.position + Vector2(18, 28), _localized_upgrade_unit_name(unit_id), HORIZONTAL_ALIGNMENT_LEFT, 390.0, _fit_font_size(_localized_upgrade_unit_name(unit_id), 390.0), COLOR_TEXT if available else COLOR_MUTED)
+		draw_string(fallback_font, card.position + Vector2(18, 56), _localized_upgrade_unit_description(unit_id), HORIZONTAL_ALIGNMENT_LEFT, 390.0, _fit_font_size(_localized_upgrade_unit_description(unit_id), 390.0), COLOR_MUTED)
+		var requirement := _localized_diet_unit_requirement(diet_id, available)
+		draw_string(fallback_font, card.position + Vector2(430, 56), requirement, HORIZONTAL_ALIGNMENT_RIGHT, card.size.x - 448.0, _fit_font_size(requirement, card.size.x - 448.0), accent if available else COLOR_MUTED)
 		var button := _diet_special_unit_button_rect(panel, i)
 		var button_color := accent if available and not unlocked else COLOR_MUTED
 		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(button_color, 0.82), 7, 2), button)
-		var button_text := "已解锁" if unlocked else ("解锁 %d DNA" % int(item.get("cost", 0)) if available else "尚未开放")
-		draw_string(fallback_font, button.position + Vector2(12, 22), button_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT if available and not unlocked else COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 510), "%s专属部队只会在确立对应食性后出现，并受该食性效率加成。" % DIET_NAMES.get(diet_id, "该食性"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+		var button_text := _up("unit_unlocked") if unlocked else (_up("unlock_dna_fmt") % int(item.get("cost", 0)) if available else _up("locked"))
+		draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, 510), _up("diet_unit_footer_fmt") % _localized_diet_name(diet_id), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("diet_unit_footer_fmt") % _localized_diet_name(diet_id), panel.size.x - 68.0), COLOR_MUTED)
 
 
 func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
