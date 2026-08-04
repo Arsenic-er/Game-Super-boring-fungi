@@ -10,6 +10,7 @@ const GuideLocalization = preload("res://scripts/guide_localization.gd")
 const ChapterLocalization = preload("res://scripts/chapter_localization.gd")
 const WorldEventLocalization = preload("res://scripts/world_event_localization.gd")
 const RivalCombatLocalization = preload("res://scripts/rival_combat_localization.gd")
+const DeveloperLocalization = preload("res://scripts/developer_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -24,13 +25,22 @@ const CORE_ORGANIC_COST := 70.0
 const CORE_MINERAL_COST := 6.0
 const OFFLINE_CAP_SECONDS := 7200.0
 const OFFLINE_MIN_SECONDS := 30.0
-const OFFLINE_STEP_SECONDS := 5.0
+const OFFLINE_STEP_SECONDS := 10.0
 const OFFLINE_BACTERIA_CAP_SECONDS := 600.0
 const OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS := 600.0
 const OFFLINE_HAZARD_CAP_SECONDS := 60.0
 const OFFLINE_ORPHAN_CAP_SECONDS := 600.0
+const OFFLINE_FRAME_BUDGET_USEC := 6000
+const OFFLINE_MAX_STEPS_PER_FRAME := 12
+const OFFLINE_MOBILE_TAIL_STEP_SECONDS := 120.0
+const OFFLINE_STATIC_TAIL_STEP_SECONDS := 300.0
 const SAVE_INTERVAL := 15.0
 const SAVE_PATH := "user://save.json"
+const DEVELOPER_SAVE_PATH := "user://save.developer.json"
+const DEVELOPER_SNAPSHOT_PATH := "user://save.developer.snapshot.json"
+const DEVELOPER_RESOURCE_FLOOR := 1000000.0
+const DEVELOPER_DNA_FLOOR := 1000000
+const DEVELOPER_UNIT_IDS := ["forager", "carrier", "chelator", "scout", "lytic", "suppressor", "disperser", "piercer", "coil", "antifungal"]
 const SETTINGS_PATH := "user://settings.json"
 const UI_FONT_PATH := "res://assets/fonts/fusion-bold/fusion-bold-pixel-12px-proportional-zh_hans.ttf"
 const SPLASH_LOGO_PATH := "res://assets/branding/splash-logo.png"
@@ -354,6 +364,11 @@ var layout_viewport_override := Vector2.ZERO
 var autosave_enabled := true
 var save_path := SAVE_PATH
 var diet_order: Array = []
+var developer_mode_enabled := false
+var developer_previous_save_path := ""
+var developer_page := 0
+var developer_placement_action := ""
+var developer_current_unit_index := 0
 var diet_levels := {"animal": 0, "plant": 0, "bacteria": 0, "fungi": 0}
 var bacteria_components := {"trap": 0, "enzymes": 0, "antibiotic": 0}
 var structure_levels := {"branching": 0, "elongation": 0, "feeders": 0, "growth": 0}
@@ -404,6 +419,9 @@ var discovery_banner_detail := ""
 var discovery_banner_time := 0.0
 var offline_report_open := false
 var offline_report: Dictionary = {}
+var offline_settlement_active := false
+var offline_settlement_progress := 1.0
+var offline_settlement: Dictionary = {}
 var offline_simulating := false
 var offline_expedition_combat_active := false
 var offline_expedition_toxin_active := false
@@ -455,6 +473,9 @@ func _ready() -> void:
 	var bundled_cursor = load(CURSOR_TEXTURE_PATH)
 	if bundled_cursor is Texture2D:
 		cursor_texture = bundled_cursor
+	if developer_mode_enabled:
+		developer_previous_save_path = save_path
+		save_path = DEVELOPER_SAVE_PATH
 	_load_guide_textures()
 	# Windows export smoke tests use Dummy display/audio drivers. Avoid constructing
 	# native audio players on that non-gameplay path; normal Windows launches and
@@ -495,6 +516,11 @@ func _load_guide_textures() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		# Deferred settlement has not checkpointed yet. Keep the original save
+		# untouched instead of writing a partial result with a fresh saved_at.
+		if offline_settlement_active:
+			get_tree().quit()
+			return
 		if game_started:
 			_save_game()
 		get_tree().quit()
@@ -1413,12 +1439,18 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 
 func _process(delta: float) -> void:
 	if pixel_audio != null:
-		pixel_audio.update_context(main_menu_active, pause_menu_open or offline_report_open or chapter_report_open, game_over, camera_zoom)
+		pixel_audio.update_context(main_menu_active, pause_menu_open or offline_settlement_active or offline_report_open or chapter_report_open, game_over, camera_zoom)
+	if developer_mode_enabled:
+		_developer_grant_resources()
 	if splash_active:
 		splash_time += delta
 		if splash_time >= SPLASH_FADE_IN_SECONDS + SPLASH_HOLD_SECONDS + SPLASH_FADE_OUT_SECONDS:
 			splash_active = false
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		queue_redraw()
+		return
+	if offline_settlement_active:
+		_pump_offline_progress()
 		queue_redraw()
 		return
 	if main_menu_active:
@@ -4812,6 +4844,15 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 				return "chapter_%d" % index
 		return ""
 	if pause_menu_open:
+		if pause_menu_page == "developer":
+			var developer_rects := _developer_button_rects(viewport)
+			for index in range(developer_rects.size()):
+				if developer_rects[index].has_point(pos):
+					return "developer_%d" % index
+			for index in range(3):
+				if _developer_navigation_rect(viewport, index).has_point(pos):
+					return "developer_nav_%d" % index
+			return ""
 		for index in range(_pause_menu_labels().size()):
 			if _pause_menu_button_rect(viewport, index).has_point(pos):
 				return "pause_%d" % index
@@ -4858,7 +4899,7 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 		for index in range(4):
 			if _defense_zone_button_rect(viewport, index).has_point(pos):
 				return "persistent_order_%d" % index
-	if _speed_button_at(pos) > 0.0:
+	if developer_mode_enabled and _speed_button_at(pos) > 0.0:
 		return "speed"
 	for button in _current_menu_buttons():
 		if pos.distance_to(button["pos"]) <= float(button["radius"]):
@@ -4870,6 +4911,8 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if splash_active:
+		return
+	if offline_settlement_active:
 		return
 	if event is InputEventMouseMotion:
 		_update_audio_hover(event.position)
@@ -4927,6 +4970,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 				_handle_pause_menu_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo:
+			if developer_mode_enabled and event.keycode == KEY_F10:
+				pause_menu_page = "developer"
+				queue_redraw()
 			if pause_menu_page == "guide" and event.keycode in [KEY_LEFT, KEY_PAGEUP]:
 				_change_pause_guide_page(-1)
 			elif pause_menu_page == "guide" and event.keycode in [KEY_RIGHT, KEY_PAGEDOWN, KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
@@ -4993,6 +5039,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			drag_button = MOUSE_BUTTON_MIDDLE if event.pressed else 0
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT:
+			if not developer_placement_action.is_empty():
+				if event.pressed:
+					_developer_cancel_placement()
+				return
 			if mode == "defense_zone" or mode == "harvest_zone" or mode == "purge_zone" or (mode.begins_with("barracks_") and mode.ends_with("_zone")):
 				if upgrade_open or goals_open:
 					mode = "normal"
@@ -5039,6 +5089,10 @@ func _unhandled_input(event: InputEvent) -> void:
 						_issue_expedition_command(event.position)
 			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
+			if not developer_placement_action.is_empty():
+				if not event.pressed:
+					_developer_place_at(event.position)
+				return
 			if event.pressed:
 				left_selecting = true
 				left_dragged = false
@@ -5054,7 +5108,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				left_dragged = false
 			return
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_Z:
+		if developer_mode_enabled and event.keycode == KEY_F10:
+			_open_developer_tools()
+		elif event.keycode == KEY_Z:
 			_begin_defense_zone_mode()
 		elif event.keycode == KEY_X:
 			_begin_harvest_zone_mode()
@@ -5089,6 +5145,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				selected_core = -1
 				selected_tip_valid = false
 		elif event.keycode == KEY_ESCAPE:
+			if not developer_placement_action.is_empty():
+				_developer_cancel_placement()
+				return
 			if upgrade_open:
 				upgrade_open = false
 				_play_sound("panel_close")
@@ -5187,10 +5246,10 @@ func _handle_left_click(pos: Vector2, shift_pressed: bool = false, ctrl_pressed:
 		show_status = false
 		return
 	var speed_hit := _speed_button_at(pos)
-	if speed_hit > 0.0:
+	if developer_mode_enabled and speed_hit > 0.0:
 		sim_speed = speed_hit
 		_play_sound("ui_confirm", clampf(0.65 + log(maxf(1.0, sim_speed)) * 0.08, 0.65, 1.15), true)
-		toast("测试速度：%d×" % int(sim_speed), 1.5)
+		toast(_dt("speed_toast_fmt") % int(sim_speed), 1.5)
 		return
 	if _minimap_rect().has_point(pos):
 		var mini := _minimap_rect()
@@ -5794,6 +5853,9 @@ func _draw() -> void:
 	_draw_extension_preview()
 	_draw_expedition_selection()
 	_draw_hud(viewport)
+	if offline_settlement_active:
+		_draw_offline_settlement(viewport)
+		return
 	_draw_selection_menu()
 	if not upgrade_open and not goals_open:
 		if not _draw_core_tooltip():
@@ -5923,6 +5985,10 @@ func _rt(key: String) -> String:
 	return RivalCombatLocalization.text(key, settings_locale)
 
 
+
+func _dt(key: String) -> String:
+	return DeveloperLocalization.text(key, settings_locale)
+
 func _normalize_combat_reason_id(reason: String) -> String:
 	var value := reason.strip_edges()
 	if value.is_empty():
@@ -5985,9 +6051,9 @@ func _main_menu_button_rect(viewport: Vector2, index: int) -> Rect2:
 	if main_menu_page == "settings" or main_menu_page == "language":
 		var very_compact := viewport.y <= 400.0
 		var compact_settings := viewport.y < 650.0
-		var settings_height := 24.0 if very_compact else (28.0 if compact_settings else 34.0)
-		var settings_first_y := 88.0 if very_compact else (110.0 if compact_settings else 155.0)
-		var settings_step := 28.0 if very_compact else (34.0 if compact_settings else 42.0)
+		var settings_height := (21.0 if main_menu_page == "settings" else 24.0) if very_compact else (28.0 if compact_settings else 34.0)
+		var settings_first_y := (82.0 if main_menu_page == "settings" else 88.0) if very_compact else (110.0 if compact_settings else 155.0)
+		var settings_step := (25.0 if main_menu_page == "settings" else 28.0) if very_compact else (34.0 if compact_settings else 42.0)
 		var settings_size := Vector2(minf(320.0, viewport.x - 40.0), settings_height)
 		return Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - settings_size.x * 0.5, settings_first_y + index * settings_step)), settings_size)
 	var compact := viewport.y < 500.0
@@ -6010,6 +6076,7 @@ func _main_menu_labels() -> Array[String]:
 			_ui("volume_world") % int(round(settings_world_volume * 100.0)),
 			_ui("volume_combat") % int(round(settings_combat_volume * 100.0)),
 			_ui("volume_ambient") % int(round(settings_ambient_volume * 100.0)),
+			_dt("mode_label_fmt") % (_dt("state_enabled") if developer_mode_enabled else _dt("state_disabled")),
 			_ui("back")
 		]
 	if main_menu_page == "new_confirm":
@@ -6102,8 +6169,10 @@ func _handle_main_menu_click(pos: Vector2) -> void:
 				_save_settings()
 			elif i >= 3 and i <= 7:
 				_cycle_audio_volume(i - 3)
-			else:
+			elif i == 8:
+				_switch_developer_profile(not developer_mode_enabled)
 				_play_sound("panel_close")
+			else:
 				main_menu_page = "main"
 		elif main_menu_page == "new_confirm":
 			if i == 0:
@@ -6139,7 +6208,7 @@ func _start_game_from_menu() -> void:
 	_generate_world()
 	var loaded := false
 	if main_menu_has_save:
-		loaded = _load_game()
+		loaded = _load_game(true)
 	if not loaded:
 		_start_new_culture()
 	game_started = true
@@ -6166,6 +6235,7 @@ func _begin_new_culture() -> void:
 
 func _start_new_culture() -> void:
 	# 这是新局的唯一初始化入口，测试和未来的“重新开始”也复用它。
+	_reset_offline_settlement_state()
 	rng.seed = 0xF00D47
 	_generate_world()
 	cores.clear()
@@ -6176,6 +6246,9 @@ func _start_new_culture() -> void:
 	enemy_hyphae.clear()
 	enemy_guard_spores.clear()
 	explored_cells.clear()
+	developer_page = 0
+	developer_placement_action = ""
+	developer_current_unit_index = 0
 	discovered_hotspots.clear()
 	last_discovery_scan_cell_count = -1
 	selected_expedition_ids.clear()
@@ -6248,6 +6321,8 @@ func _start_new_culture() -> void:
 	next_ecology_event_id = 1
 	ecology_event_countdown = rng.randf_range(ECOLOGY_FIRST_EVENT_MIN, ECOLOGY_FIRST_EVENT_MAX)
 	lifetime_ecology_events_seen = 0
+	if developer_mode_enabled:
+		_developer_grant_resources()
 	lifetime_ecology_events_contained = 0
 	lifetime_enemy_fungi_defeated = 0
 	lifetime_enemy_guards_defeated = 0
@@ -6294,6 +6369,7 @@ func _load_settings() -> void:
 		settings_locale = UILocalization.normalize_locale(String(parsed.get("locale", "zh_CN")))
 
 
+		developer_mode_enabled = bool(parsed.get("developer_mode", false))
 func _save_settings() -> void:
 	var file := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
 	if file:
@@ -6305,7 +6381,8 @@ func _save_settings() -> void:
 			"world_volume": settings_world_volume,
 			"combat_volume": settings_combat_volume,
 			"ambient_volume": settings_ambient_volume,
-			"locale": settings_locale
+			"locale": settings_locale,
+			"developer_mode": developer_mode_enabled
 		}))
 
 
@@ -6987,7 +7064,8 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_minimap(viewport)
 	_draw_scale(viewport)
 	_draw_pause_hud(viewport)
-	_draw_speed_controls(viewport)
+	if developer_mode_enabled:
+		_draw_speed_controls(viewport)
 	_draw_upgrade_hud(viewport)
 	_draw_goals_hud(viewport)
 	_draw_goal_tracker_hud(viewport)
@@ -9001,6 +9079,8 @@ func _handle_game_over_click(pos: Vector2) -> void:
 
 
 func _pause_menu_labels() -> Array[String]:
+	if pause_menu_page == "developer":
+		return []
 	if pause_menu_page == "guide":
 		return [_guide("guide_prev"), _guide("guide_next"), _guide("guide_back")]
 	if pause_menu_page == "language":
@@ -9019,7 +9099,10 @@ func _pause_menu_labels() -> Array[String]:
 		]
 	if pause_menu_page == "restart_confirm":
 		return [_ui("confirm_restart"), _ui("cancel")]
-	return [_ui("continue_culture"), _ui("save_now"), _ui("settings"), _ui("save_return"), _ui("restart_culture"), _guide("menu_guide")]
+	var labels: Array[String] = [_ui("continue_culture"), _ui("save_now"), _ui("settings"), _ui("save_return"), _ui("restart_culture"), _guide("menu_guide")]
+	if developer_mode_enabled:
+		labels.append(_dt("tools_entry"))
+	return labels
 
 
 func _pause_menu_panel_rect(viewport: Vector2) -> Rect2:
@@ -9160,6 +9243,9 @@ func _draw_pause_guide(panel: Rect2) -> void:
 
 func _draw_pause_menu(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.82))
+	if pause_menu_page == "developer":
+		_draw_developer_tools(viewport)
+		return
 	var panel := _pause_menu_panel_rect(viewport)
 	var accent := Color("76f5ca") if pause_menu_page != "restart_confirm" else Color("ff9f9f")
 	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.995), accent, 14, 2), panel)
@@ -9228,6 +9314,9 @@ func _close_pause_menu() -> void:
 
 func _handle_pause_menu_click(pos: Vector2) -> void:
 	var viewport := get_viewport_rect().size
+	if pause_menu_page == "developer":
+		_handle_developer_tools_click(pos)
+		return
 	var labels := _pause_menu_labels()
 	for i in range(labels.size()):
 		if not _pause_menu_button_rect(viewport, i).has_point(pos):
@@ -9259,8 +9348,8 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 			elif i >= 3 and i <= 7:
 				_cycle_audio_volume(i - 3)
 			else:
-				_play_sound("panel_close")
 				pause_menu_page = "main"
+				_play_sound("panel_close")
 		elif pause_menu_page == "restart_confirm":
 			if i == 0:
 				_begin_new_culture()
@@ -9287,6 +9376,8 @@ func _handle_pause_menu_click(pos: Vector2) -> void:
 					pause_menu_page = "guide"
 					pause_guide_page = 0
 					pause_menu_notice = ""
+				6:
+					_open_developer_tools()
 		queue_redraw()
 		return
 
@@ -9336,6 +9427,24 @@ func _draw_toast(viewport: Vector2) -> void:
 	var rect := Rect2(viewport.x * 0.5 - width * 0.5, 78, width, 38)
 	draw_style_box(_panel_style(), rect)
 	draw_string(fallback_font, rect.position + Vector2(17, 25), toast_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 34.0, _fit_font_size(toast_text, rect.size.x - 34.0), COLOR_TEXT)
+
+
+func _draw_offline_settlement(viewport: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.86))
+	var panel_size := Vector2(minf(460.0, viewport.x - 48.0), 154.0)
+	var panel := Rect2(_pixel_snap(viewport * 0.5 - panel_size * 0.5), panel_size)
+	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.995), Color("55d9a5"), 12, 2), panel)
+	var title := _dt("offline_settlement_title")
+	draw_string(fallback_font, panel.position + Vector2(24.0, 38.0), title, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 48.0, _fit_font_size(title, panel.size.x - 48.0, 16, 10), Color("bfffe1"))
+	var progress := clampf(offline_settlement_progress, 0.0, 1.0)
+	var progress_text := _dt("offline_settlement_progress_fmt") % int(round(progress * 100.0))
+	draw_string(fallback_font, panel.position + Vector2(24.0, 70.0), progress_text, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 48.0, _fit_font_size(progress_text, panel.size.x - 48.0), COLOR_MUTED)
+	var track := Rect2(panel.position + Vector2(24.0, 92.0), Vector2(panel.size.x - 48.0, 22.0))
+	draw_style_box(_rounded_style(Color(0.01, 0.035, 0.055, 0.98), Color(COLOR_BORDER, 0.72), 6, 1), track)
+	var fill_width := (track.size.x - 4.0) * progress
+	if fill_width > 0.0:
+		var fill := Rect2(track.position + Vector2.ONE * 2.0, Vector2(fill_width, track.size.y - 4.0))
+		draw_style_box(_rounded_style(Color("55d9a5"), Color("8af3c5"), 4, 1), fill)
 
 
 func _offline_report_panel_rect(viewport: Vector2) -> Rect2:
@@ -9746,6 +9855,7 @@ func _save_game() -> void:
 		"version": 1,
 		"world_generation": 5,
 		"saved_at": Time.get_unix_time_from_system(),
+		"developer_session": developer_mode_enabled,
 		"organic": organic,
 		"mineral": mineral,
 		"dna": dna,
@@ -9821,14 +9931,18 @@ func _save_game() -> void:
 		main_menu_has_save = true
 
 
-func _load_game() -> bool:
+func _load_game(defer_offline: bool = false) -> bool:
 	if not FileAccess.file_exists(save_path):
 		return false
 	var file := FileAccess.open(save_path, FileAccess.READ)
 	if not file:
 		return false
-	var parsed = JSON.parse_string(file.get_as_text())
+	var save_text := file.get_as_text()
+	file.close()
+	var parsed = JSON.parse_string(save_text)
 	if not parsed is Dictionary or int(parsed.get("version", 0)) != 1:
+		return false
+	if bool(parsed.get("developer_session", false)) != developer_mode_enabled:
 		return false
 	organic = float(parsed.get("organic", 220.0))
 	mineral = float(parsed.get("mineral", 24.0))
@@ -10421,10 +10535,13 @@ func _load_game() -> bool:
 	var now: float = Time.get_unix_time_from_system()
 	var actual_elapsed := maxf(0.0, now - float(parsed.get("saved_at", now)))
 	var settled_elapsed := minf(actual_elapsed, OFFLINE_CAP_SECONDS)
-	_apply_offline_progress(settled_elapsed, actual_elapsed)
-	# 立即写回新的 saved_at 和结算后状态，避免报告关闭前异常退出导致重复收益。
-	if offline_report_open:
-		_save_game()
+	if defer_offline:
+		_begin_offline_progress(settled_elapsed, actual_elapsed, true)
+	else:
+		_apply_offline_progress(settled_elapsed, actual_elapsed)
+		# Synchronous callers retain the existing immediate checkpoint behavior.
+		if offline_report_open:
+			_save_game()
 	selected_core = -1
 	selected_expedition_ids.clear()
 	unit_selection_filter = "all"
@@ -10446,11 +10563,21 @@ func _total_core_biomass() -> float:
 	return total
 
 
-func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> void:
+func _reset_offline_settlement_state() -> void:
+	offline_settlement_active = false
+	offline_settlement_progress = 1.0
+	offline_settlement = {}
+	offline_simulating = false
+	offline_expedition_combat_active = false
+	offline_expedition_toxin_active = false
+
+
+func _begin_offline_progress(seconds: float, actual_seconds: float = -1.0, checkpoint_on_finish: bool = false) -> bool:
+	_reset_offline_settlement_state()
 	offline_report_open = false
 	offline_report.clear()
 	if seconds < OFFLINE_MIN_SECONDS or game_over:
-		return
+		return false
 	var observed_seconds := seconds if actual_seconds < 0.0 else maxf(seconds, actual_seconds)
 	var before := {
 		"organic": organic,
@@ -10471,51 +10598,130 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		"biomass": _total_core_biomass(),
 		"living_cores": _living_core_count()
 	}
-	var remaining := seconds
-	var bacteria_remaining := minf(seconds, OFFLINE_BACTERIA_CAP_SECONDS)
-	var expedition_combat_remaining := minf(seconds, OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS)
-	var expedition_toxin_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
-	var hazard_remaining := minf(seconds, OFFLINE_HAZARD_CAP_SECONDS)
-	var orphan_remaining := minf(seconds, OFFLINE_ORPHAN_CAP_SECONDS)
+	offline_settlement = {
+		"total": seconds,
+		"remaining": seconds,
+		"actual": observed_seconds,
+		"before": before,
+		"bacteria_remaining": minf(seconds, OFFLINE_BACTERIA_CAP_SECONDS),
+		"combat_remaining": minf(seconds, OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS),
+		"expedition_toxin_remaining": minf(seconds, OFFLINE_HAZARD_CAP_SECONDS),
+		"hazard_remaining": minf(seconds, OFFLINE_HAZARD_CAP_SECONDS),
+		"orphan_remaining": minf(seconds, OFFLINE_ORPHAN_CAP_SECONDS),
+		"checkpoint_on_finish": checkpoint_on_finish
+	}
+	offline_settlement_active = true
+	offline_settlement_progress = 0.0
 	offline_simulating = true
-	while remaining > 0.0005:
-		var step := minf(OFFLINE_STEP_SECONDS, remaining)
-		sim_time += step
-		_update_growth(step)
-		_update_dna_jobs(step)
-		_update_barracks_jobs(step)
-		_discover_feeders()
-		_update_feeders(step)
-		offline_expedition_combat_active = expedition_combat_remaining > 0.0005
-		offline_expedition_toxin_active = expedition_toxin_remaining > 0.0005
-		_update_expedition_units(step, false)
-		_update_auto_replenishment()
-		expedition_combat_remaining = maxf(0.0, expedition_combat_remaining - step)
-		expedition_toxin_remaining = maxf(0.0, expedition_toxin_remaining - step)
-		if bacteria_remaining > 0.0005:
-			var bacteria_step := minf(step, bacteria_remaining)
-			_update_bacteria(bacteria_step)
-			bacteria_remaining -= bacteria_step
-		if hazard_remaining > 0.0005:
-			var hazard_step := minf(step, hazard_remaining)
-			_update_core_hazards(hazard_step)
-			hazard_remaining -= hazard_step
-		if orphan_remaining > 0.0005:
-			var orphan_step := minf(step, orphan_remaining)
-			_update_orphaned_segments(orphan_step)
-			orphan_remaining -= orphan_step
-		remaining -= step
-		if game_over:
+	return true
+
+
+func _offline_needs_fine_tail_step() -> bool:
+	for segment in segments:
+		if float(segment.get("growth", 1.0)) < 1.0 and not bool(segment.get("orphaned", false)):
+			return true
+	for feeder in feeders:
+		if float(feeder.get("growth", 1.0)) < 1.0:
+			return true
+	return false
+
+
+func _offline_has_mobile_tail_work() -> bool:
+	if not expedition_units.is_empty():
+		return true
+	for core in cores:
+		if not (core.get("spore_jobs", []) as Array).is_empty() or bool(core.get("auto_replenish", false)):
+			return true
+	return false
+
+
+func _offline_next_step() -> float:
+	var remaining := float(offline_settlement.get("remaining", 0.0))
+	var detailed := float(offline_settlement.get("bacteria_remaining", 0.0)) > 0.0005
+	detailed = detailed or float(offline_settlement.get("combat_remaining", 0.0)) > 0.0005
+	detailed = detailed or float(offline_settlement.get("expedition_toxin_remaining", 0.0)) > 0.0005
+	detailed = detailed or float(offline_settlement.get("hazard_remaining", 0.0)) > 0.0005
+	detailed = detailed or float(offline_settlement.get("orphan_remaining", 0.0)) > 0.0005
+	var desired := OFFLINE_STEP_SECONDS
+	if not detailed and not _offline_needs_fine_tail_step():
+		desired = OFFLINE_MOBILE_TAIL_STEP_SECONDS if _offline_has_mobile_tail_work() else OFFLINE_STATIC_TAIL_STEP_SECONDS
+	return minf(desired, remaining)
+
+
+func _advance_offline_progress_step() -> void:
+	if not offline_settlement_active:
+		return
+	var remaining := float(offline_settlement.get("remaining", 0.0))
+	if remaining <= 0.0005:
+		_finish_offline_progress()
+		return
+	var step := _offline_next_step()
+	sim_time += step
+	_update_growth(step)
+	_update_dna_jobs(step)
+	_update_barracks_jobs(step)
+	_discover_feeders()
+	_update_feeders(step)
+	var combat_remaining := float(offline_settlement.get("combat_remaining", 0.0))
+	var expedition_toxin_remaining := float(offline_settlement.get("expedition_toxin_remaining", 0.0))
+	offline_expedition_combat_active = combat_remaining > 0.0005
+	offline_expedition_toxin_active = expedition_toxin_remaining > 0.0005
+	_update_expedition_units(step, false)
+	_update_auto_replenishment()
+	offline_settlement["combat_remaining"] = maxf(0.0, combat_remaining - step)
+	offline_settlement["expedition_toxin_remaining"] = maxf(0.0, expedition_toxin_remaining - step)
+	var bacteria_remaining := float(offline_settlement.get("bacteria_remaining", 0.0))
+	if bacteria_remaining > 0.0005:
+		var bacteria_step := minf(step, bacteria_remaining)
+		_update_bacteria(bacteria_step)
+		offline_settlement["bacteria_remaining"] = bacteria_remaining - bacteria_step
+	var hazard_remaining := float(offline_settlement.get("hazard_remaining", 0.0))
+	if hazard_remaining > 0.0005:
+		var hazard_step := minf(step, hazard_remaining)
+		_update_core_hazards(hazard_step)
+		offline_settlement["hazard_remaining"] = hazard_remaining - hazard_step
+	var orphan_remaining := float(offline_settlement.get("orphan_remaining", 0.0))
+	if orphan_remaining > 0.0005:
+		var orphan_step := minf(step, orphan_remaining)
+		_update_orphaned_segments(orphan_step)
+		offline_settlement["orphan_remaining"] = orphan_remaining - orphan_step
+	remaining = maxf(0.0, remaining - step)
+	offline_settlement["remaining"] = remaining
+	var total := maxf(0.0005, float(offline_settlement.get("total", remaining)))
+	offline_settlement_progress = maxf(offline_settlement_progress, clampf(1.0 - remaining / total, 0.0, 1.0))
+	if remaining <= 0.0005 or game_over:
+		_finish_offline_progress()
+
+
+func _pump_offline_progress() -> void:
+	if not offline_settlement_active:
+		return
+	var started_usec := Time.get_ticks_usec()
+	var steps := 0
+	while offline_settlement_active and steps < OFFLINE_MAX_STEPS_PER_FRAME:
+		if steps > 0 and Time.get_ticks_usec() - started_usec >= OFFLINE_FRAME_BUDGET_USEC:
 			break
+		_advance_offline_progress_step()
+		steps += 1
+
+
+func _finish_offline_progress() -> void:
+	if not offline_settlement_active:
+		return
+	var settlement := offline_settlement
+	var before: Dictionary = settlement.get("before", {})
+	var total := float(settlement.get("total", 0.0))
+	var remaining := float(settlement.get("remaining", 0.0))
+	var checkpoint_on_finish := bool(settlement.get("checkpoint_on_finish", false))
 	offline_simulating = false
 	offline_expedition_combat_active = false
 	offline_expedition_toxin_active = false
 	_sync_hotspot_discoveries(false)
 	last_discovery_scan_cell_count = explored_cells.size()
 	offline_report = {
-		"actual_seconds": observed_seconds,
-		"settled_seconds": seconds - remaining,
-		"capped": observed_seconds > OFFLINE_CAP_SECONDS + 0.5,
+		"actual_seconds": float(settlement.get("actual", total)),
+		"settled_seconds": total - remaining,
+		"capped": float(settlement.get("actual", total)) > OFFLINE_CAP_SECONDS + 0.5,
 		"organic_delta": organic - float(before["organic"]),
 		"mineral_delta": mineral - float(before["mineral"]),
 		"dna_completed": dna - int(before["dna"]),
@@ -10536,10 +10742,22 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 		"living_cores_after": _living_core_count()
 	}
 	offline_report_open = true
+	offline_settlement_active = false
+	offline_settlement_progress = 1.0
+	offline_settlement = {}
+	if checkpoint_on_finish:
+		_save_game()
 	_play_sound("discovery", 0.9)
 	toast_text = ""
 	toast_time = 0.0
 	discovery_banner_time = 0.0
+
+
+func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> void:
+	if not _begin_offline_progress(seconds, actual_seconds, false):
+		return
+	while offline_settlement_active:
+		_advance_offline_progress_step()
 
 
 func _format_duration(seconds: float) -> String:
@@ -10548,3 +10766,574 @@ func _format_duration(seconds: float) -> String:
 	if seconds < 60.0:
 		return _et("duration_seconds_fmt") % int(seconds)
 	return _et("duration_minutes_fmt") % int(seconds / 60.0)
+func _developer_save_path() -> String:
+	return DEVELOPER_SAVE_PATH
+
+
+func _enter_developer_mode() -> void:
+	if save_path != DEVELOPER_SAVE_PATH:
+		developer_previous_save_path = save_path
+	developer_mode_enabled = true
+	save_path = DEVELOPER_SAVE_PATH
+	developer_page = clampi(developer_page, 0, DeveloperLocalization.PAGE_IDS.size() - 1)
+	developer_placement_action = ""
+	_developer_grant_resources()
+
+
+func _exit_developer_mode() -> void:
+	developer_mode_enabled = false
+	save_path = developer_previous_save_path if not developer_previous_save_path.is_empty() else SAVE_PATH
+	developer_previous_save_path = ""
+	developer_placement_action = ""
+	developer_page = 0
+	sim_speed = 1.0
+
+
+func _switch_developer_profile(enabled: bool) -> void:
+	if enabled == developer_mode_enabled:
+		return
+	if game_started:
+		_save_game()
+	if enabled:
+		_enter_developer_mode()
+	else:
+		_exit_developer_mode()
+	_save_settings()
+	game_started = false
+	game_over = false
+	offline_report_open = false
+	chapter_report_open = false
+	pause_menu_open = false
+	pause_menu_page = "main"
+	main_menu_active = true
+	main_menu_page = "settings"
+	main_menu_has_save = FileAccess.file_exists(save_path)
+	queue_redraw()
+
+
+func _developer_unlock_all() -> void:
+	diet_order = DIET_IDS.duplicate()
+	for diet_id in DIET_IDS:
+		diet_levels[diet_id] = 5
+	for component_id in BACTERIA_COMPONENT_IDS:
+		bacteria_components[component_id] = 3
+	for structure_id in STRUCTURE_IDS:
+		structure_levels[structure_id] = 4
+	for survival_id in SURVIVAL_IDS:
+		survival_levels[survival_id] = 4
+	for unit_id in BARRACK_UNIT_IDS:
+		barracks_unit_unlocks[unit_id] = true
+	for unit_id in diet_unit_unlocks.keys():
+		diet_unit_unlocks[unit_id] = true
+	for upgrade_id in SCOUT_UPGRADE_IDS:
+		scout_upgrade_levels[upgrade_id] = MAX_SCOUT_UPGRADE_LEVEL
+
+
+func _developer_grant_resources(organic_amount: float = -1.0, mineral_amount: float = -1.0, dna_amount: int = -1) -> void:
+	if not developer_mode_enabled:
+		return
+	if organic_amount >= 0.0 or mineral_amount >= 0.0 or dna_amount >= 0:
+		if organic_amount >= 0.0:
+			organic += organic_amount
+		if mineral_amount >= 0.0:
+			mineral += mineral_amount
+		if dna_amount >= 0:
+			dna += dna_amount
+		return
+	organic = maxf(organic, DEVELOPER_RESOURCE_FLOOR)
+	mineral = maxf(mineral, DEVELOPER_RESOURCE_FLOOR)
+	dna = maxi(dna, DEVELOPER_DNA_FLOOR)
+	_developer_unlock_all()
+
+
+func _developer_spawn_resource(pos: Vector2, kind: int, amount: float) -> int:
+	_add_resource(pos, clampi(kind, 0, 1), maxf(0.001, amount))
+	return int(resources.back().get("id", -1))
+
+
+func _developer_spawn_bacterium(pos: Vector2) -> int:
+	bacteria.append(_make_bacterium(pos))
+	purge_density_grid.clear()
+	return bacteria.size() - 1
+
+
+func _developer_spawn_core(pos: Vector2, kind: String) -> int:
+	var safe_kind := "barracks" if kind == "barracks" else "normal"
+	var safe_pos := pos
+	if safe_pos.length() > WORLD_HALF - 24.0:
+		safe_pos = safe_pos.normalized() * (WORLD_HALF - 24.0)
+	cores.append(_make_core(safe_pos, safe_kind))
+	var core_id := cores.size() - 1
+	_reveal_exploration(safe_pos, CORE_REVEAL_RADIUS)
+	last_discovery_scan_cell_count = -1
+	_update_exploration(false)
+	return core_id
+
+
+func _developer_spawn_expedition(core_id: int, unit_type: String) -> int:
+	if not _is_core_alive(core_id) or not DEVELOPER_UNIT_IDS.has(unit_type):
+		return -1
+	var before := expedition_units.size()
+	var expected_id := next_expedition_id
+	_spawn_expedition_spore(core_id, unit_type, false)
+	if expedition_units.size() <= before:
+		return -1
+	return int(expedition_units.back().get("id", expected_id))
+
+
+func _developer_spawn_enemy_fungus(pos: Vector2) -> int:
+	var safe_pos := pos
+	if safe_pos.length() > WORLD_HALF - 320.0:
+		safe_pos = safe_pos.normalized() * (WORLD_HALF - 320.0)
+	var enemy := _make_enemy_fungus(safe_pos, "developer", 0)
+	enemy["state"] = "foraging"
+	enemy["discovered"] = true
+	var enemy_id := int(enemy["id"])
+	next_enemy_fungus_id += 1
+	enemy_fungi.append(enemy)
+	_append_initial_enemy_hyphae(enemy_id, safe_pos)
+	_refresh_enemy_hypha_connectivity()
+	_reveal_exploration(safe_pos, FUNGAL_INCURSION_REVEAL_RADIUS)
+	_update_enemy_threat()
+	return enemy_id
+
+
+func _developer_spawn_enemy_guard(enemy_id: int, pos: Vector2) -> int:
+	if _enemy_fungus_index_by_id(enemy_id) < 0:
+		return -1
+	var guard := _make_enemy_guard(enemy_id, pos)
+	var guard_id := int(guard["id"])
+	next_enemy_guard_id += 1
+	enemy_guard_spores.append(guard)
+	return guard_id
+
+
+func _developer_spawn_ecology_event(event_type: String, pos: Vector2) -> int:
+	if event_type != "bloom" and event_type != "toxin":
+		return -1
+	var radius := ECOLOGY_BLOOM_RADIUS if event_type == "bloom" else ECOLOGY_TOXIN_ZONE_RADIUS
+	var event := {
+		"id": next_ecology_event_id,
+		"type": event_type,
+		"pos": pos,
+		"radius": radius,
+		"phase": "active",
+		"remaining": ECOLOGY_BLOOM_ACTIVE_SECONDS if event_type == "bloom" else ECOLOGY_TOXIN_ACTIVE_SECONDS,
+		"anchor_core_id": 0 if not cores.is_empty() else -1,
+		"spawned": 0,
+		"control_progress": 0.0,
+		"controlled_by_suppressor": false
+	}
+	var event_id := next_ecology_event_id
+	next_ecology_event_id += 1
+	ecology_events.append(event)
+	lifetime_ecology_events_seen += 1
+	if event_type == "bloom":
+		_spawn_bloom_bacteria(event)
+	_reveal_exploration(pos, radius + 48.0)
+	last_discovery_scan_cell_count = -1
+	_update_exploration(false)
+	return event_id
+
+
+func _developer_clear_entity_group(group: String) -> void:
+	match group:
+		"resources":
+			resources.clear()
+			resource_grid.clear()
+			feeders.clear()
+		"bacteria":
+			bacteria.clear()
+			purge_density_grid.clear()
+			purge_claim_cache.clear()
+			for unit in expedition_units:
+				if String(unit.get("target_kind", "")) == "bacteria":
+					unit["target_kind"] = ""
+					unit["target_pos"] = unit["pos"]
+					unit["state"] = "idle"
+		"expedition":
+			expedition_units.clear()
+			selected_expedition_ids.clear()
+			purge_density_grid.clear()
+			purge_claim_cache.clear()
+		"enemies":
+			enemy_fungi.clear()
+			enemy_hyphae.clear()
+			enemy_guard_spores.clear()
+			enemy_threat_level = 0
+			enemy_threat_pos = Vector2.INF
+			enemy_fungi_initialized = false
+			fungal_incursion = {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1}
+			for unit in expedition_units:
+				_clear_expedition_target_ids(unit)
+		"ecology":
+			ecology_events.clear()
+			for bacterium in bacteria:
+				bacterium["event_id"] = -1
+				bacterium["strain"] = "normal"
+		"cores":
+			cores.clear()
+			cores.append(_make_core(Vector2.ZERO))
+			segments.clear()
+			feeders.clear()
+			selected_core = -1
+			selected_tip_valid = false
+			show_status = false
+			_reveal_exploration(Vector2.ZERO, CORE_REVEAL_RADIUS)
+			last_discovery_scan_cell_count = -1
+	_rebuild_resource_grid()
+	_refresh_enemy_hypha_connectivity()
+	_rebuild_purge_claim_cache()
+	_update_exploration(false)
+	queue_redraw()
+func _developer_current_unit() -> String:
+	developer_current_unit_index = wrapi(developer_current_unit_index, 0, DEVELOPER_UNIT_IDS.size())
+	return String(DEVELOPER_UNIT_IDS[developer_current_unit_index])
+
+
+func _developer_action_label(action_id: String) -> String:
+	var unit_name := _localized_unit_name(_developer_current_unit())
+	if action_id == "cycle_unit":
+		return _dt("action_cycle_unit_fmt") % unit_name
+	if action_id == "spawn_unit":
+		return _dt("action_spawn_unit_fmt") % unit_name
+	return DeveloperLocalization.action_label(action_id, settings_locale)
+
+
+func _developer_begin_placement(action_id: String) -> void:
+	developer_placement_action = action_id
+	pause_menu_open = false
+	pause_menu_page = "main"
+	var hint_key := String({
+		"spawn_core": "placement_core_hint",
+		"spawn_barracks": "placement_core_hint",
+		"place_organic": "placement_organic_hint",
+		"place_mineral": "placement_mineral_hint",
+		"place_bacteria": "placement_bacteria_hint",
+		"place_rival": "placement_rival_hint",
+		"spawn_guard": "placement_rival_hint",
+		"place_bloom": "placement_bloom_hint",
+		"place_toxin": "placement_toxin_hint"
+	}.get(action_id, "placement_left_confirm"))
+	toast(_dt(hint_key) + " · " + _dt("placement_left_confirm"), 6.0, "info")
+
+
+func _developer_cancel_placement(show_feedback: bool = true) -> void:
+	if developer_placement_action.is_empty():
+		return
+	developer_placement_action = ""
+	if show_feedback:
+		toast(_dt("placement_cancel"), 2.0, "info")
+	queue_redraw()
+
+
+func _developer_position_blocked(pos: Vector2, action_id: String) -> bool:
+	if action_id == "spawn_core" or action_id == "spawn_barracks":
+		for core in cores:
+			if bool(core.get("alive", false)) and pos.distance_to(core["pos"]) < 48.0:
+				return true
+	if action_id == "place_rival":
+		for enemy in enemy_fungi:
+			if bool(enemy.get("alive", false)) and pos.distance_to(enemy["pos"]) < 80.0:
+				return true
+	return false
+
+
+func _developer_place_at(screen_pos: Vector2) -> bool:
+	if not developer_mode_enabled or developer_placement_action.is_empty():
+		return false
+	if _pause_hud_rect().has_point(screen_pos) or _upgrade_hud_rect().has_point(screen_pos) or _goals_hud_rect().has_point(screen_pos) or _minimap_rect().has_point(screen_pos):
+		toast(_dt("placement_blocked"), 2.0, "error")
+		return true
+	var world_pos := screen_to_world(screen_pos)
+	if not world_pos.is_finite() or world_pos.length() > WORLD_HALF - 24.0:
+		toast(_dt("placement_out_of_range"), 2.0, "error")
+		return true
+	if _developer_position_blocked(world_pos, developer_placement_action):
+		toast(_dt("placement_blocked"), 2.0, "error")
+		return true
+	var action_id := developer_placement_action
+	match action_id:
+		"spawn_core":
+			_developer_spawn_core(world_pos, "normal")
+		"spawn_barracks":
+			_developer_spawn_core(world_pos, "barracks")
+		"place_organic":
+			for i in range(18):
+				_developer_spawn_resource(world_pos + Vector2.from_angle(float(i) / 18.0 * TAU) * rng.randf_range(4.0, 62.0), 0, rng.randf_range(12.0, 24.0))
+		"place_mineral":
+			for i in range(12):
+				_developer_spawn_resource(world_pos + Vector2.from_angle(float(i) / 12.0 * TAU) * rng.randf_range(4.0, 48.0), 1, rng.randf_range(4.0, 9.0))
+		"place_bacteria":
+			for i in range(12):
+				_developer_spawn_bacterium(world_pos + Vector2.from_angle(float(i) / 12.0 * TAU) * rng.randf_range(3.0, 34.0))
+		"place_rival":
+			_developer_spawn_enemy_fungus(world_pos)
+		"spawn_guard":
+			var nearest_id := -1
+			var nearest_distance := INF
+			for enemy in enemy_fungi:
+				if bool(enemy.get("alive", false)):
+					var distance := world_pos.distance_squared_to(enemy["pos"])
+					if distance < nearest_distance:
+						nearest_distance = distance
+						nearest_id = int(enemy["id"])
+			if nearest_id < 0:
+				nearest_id = _developer_spawn_enemy_fungus(world_pos + Vector2(90.0, 0.0))
+			_developer_spawn_enemy_guard(nearest_id, world_pos)
+		"place_bloom":
+			_developer_spawn_ecology_event("bloom", world_pos)
+		"place_toxin":
+			_developer_spawn_ecology_event("toxin", world_pos)
+	toast(_dt("placement_done_fmt") % _developer_action_label(action_id), 2.0, "info")
+	return true
+
+
+func _developer_reveal_map() -> void:
+	explored_cells.clear()
+	for cell_y in range(EXPLORATION_GRID_SIDE):
+		for cell_x in range(EXPLORATION_GRID_SIDE):
+			var cell := Vector2i(cell_x, cell_y)
+			if _exploration_cell_center(cell).length() <= WORLD_HALF + EXPLORATION_CELL_SIZE * 0.72:
+				explored_cells[_exploration_key(cell)] = true
+	last_discovery_scan_cell_count = -1
+	_update_exploration(false)
+
+
+func _developer_restore_fog() -> void:
+	explored_cells.clear()
+	discovered_hotspots.clear()
+	last_discovery_scan_cell_count = -1
+	for core in cores:
+		core["reveal_cell"] = -1
+	for segment in segments:
+		segment["reveal_cell"] = -1
+	for unit in expedition_units:
+		unit["reveal_cell"] = -1
+	_update_exploration(false)
+
+
+func _developer_heal_cores() -> void:
+	for core in cores:
+		core["alive"] = true
+		core["max_biomass"] = maxf(1.0, float(core.get("max_biomass", _core_max_biomass_value())))
+		core["biomass"] = float(core["max_biomass"])
+		core["repair_reserve"] = float(core["max_biomass"])
+
+
+func _developer_complete_all_goals() -> void:
+	for goal in _goal_definitions():
+		goals_claimed[String(goal["id"])] = true
+	lifetime_mineral_absorbed = maxf(lifetime_mineral_absorbed, 1.0)
+	lifetime_bacteria_births = maxi(lifetime_bacteria_births, 25)
+	lifetime_bacteria_consumed = maxi(lifetime_bacteria_consumed, 25)
+	lifetime_expedition_organic_returned = maxf(lifetime_expedition_organic_returned, 10.0)
+	lifetime_expedition_mineral_returned = maxf(lifetime_expedition_mineral_returned, 0.5)
+	lifetime_expedition_bacteria_killed = maxi(lifetime_expedition_bacteria_killed, 10)
+	barracks_directive_ever_set = true
+	lifetime_ecology_events_contained = maxi(lifetime_ecology_events_contained, 1)
+	lifetime_suppressed_blooms_contained = maxi(lifetime_suppressed_blooms_contained, 1)
+	lifetime_disperser_best_hit = maxi(lifetime_disperser_best_hit, 8)
+	lifetime_enemy_fungi_defeated = maxi(lifetime_enemy_fungi_defeated, 1)
+	lifetime_enemy_guards_defeated = maxi(lifetime_enemy_guards_defeated, 5)
+	lifetime_enemy_hyphae_severed = maxi(lifetime_enemy_hyphae_severed, 3)
+	lifetime_antifungal_assisted_kills = maxi(lifetime_antifungal_assisted_kills, 1)
+	lifetime_fungal_incursions_defeated = maxi(lifetime_fungal_incursions_defeated, 3)
+
+
+func _developer_save_snapshot() -> bool:
+	_save_game()
+	var source := FileAccess.open(DEVELOPER_SAVE_PATH, FileAccess.READ)
+	if source == null:
+		return false
+	var payload := source.get_as_text()
+	source.close()
+	var target := FileAccess.open(DEVELOPER_SNAPSHOT_PATH, FileAccess.WRITE)
+	if target == null:
+		return false
+	target.store_string(payload)
+	target.close()
+	return true
+
+
+func _developer_load_snapshot() -> bool:
+	if not FileAccess.file_exists(DEVELOPER_SNAPSHOT_PATH):
+		return false
+	var previous_path := save_path
+	save_path = DEVELOPER_SNAPSHOT_PATH
+	var loaded := _load_game(false)
+	save_path = previous_path
+	if loaded:
+		_developer_grant_resources()
+	return loaded
+
+
+func _developer_apply_action(action_id: String) -> void:
+	if not developer_mode_enabled:
+		toast(_dt("action_blocked"), 2.0, "error")
+		return
+	var placement_actions := ["spawn_core", "spawn_barracks", "place_organic", "place_mineral", "place_bacteria", "place_rival", "spawn_guard", "place_bloom", "place_toxin"]
+	if placement_actions.has(action_id):
+		_developer_begin_placement(action_id)
+		return
+	match action_id:
+		"speed_1": sim_speed = 1.0
+		"speed_10": sim_speed = 10.0
+		"speed_60": sim_speed = 60.0
+		"add_resources":
+			organic += 100.0
+			mineral += 10.0
+		"add_dna": dna += 10
+		"heal_cores": _developer_heal_cores()
+		"unlock_upgrades": _developer_unlock_all()
+		"cycle_unit": developer_current_unit_index = wrapi(developer_current_unit_index + 1, 0, DEVELOPER_UNIT_IDS.size())
+		"spawn_unit":
+			var barracks_id := -1
+			for core_id in range(cores.size()):
+				if _is_core_alive(core_id) and String(cores[core_id].get("kind", "normal")) == "barracks":
+					barracks_id = core_id
+					break
+			if barracks_id < 0:
+				var anchor: Vector2 = cores[0]["pos"] if not cores.is_empty() else Vector2.ZERO
+				barracks_id = _developer_spawn_core(anchor + Vector2(64.0, 0.0), "barracks")
+			_developer_spawn_expedition(barracks_id, _developer_current_unit())
+		"reveal_map": _developer_reveal_map()
+		"restore_fog": _developer_restore_fog()
+		"trigger_sporefall":
+			fungal_incursion = {"phase": "cooldown", "remaining": 0.0, "pos": Vector2.INF, "wave": lifetime_fungal_incursions_defeated, "enemy_id": -1}
+			_begin_fungal_incursion_warning()
+		"clear_hazards":
+			_developer_clear_entity_group("ecology")
+			_developer_clear_entity_group("enemies")
+		"advance_task":
+			chapter_task_index = mini(chapter_task_index + 1, _chapter_tasks().size())
+		"complete_chapter":
+			chapter_task_index = _chapter_tasks().size()
+			chapter_complete = true
+			chapter_report_seen = true
+			chapter_report_open = false
+			chapter_completed_at = sim_time
+		"reset_chapter":
+			chapter_task_index = 0
+			chapter_complete = false
+			chapter_report_seen = false
+			chapter_report_open = false
+			chapter_completed_at = 0.0
+		"complete_goals": _developer_complete_all_goals()
+		"reset_goals":
+			goals_claimed.clear()
+			tracked_goal_id = "first_hypha"
+			tracked_goal_completion_notified = false
+		"save_snapshot": _developer_save_snapshot()
+		"load_snapshot": _developer_load_snapshot()
+		"clear_dev_save":
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(DEVELOPER_SAVE_PATH))
+			main_menu_has_save = false
+	if action_id.begins_with("speed_"):
+		toast(_dt("speed_toast_fmt") % int(sim_speed), 1.5, "info")
+	else:
+		toast(_dt("action_applied_fmt") % _developer_action_label(action_id), 2.2, "info")
+	queue_redraw()
+func _open_developer_tools() -> void:
+	if not developer_mode_enabled or main_menu_active or offline_report_open or chapter_report_open:
+		return
+	developer_placement_action = ""
+	upgrade_open = false
+	goals_open = false
+	pause_menu_open = true
+	pause_menu_page = "developer"
+	pause_menu_notice = ""
+	selected_core = -1
+	selected_tip_valid = false
+	show_status = false
+	mode = "normal"
+	_play_sound("panel_open")
+	queue_redraw()
+
+
+func _developer_panel_rect(viewport: Vector2) -> Rect2:
+	var size := Vector2(minf(860.0, viewport.x - 32.0), minf(560.0, viewport.y - 32.0))
+	return Rect2(_pixel_snap(viewport * 0.5 - size * 0.5), size)
+
+
+func _developer_button_rects(viewport: Vector2) -> Array[Rect2]:
+	var result: Array[Rect2] = []
+	var panel := _developer_panel_rect(viewport)
+	var page_id := String(DeveloperLocalization.PAGE_IDS[clampi(developer_page, 0, DeveloperLocalization.PAGE_IDS.size() - 1)])
+	var actions := DeveloperLocalization.page_actions(page_id)
+	var rows := maxi(1, int(ceil(float(actions.size()) / 2.0)))
+	var gap := 6.0
+	var top := panel.position.y + 76.0
+	var bottom := panel.end.y - 48.0
+	var height := clampf((bottom - top - gap * float(rows - 1)) / float(rows), 22.0, 40.0)
+	var width := (panel.size.x - 46.0) * 0.5
+	for index in range(actions.size()):
+		var column := index % 2
+		var row := int(index / 2)
+		result.append(Rect2(_pixel_snap(Vector2(panel.position.x + 18.0 + column * (width + 10.0), top + row * (height + gap))), Vector2(width, height)))
+	return result
+
+
+func _developer_navigation_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := _developer_panel_rect(viewport)
+	var gap := 8.0
+	var width := minf(150.0, (panel.size.x - 36.0 - gap * 2.0) / 3.0)
+	var total := width * 3.0 + gap * 2.0
+	return Rect2(_pixel_snap(Vector2(panel.get_center().x - total * 0.5 + index * (width + gap), panel.end.y - 38.0)), Vector2(width, 26.0))
+
+
+func _draw_developer_tools(viewport: Vector2) -> void:
+	var panel := _developer_panel_rect(viewport)
+	draw_style_box(_rounded_style(Color(0.016, 0.055, 0.074, 0.995), Color("60e6b2"), 12, 2), panel)
+	var page_id := String(DeveloperLocalization.PAGE_IDS[clampi(developer_page, 0, DeveloperLocalization.PAGE_IDS.size() - 1)])
+	var title := _dt("panel_title")
+	draw_string(fallback_font, panel.position + Vector2(18.0, 27.0), title, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 150.0, _fit_font_size(title, panel.size.x - 150.0, 16, 10), COLOR_HYPHA)
+	var badge := _dt("badge")
+	draw_string(fallback_font, panel.position + Vector2(panel.size.x - 142.0, 26.0), badge, HORIZONTAL_ALIGNMENT_RIGHT, 124.0, _fit_font_size(badge, 124.0, 10, 7), COLOR_ORGANIC)
+	var page_label := _dt("page_label_fmt") % [developer_page + 1, DeveloperLocalization.PAGE_IDS.size(), DeveloperLocalization.page_title(page_id, settings_locale)]
+	draw_string(fallback_font, panel.position + Vector2(18.0, 48.0), page_label, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 36.0, _fit_font_size(page_label, panel.size.x - 36.0, 11, 8), COLOR_TEXT)
+	var description := DeveloperLocalization.page_description(page_id, settings_locale)
+	draw_string(fallback_font, panel.position + Vector2(18.0, 67.0), description, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 36.0, _fit_font_size(description, panel.size.x - 36.0, 10, 7), COLOR_MUTED)
+	var actions := DeveloperLocalization.page_actions(page_id)
+	var rects := _developer_button_rects(viewport)
+	for index in range(actions.size()):
+		var rect: Rect2 = rects[index]
+		var hovered := rect.has_point(last_mouse)
+		draw_style_box(_rounded_style(Color(0.08, 0.27, 0.22, 0.98) if hovered else Color(0.025, 0.13, 0.15, 0.98), Color("6ef2b8") if hovered else COLOR_BORDER, 6, 2 if hovered else 1), rect)
+		var label := _developer_action_label(String(actions[index]))
+		var font_size := _fit_font_size(label, rect.size.x - 12.0, 11, 7)
+		draw_string(fallback_font, Vector2(rect.position.x + 6.0, rect.get_center().y + font_size * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 12.0, font_size, COLOR_TEXT)
+	var nav_labels := [_dt("previous_page"), _dt("next_page"), _dt("close")]
+	for index in range(3):
+		var rect := _developer_navigation_rect(viewport, index)
+		var hovered := rect.has_point(last_mouse)
+		draw_style_box(_rounded_style(Color(0.08, 0.24, 0.20, 0.98) if hovered else Color(0.025, 0.10, 0.13, 0.98), Color("6ef2b8") if hovered else COLOR_BORDER, 6, 1), rect)
+		var label := String(nav_labels[index])
+		var font_size := _fit_font_size(label, rect.size.x - 10.0, 10, 7)
+		draw_string(fallback_font, Vector2(rect.position.x + 5.0, rect.get_center().y + font_size * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 10.0, font_size, COLOR_TEXT)
+
+
+func _handle_developer_tools_click(pos: Vector2) -> bool:
+	var viewport := get_viewport_rect().size
+	var page_id := String(DeveloperLocalization.PAGE_IDS[clampi(developer_page, 0, DeveloperLocalization.PAGE_IDS.size() - 1)])
+	var actions := DeveloperLocalization.page_actions(page_id)
+	var rects := _developer_button_rects(viewport)
+	for index in range(actions.size()):
+		if rects[index].has_point(pos):
+			_play_sound("ui_click")
+			_developer_apply_action(String(actions[index]))
+			return true
+	if _developer_navigation_rect(viewport, 0).has_point(pos):
+		developer_page = wrapi(developer_page - 1, 0, DeveloperLocalization.PAGE_IDS.size())
+		_play_sound("ui_click")
+		queue_redraw()
+		return true
+	if _developer_navigation_rect(viewport, 1).has_point(pos):
+		developer_page = wrapi(developer_page + 1, 0, DeveloperLocalization.PAGE_IDS.size())
+		_play_sound("ui_click")
+		queue_redraw()
+		return true
+	if _developer_navigation_rect(viewport, 2).has_point(pos):
+		_close_pause_menu()
+		return true
+	return false

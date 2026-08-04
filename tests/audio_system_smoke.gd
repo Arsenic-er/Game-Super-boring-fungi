@@ -61,7 +61,7 @@ func _run() -> void:
 
 	game.main_menu_page = "settings"
 	game.pause_menu_page = "settings"
-	if not _check(game._main_menu_labels().size() == 9 and game._pause_menu_labels().size() == 9, "main and pause settings should expose language plus five audio channels"):
+	if not _check(game._main_menu_labels().size() == 10 and game._pause_menu_labels().size() == 9, "main settings should add the developer switch while pause settings keep language and five audio channels"):
 		return
 	for viewport in [Vector2(1280.0, 720.0), Vector2(960.0, 540.0), Vector2(640.0, 360.0)]:
 		var settings_header := Rect2(Vector2.ZERO, Vector2(viewport.x, 78.0))
@@ -94,7 +94,7 @@ func _run() -> void:
 	if not _check(is_equal_approx(game.settings_master_volume, 0.80) and is_equal_approx(game.settings_ui_volume, 0.75) and is_equal_approx(game.settings_world_volume, 0.65) and is_equal_approx(game.settings_combat_volume, 0.70) and is_equal_approx(game.settings_ambient_volume, 0.35), "v0.30 settings should receive safe audio defaults"):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(settings_path))
-	print("AUDIO_SYSTEM_OK cues=", audio.cue_streams.size(), " voices=", audio.players.size(), " ambient_seconds=32 settings=5 interactions=hooked legacy=compatible offline=silent")
+	print("AUDIO_SYSTEM_OK cues=", audio.cue_streams.size(), " voices=", audio.players.size(), " ambient_seconds=32 settings=main10/pause9 audio_channels=5 interactions=hooked legacy=compatible offline=silent")
 	game.queue_free()
 	quit(0)
 

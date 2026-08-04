@@ -52,7 +52,7 @@ func _run() -> void:
 
 	game.main_menu_page = "settings"
 	game.pause_menu_page = "settings"
-	if not _check(game._main_menu_labels().size() == 9 and game._pause_menu_labels().size() == 9, "main and pause settings should expose language plus eight existing actions"):
+	if not _check(game._main_menu_labels().size() == 10 and game._pause_menu_labels().size() == 9, "main settings should add the developer switch while pause settings keep the nine regular actions"):
 		return
 	game.main_menu_page = "language"
 	game.pause_menu_page = "language"
@@ -73,7 +73,7 @@ func _run() -> void:
 		game.settings_locale = locale_id
 		game.main_menu_page = "settings"
 		game.pause_menu_page = "settings"
-		if not _check(game._main_menu_labels().size() == 9 and game._pause_menu_labels().size() == 9, "%s settings should keep stable button counts" % locale_id):
+		if not _check(game._main_menu_labels().size() == 10 and game._pause_menu_labels().size() == 9, "%s settings should keep main=10 and pause=9 button counts" % locale_id):
 			return
 		for viewport in [Vector2(1280.0, 720.0), Vector2(960.0, 540.0), Vector2(640.0, 360.0)]:
 			if not _check(_main_layout_valid(game, viewport) and _pause_layout_valid(game, viewport), "%s settings should fit at %dx%d" % [locale_id, int(viewport.x), int(viewport.y)]):
@@ -136,7 +136,7 @@ func _run() -> void:
 	if not _check(game.pause_menu_open and game.pause_menu_page == "settings", "Esc should return from pause language page to pause settings"):
 		return
 
-	print("LOCALIZATION_OK locales=7 keys=", reference.size(), " settings=9 language_page=8 first_run=modal layouts=3 legacy=compatible")
+	print("LOCALIZATION_OK locales=7 keys=", reference.size(), " settings=main10/pause9 language_page=8 first_run=modal layouts=3 legacy=compatible")
 	game.queue_free()
 	quit(0)
 

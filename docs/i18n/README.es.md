@@ -4,7 +4,7 @@
 
 Un juego incremental de evolución y expansión que comienza con una espora microscópica y crece hasta alcanzar ecosistemas, sociedades humanas, países y, finalmente, todo el planeta.
 
-El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.46.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
+El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.47.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.
 
 La v0.41 muestra la selección de siete idiomas al iniciar por primera vez una instalación nueva y ofrece chino simplificado, chino tradicional, inglés, japonés, español, alemán y ruso para el HUD de recursos, las acciones radiales del núcleo, el estado del núcleo y las ayudas emergentes habituales, el estado de las expediciones, las descripciones de las bacterias y los nombres de las diez clases de unidad; la tienda de mejoras y el texto completo de los objetivos a largo plazo aún no están totalmente traducidos.
 
@@ -14,6 +14,7 @@ La v0.43 añade al menú de pausa de Esc una guía ilustrada de seis páginas. E
 La v0.44 completa en siete idiomas las páginas de dietas, componentes bacterianos y unidades especializadas, y traduce las compras, desbloqueos y avisos de error de evolución. Las etiquetas largas se ajustan ahora dentro de la interfaz de píxeles.
 La v0.45 traduce a siete idiomas la guía del Capítulo 1, los eventos ecológicos, las fases y recompensas de la lluvia rival, las alertas enemigas y las unidades de tiempo. Los avisos largos se ajustan a pantallas estrechas.
 La v0.46 traduce a siete idiomas el informe final del Capítulo 1, las ayudas y avisos de combate rivales, el HUD de selección, los informes de órdenes y las tareas persistentes del cuartel. Los motivos de retirada chinos de partidas antiguas migran a ID estables y los textos largos se adaptan a pantallas estrechas.
+La v0.47 procesa por fotogramas la liquidación del progreso sin conexión al cargar una partida y muestra su avance. También añade una partida de entorno de pruebas para desarrolladores, aislada del progreso normal, con recursos y mejoras gratuitos, control de etapa y colocación en el mapa de recursos, bacterias, núcleos propios, cuarteles, los diez tipos de esporas expedicionarias, hongos rivales y guardias, y eventos ecológicos.
 
 ## Descarga y ejecución
 

@@ -4,7 +4,7 @@
 
 Ein Idle-Spiel über Evolution und Ausbreitung: Es beginnt mit einer mikroskopisch kleinen Spore und wächst über Ökosysteme, menschliche Gesellschaften und Staaten bis hin zum gesamten Planeten.
 
-Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.46.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
+Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.47.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.
 
 v0.41 zeigt beim ersten Start einer Neuinstallation die Auswahl aus sieben Sprachen und stellt das Ressourcen-HUD, radiale Kernaktionen, den Kernstatus und häufige Hover-Hinweise, den Expeditionsstatus, Bakterienbeschreibungen sowie die Namen aller zehn Einheitentypen auf vereinfachtem und traditionellem Chinesisch, Englisch, Japanisch, Spanisch, Deutsch und Russisch bereit; der Upgrade-Shop und die vollständigen Texte der Langzeitziele sind noch nicht vollständig übersetzt.
 
@@ -14,6 +14,7 @@ v0.43 ergänzt das Esc-Pausenmenü um eine sechsseitige, bebilderte Spielanleitu
 v0.44 vervollständigt die sieben Sprachfassungen der Ernährungsdetails, Bakterienkomponenten und Spezialtruppen und übersetzt Evolutionskäufe, Freischaltungen und Fehlermeldungen. Lange Beschriftungen skalieren nun innerhalb der Pixel-UI.
 v0.45 übersetzt die laufende Kapitel-1-Anleitung, Ökologieereignisse, Phasen und Belohnungen des Rivalen-Sporenfalls, Feindwarnkarten und Zeiteinheiten in sieben Sprachen. Lange Meldungen passen nun auf schmale Ansichten.
 v0.46 übersetzt den Kapitel-1-Abschlussbericht, Hinweise und Kampfmeldungen zu Rivalen, Auswahl-HUD, Befehlsberichte und Kasernen-Daueraufträge in sieben Sprachen. Alte chinesische Rückzugsgründe werden zu stabilen IDs migriert; lange Berichte und Tooltips passen auf schmale Bildschirme.
+v0.47 verteilt die Offline-Abrechnung beim Laden eines Spielstands mit sichtbarem Fortschritt auf mehrere Frames. Außerdem kommt ein vom normalen Fortschritt getrennter Entwickler-Sandbox-Spielstand hinzu: kostenlose Ressourcen und Upgrades, Stufensteuerung sowie die Platzierung von Ressourcen, Bakterien, eigenen Kernen, Kasernen, allen zehn Expeditionssporentypen, rivalisierenden Pilzen und Wächtern sowie Ökologieereignissen auf der Karte.
 
 ## Download und Start
 
