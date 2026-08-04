@@ -56,7 +56,8 @@ func _run() -> void:
 		var expected_kind := "bacteria" if ["forager", "lytic", "disperser"].has(unit_type) else ("deploy_zone" if ["suppressor", "antifungal"].has(unit_type) else "ground")
 		if not _check(String(unit["target_kind"]) == expected_kind and String(unit["state"]) == "moving", "mixed bacteria order should execute or fall back by role"):
 			return
-	if not _check(game.toast_text.contains("5 \u6539\u4e3a\u8b66\u6212"), "mixed command receipt should report five fallback guards"):
+	var expected_receipt: String = game._rt("toast_command_receipt_fmt") % [5, 5, 0]
+	if not _check(game.toast_text == expected_receipt, "mixed command receipt should report five actions and five fallback guards"):
 		return
 
 	var piercer := _unit_by_type(game, "piercer")

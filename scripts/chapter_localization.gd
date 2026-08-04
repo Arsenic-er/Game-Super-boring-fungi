@@ -126,6 +126,53 @@ const TASK_TEXT := {
 }
 
 
+const REPORT_KEYS: Array[String] = [
+	"report_title", "report_subtitle", "report_duration_fmt", "report_hypha_length_fmt",
+	"report_living_cores_fmt", "report_organic_absorbed_fmt", "report_mineral_absorbed_fmt",
+	"report_dna_produced_fmt", "report_units_fmt", "report_bacteria_digested_fmt",
+	"report_exploration_fmt", "report_rivals_fmt", "report_unclaimed_notice",
+	"report_inheritance_notice", "report_next_locked"
+]
+
+const REPORT_VALUES := {
+	"zh_CN": [
+		"第一章完成 · 实验室培养", "从一枚孢子开始，你已建立远征体系并清除了竞争菌落。", "培养时长　%s", "主菌丝长度　%d μm", "存活核心　%d",
+		"有机吸收　%.3f", "矿物吸收　%.3f", "DNA 记录　%d", "体外单位　建造 %d　损失 %d", "消化细菌　%d", "探索比例　%.2f%%",
+		"竞争守卫 %d　菌落 %d　孢子雨 %d", "长期目标中的未领取奖励仍可继续完成；本结算不会结束当前存档。", "后续阶段将继承这一章形成的生理与传播倾向。", "下一章节尚未开放"
+	],
+	"zh_TW": [
+		"第一章完成 · 實驗室培養", "從一枚孢子開始，你已建立遠征體系並清除了競爭菌落。", "培養時長　%s", "主菌絲長度　%d μm", "存活核心　%d",
+		"有機吸收　%.3f", "礦物吸收　%.3f", "DNA 記錄　%d", "體外單位　建造 %d　損失 %d", "消化細菌　%d", "探索比例　%.2f%%",
+		"競爭守衛 %d　菌落 %d　孢子雨 %d", "長期目標中的未領取獎勵仍可繼續完成；本結算不會結束目前存檔。", "後續階段將繼承這一章形成的生理與傳播傾向。", "下一章節尚未開放"
+	],
+	"en": [
+		"Chapter 1 complete · Laboratory culture", "From a single spore, you built an expedition network and cleared the rival colony.", "Culture time  %s", "Main hypha length  %d μm", "Living cores  %d",
+		"Organic absorbed  %.3f", "Minerals absorbed  %.3f", "DNA produced  %d", "Mobile units  built %d  lost %d", "Bacteria digested  %d", "Explored  %.2f%%",
+		"Rivals: guards %d  colonies %d  sporefalls %d", "Unclaimed long-term rewards remain available; this report does not end the current save.", "Later stages will inherit the physiological and dispersal traits shaped here.", "Next chapter not yet available"
+	],
+	"ja": [
+		"第1章クリア · 実験室培養", "1個の胞子から遠征体制を築き、競争コロニーを排除しました。", "培養時間　%s", "主菌糸長　%d μm", "生存コア　%d",
+		"有機栄養吸収　%.3f", "ミネラル吸収　%.3f", "DNA生産　%d", "体外ユニット　生産 %d　損失 %d", "細菌消化　%d", "探索率　%.2f%%",
+		"競争菌：護衛 %d　コロニー %d　胞子雨 %d", "長期目標の未受取報酬は引き続き獲得できます。この結果画面で現在のセーブは終了しません。", "後の段階には、この章で形成した生理・拡散特性が引き継がれます。", "次章は未開放"
+	],
+	"es": [
+		"Capítulo 1 completado · Cultivo de laboratorio", "Desde una sola espora, organizaste expediciones y eliminaste la colonia rival.", "Tiempo de cultivo  %s", "Longitud de la hifa principal  %d μm", "Núcleos vivos  %d",
+		"Materia orgánica absorbida  %.3f", "Minerales absorbidos  %.3f", "ADN producido  %d", "Unidades móviles  creadas %d  perdidas %d", "Bacterias digeridas  %d", "Exploración  %.2f%%",
+		"Rivales: guardias %d  colonias %d  lluvias de esporas %d", "Las recompensas pendientes de objetivos a largo plazo siguen disponibles; este informe no cierra la partida.", "Las etapas posteriores heredarán las tendencias fisiológicas y de dispersión desarrolladas aquí.", "Siguiente capítulo aún no disponible"
+	],
+	"de": [
+		"Kapitel 1 abgeschlossen · Laborkultur", "Aus einer einzelnen Spore hast du ein Expeditionsnetz aufgebaut und die rivalisierende Kolonie beseitigt.", "Kulturzeit  %s", "Länge der Haupthyphe  %d μm", "Lebende Kerne  %d",
+		"Organik aufgenommen  %.3f", "Mineralien aufgenommen  %.3f", "DNA erzeugt  %d", "Mobile Einheiten  gebaut %d  verloren %d", "Bakterien verdaut  %d", "Erkundet  %.2f%%",
+		"Rivalen: Wächter %d  Kolonien %d  Sporenregen %d", "Nicht abgeholte Langzeitziel-Belohnungen bleiben verfügbar; dieser Bericht beendet den Spielstand nicht.", "Spätere Phasen übernehmen die hier entwickelten physiologischen und Ausbreitungsmerkmale.", "Nächstes Kapitel noch nicht verfügbar"
+	],
+	"ru": [
+		"Глава 1 завершена · Лабораторная культура", "Из одной споры вы создали экспедиционную систему и уничтожили колонию соперника.", "Время культивации  %s", "Длина главной гифы  %d μm", "Живые ядра  %d",
+		"Поглощено органики  %.3f", "Поглощено минералов  %.3f", "Создано ДНК  %d", "Мобильные единицы: создано %d, потеряно %d", "Переварено бактерий  %d", "Исследовано  %.2f%%",
+		"Соперники: стражи %d, колонии %d, споропады %d", "Неполученные награды долгосрочных целей остаются доступны; отчёт не завершает текущее сохранение.", "Следующие этапы унаследуют сформированные здесь физиологические особенности и способы распространения.", "Следующая глава недоступна"
+	]
+}
+
+
 static func normalize_locale(locale_id: String) -> String:
 	var value := locale_id.strip_edges().replace("-", "_").to_lower()
 	if value.begins_with("zh_hant") or value.begins_with("zh_tw") or value.begins_with("zh_hk") or value.begins_with("zh_mo"):
@@ -139,7 +186,12 @@ static func normalize_locale(locale_id: String) -> String:
 
 
 static func text(key: String, locale_id: String) -> String:
-	var table: Dictionary = CHROME.get(normalize_locale(locale_id), CHROME["en"])
+	var locale := normalize_locale(locale_id)
+	var report_index := REPORT_KEYS.find(key)
+	if report_index >= 0:
+		var row: Array = REPORT_VALUES.get(locale, REPORT_VALUES["en"])
+		return String(row[report_index]) if report_index < row.size() else String((REPORT_VALUES["en"] as Array)[report_index])
+	var table: Dictionary = CHROME.get(locale, CHROME["en"])
 	return String(table.get(key, (CHROME["en"] as Dictionary).get(key, key)))
 
 

@@ -9,6 +9,7 @@ const UpgradeLocalization = preload("res://scripts/upgrade_localization.gd")
 const GuideLocalization = preload("res://scripts/guide_localization.gd")
 const ChapterLocalization = preload("res://scripts/chapter_localization.gd")
 const WorldEventLocalization = preload("res://scripts/world_event_localization.gd")
+const RivalCombatLocalization = preload("res://scripts/rival_combat_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -349,6 +350,7 @@ var unit_selection_filter := "all"
 var toast_text := ""
 var toast_time := 0.0
 var last_mouse := Vector2.ZERO
+var layout_viewport_override := Vector2.ZERO
 var autosave_enabled := true
 var save_path := SAVE_PATH
 var diet_order: Array = []
@@ -1053,7 +1055,7 @@ func _damage_enemy_guard(guard_id: int, amount: float) -> bool:
 	lifetime_enemy_guards_defeated += 1
 	_play_sound("hypha_cut", 0.82)
 	if _is_world_explored(guard["pos"]):
-		toast("竞争菌守卫孢子已失活", 2.5)
+		toast(_rt("toast_guard_defeated"), 2.5, "info")
 	return true
 
 
@@ -1107,7 +1109,7 @@ func _update_enemy_guard_spores(sim_delta: float) -> void:
 			else:
 				guard["state"] = "attacking"
 				var attack_multiplier := float(enemy_fungi[enemy_index].get("attack_multiplier", 1.0))
-				_damage_expedition_unit(target_unit, ENEMY_GUARD_ATTACK_RATE * attack_multiplier * sim_delta, "竞争菌守卫孢子")
+				_damage_expedition_unit(target_unit, ENEMY_GUARD_ATTACK_RATE * attack_multiplier * sim_delta, "enemy_guard")
 		else:
 			guard["target_unit_id"] = -1
 			guard["patrol_time"] = maxf(0.0, float(guard.get("patrol_time", 0.0)) - sim_delta)
@@ -1376,7 +1378,7 @@ func _update_enemy_fungi(sim_delta: float) -> void:
 				continue
 			enemy["organic_reserve"] = reserve - upkeep
 			var strength := upkeep / maxf(0.000001, 0.020 * sim_delta)
-			_damage_core(core_id, ENEMY_FUNGUS_ATTACK_RATE * float(enemy.get("attack_multiplier", 1.0)) * sim_delta * strength, "敌对真菌侵染")
+			_damage_core(core_id, ENEMY_FUNGUS_ATTACK_RATE * float(enemy.get("attack_multiplier", 1.0)) * sim_delta * strength, "rival_infection")
 
 
 func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
@@ -1404,7 +1406,7 @@ func _damage_enemy_fungus(enemy_id: int, amount: float) -> bool:
 		if String(enemy.get("source", "initial")) == "incursion":
 			_complete_fungal_incursion(enemy_id)
 		else:
-			toast("竞争性真菌核心已失活", 4.0)
+			toast(_rt("toast_core_defeated"), 4.0, "info")
 		return true
 	return false
 
@@ -1781,7 +1783,7 @@ func _set_barracks_rally(core_id: int, requested: Vector2) -> void:
 	cores[core_id]["rally_point"] = core_pos + offset
 	cores[core_id]["rally_enabled"] = true
 	mode = "normal"
-	toast("集结点已设置；新单位会先前往该位置", 2.5)
+	toast(_bt("toast_rally_set"), 2.5, "info")
 
 
 func _clear_barracks_rally(core_id: int) -> void:
@@ -1791,7 +1793,7 @@ func _clear_barracks_rally(core_id: int) -> void:
 	cores[core_id]["rally_point"] = cores[core_id]["pos"]
 	if mode == "set_rally":
 		mode = "normal"
-	toast("集结点已清除", 2.0)
+	toast(_bt("toast_rally_cleared"), 2.0, "info")
 
 
 func _toggle_barracks_auto(core_id: int) -> void:
@@ -1802,7 +1804,7 @@ func _toggle_barracks_auto(core_id: int) -> void:
 	if enabled:
 		cores[core_id]["auto_replenish_unit"] = String(cores[core_id].get("production_unit", "forager"))
 		_update_auto_replenishment()
-	toast("自动补员：%s" % ("开启" if enabled else "关闭"), 2.0)
+	toast(_bt("toast_auto_replenish_fmt") % (_bt("common_enabled") if enabled else _bt("common_disabled")), 2.0, "info")
 
 
 func _cycle_barracks_auto_target(core_id: int) -> void:
@@ -1811,7 +1813,7 @@ func _cycle_barracks_auto_target(core_id: int) -> void:
 	var current := int(cores[core_id].get("auto_replenish_target", 4))
 	var index := BARRACKS_AUTO_TARGETS.find(current)
 	cores[core_id]["auto_replenish_target"] = BARRACKS_AUTO_TARGETS[(index + 1) % BARRACKS_AUTO_TARGETS.size()]
-	toast("自动补员目标：%d" % int(cores[core_id]["auto_replenish_target"]), 2.0)
+	toast(_bt("toast_auto_target_fmt") % int(cores[core_id]["auto_replenish_target"]), 2.0, "info")
 
 
 func _barracks_directive_rect(core: Dictionary) -> Rect2:
@@ -1948,7 +1950,7 @@ func _clear_barracks_directive(core_id: int, feedback: bool = true) -> int:
 	defense_zone_drawing = false
 	if feedback:
 		_play_sound("ui_cancel")
-		toast("兵营持续任务已清除；%d 个现役单位解除编制" % cleared, 2.6)
+		toast(_bt("toast_directive_cleared_fmt") % cleared, 2.6, "info")
 	return cleared
 
 
@@ -1960,13 +1962,12 @@ func _begin_barracks_directive_mode(directive_type: String) -> bool:
 	var core: Dictionary = cores[selected_core]
 	var unit_type := String(core.get("auto_replenish_unit", "forager")) if bool(core.get("auto_replenish", false)) else String(core.get("production_unit", "forager"))
 	if not _available_barracks_units().has(unit_type) or not _directive_type_supported(unit_type, directive_type, true):
-		_play_sound("ui_error")
-		toast("%s当前不能执行%s持续任务" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), BARRACKS_DIRECTIVE_NAMES.get(directive_type, "该")], 2.8)
+		toast(_bt("toast_directive_unsupported_fmt") % [_localized_unit_name(unit_type), _localized_barracks_directive_name(directive_type)], 2.8, "error")
 		return false
 	mode = "barracks_%s_zone" % directive_type
 	defense_zone_drawing = false
 	_play_sound("ui_confirm")
-	toast("为%s按住右键拖出正方形%s；Esc 取消" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), BARRACKS_DIRECTIVE_NAMES.get(directive_type, "任务区")], 3.2)
+	toast(_bt("toast_directive_prompt_fmt") % [_localized_unit_name(unit_type), _localized_barracks_directive_name(directive_type)], 3.2, "info")
 	return true
 
 
@@ -1979,8 +1980,7 @@ func _assign_barracks_directive(core_id: int, directive_type: String, start_worl
 	if not _available_barracks_units().has(unit_type) or not _directive_type_supported(unit_type, directive_type, true) or not _defense_zone_within_operating_range(zone, {"unit_type": unit_type}):
 		mode = "normal"
 		defense_zone_drawing = false
-		_play_sound("ui_error")
-		toast("持续任务不兼容，或区域超出菌落行动范围", 2.8)
+		toast(_bt("toast_directive_invalid"), 2.8, "error")
 		return 0
 	_clear_barracks_directive(core_id, false)
 	core["directive_enabled"] = true
@@ -2001,7 +2001,7 @@ func _assign_barracks_directive(core_id: int, directive_type: String, start_worl
 	mode = "normal"
 	defense_zone_drawing = false
 	_play_sound("command", clampf(0.86 + assigned * 0.02, 0.86, 1.2))
-	toast("兵营持续%s已保存：现役 %d，新补员将自动接班" % [BARRACKS_DIRECTIVE_NAMES.get(directive_type, "任务"), assigned], 3.2)
+	toast(_bt("toast_directive_saved_fmt") % [_localized_barracks_directive_name(directive_type), assigned], 3.2, "info")
 	return assigned
 
 
@@ -2031,17 +2031,17 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		unit["burst_flash"] = maxf(0.0, float(unit.get("burst_flash", 0.0)) - sim_delta)
 		var home := _expedition_home_position(unit)
 		if not home.is_finite():
-			_mark_expedition_lost(unit, "失去全部菌落核心")
+			_mark_expedition_lost(unit, "no_core")
 			continue
 		if not offline_simulating or offline_expedition_toxin_active:
 			var toxin_rate := _ecology_toxin_damage_rate_at(unit["pos"]) * 0.50
 			if toxin_rate > 0.0:
-				_damage_expedition_unit(unit, toxin_rate * sim_delta, "生态毒素")
+				_damage_expedition_unit(unit, toxin_rate * sim_delta, "ecology_toxin")
 		if float(unit.get("biomass", 0.0)) <= 0.0005:
 			continue
 		var state := String(unit.get("state", "idle"))
 		if _should_expedition_retreat(unit) and state != "retreating" and state != "repairing" and state != "wounded":
-			_set_expedition_retreat(unit, "生物量过低")
+			_set_expedition_retreat(unit, "low_biomass")
 			state = "retreating"
 		# Offline settlement still applies capped toxin damage and low-biomass
 		# retreat, but does not advance mobile defense or guard combat commands.
@@ -2060,6 +2060,8 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 					unit["state"] = "repairing" if _expedition_home_is_barracks(unit) else "wounded"
 				else:
 					unit["state"] = "idle"
+					unit["retreat_reason"] = ""
+					unit["last_damage_source"] = ""
 				unit["manual"] = false
 				unit["target_kind"] = ""
 		elif state == "repairing":
@@ -2070,7 +2072,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 				_update_expedition_repair(unit, sim_delta)
 		elif state == "wounded":
 			if _expedition_home_is_barracks(unit):
-				_set_expedition_retreat(unit, "前往兵营修复")
+				_set_expedition_retreat(unit, "repair_transfer")
 		elif state == "moving":
 			var target: Vector2 = unit.get("target_pos", unit["pos"])
 			var target_kind := String(unit.get("target_kind", ""))
@@ -2152,7 +2154,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 			continue
 		var final_state := String(unit.get("state", "idle"))
 		if _should_expedition_retreat(unit) and final_state != "retreating" and final_state != "repairing" and final_state != "wounded":
-			_set_expedition_retreat(unit, "生物量过低")
+			_set_expedition_retreat(unit, "low_biomass")
 			final_state = "retreating"
 		if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) >= _expedition_cargo_capacity(unit) - 0.0005 and final_state != "retreating" and final_state != "repairing" and final_state != "wounded":
 			unit["state"] = "returning"
@@ -2175,7 +2177,8 @@ func _should_expedition_retreat(unit: Dictionary) -> bool:
 
 func _set_expedition_retreat(unit: Dictionary, reason: String) -> void:
 	unit["state"] = "retreating" if _should_expedition_retreat(unit) else "returning"
-	unit["retreat_reason"] = reason
+	var reason_id := _normalize_combat_reason_id(reason)
+	unit["retreat_reason"] = reason_id
 	unit["target_kind"] = "home"
 	unit["target_resource_id"] = -1
 	unit["target_enemy_id"] = -1
@@ -2209,26 +2212,28 @@ func _damage_expedition_unit(unit: Dictionary, amount: float, source: String) ->
 		return bool(unit.get("lost", false))
 	var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
 	unit["biomass"] = maxf(0.0, float(unit.get("biomass", maximum)) - amount)
-	unit["last_damage_source"] = source
+	var source_id := _normalize_combat_reason_id(source)
+	unit["last_damage_source"] = source_id
 	unit["damage_flash"] = 0.35
 	_play_sound("damage", 0.72)
 	if float(unit["biomass"]) <= 0.0005:
-		_mark_expedition_lost(unit, source)
+		_mark_expedition_lost(unit, source_id)
 		return true
 	if _should_expedition_retreat(unit) and String(unit.get("state", "idle")) != "repairing" and String(unit.get("state", "idle")) != "wounded":
-		_set_expedition_retreat(unit, source)
+		_set_expedition_retreat(unit, source_id)
 	return false
 
 
 func _mark_expedition_lost(unit: Dictionary, source: String) -> void:
+	source = _normalize_combat_reason_id(source)
 	if bool(unit.get("lost", false)):
 		return
 	unit["lost"] = true
 	unit["biomass"] = 0.0
 	lifetime_expedition_units_lost += 1
 	_play_sound("loss")
-	var name := String(BARRACK_UNIT_NAMES.get(String(unit.get("unit_type", "forager")), "体外孢子"))
-	toast("%s因%s失活；自动补员会在资源充足时接替" % [name, source], 4.0)
+	var name := _localized_unit_name(String(unit.get("unit_type", "forager")))
+	toast(_rt("toast_unit_lost_fmt") % [name, _localized_combat_reason(source)], 4.0, "info")
 
 
 func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
@@ -2239,6 +2244,7 @@ func _update_expedition_repair(unit: Dictionary, sim_delta: float) -> void:
 		unit["biomass"] = maximum
 		unit["state"] = "idle"
 		unit["retreat_reason"] = ""
+		unit["last_damage_source"] = ""
 		unit["manual"] = false
 		lifetime_expedition_units_repaired += 1
 		_play_sound("repair", 0.72)
@@ -2380,7 +2386,7 @@ func _update_expedition_attack(unit: Dictionary, sim_delta: float) -> void:
 	elif not offline_simulating or offline_expedition_combat_active:
 		var resistance := 0.70 if String(unit.get("unit_type", "forager")) == "lytic" else 1.0
 		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * float(bacterium.get("biomass", 1.0)) * resistance * _toxin_damage_multiplier() * sim_delta
-		_damage_expedition_unit(unit, counter_damage, "细菌毒素反噬")
+		_damage_expedition_unit(unit, counter_damage, "bacteria_toxin")
 
 
 func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
@@ -2443,7 +2449,7 @@ func _update_disperser_attack(unit: Dictionary, sim_delta: float) -> void:
 		return
 	if not offline_simulating or offline_expedition_combat_active:
 		var counter_damage := EXPEDITION_BACTERIA_COUNTER_RATE * surviving_biomass * DISPERSER_COUNTER_MULTIPLIER * _toxin_damage_multiplier()
-		_damage_expedition_unit(unit, counter_damage, "范围裂解反击")
+		_damage_expedition_unit(unit, counter_damage, "lytic_burst_counter")
 	if killed_count > 0 and surviving_biomass <= 0.0005:
 		if bool(unit.get("purge_enabled", false)) and float(unit.get("cargo_organic", 0.0)) < _expedition_cargo_capacity(unit) - 0.0005:
 			_acquire_purge_target(unit)
@@ -2526,7 +2532,7 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 		unit["target_kind"] = "home"
 	elif not offline_simulating or offline_expedition_combat_active:
 		var resistance := 0.75 if unit_type == "piercer" else 1.0
-		_damage_expedition_unit(unit, EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * float(enemy.get("attack_multiplier", 1.0)) * resistance * sim_delta, "竞争真菌反击")
+		_damage_expedition_unit(unit, EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * float(enemy.get("attack_multiplier", 1.0)) * resistance * sim_delta, "rival_core_counter")
 
 
 func _update_expedition_hypha_attack(unit: Dictionary, sim_delta: float) -> void:
@@ -2565,7 +2571,7 @@ func _update_expedition_hypha_attack(unit: Dictionary, sim_delta: float) -> void
 		unit["target_kind"] = ""
 		unit["target_enemy_hypha_id"] = -1
 	elif not offline_simulating or offline_expedition_combat_active:
-		_damage_expedition_unit(unit, EXPEDITION_HYPHA_COUNTER_RATE * multiplier * sim_delta, "菌丝缠绕反击")
+		_damage_expedition_unit(unit, EXPEDITION_HYPHA_COUNTER_RATE * multiplier * sim_delta, "rival_hypha_counter")
 
 
 func _defense_rect(unit: Dictionary) -> Rect2:
@@ -2713,21 +2719,19 @@ func _begin_harvest_zone_mode() -> void:
 	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
 		return
 	if selected_expedition_ids.is_empty():
-		_play_sound("ui_error")
-		toast("请先选择游猎、囊载或螯合孢子", 2.2)
+		toast(_rt("toast_harvest_select"), 2.2, "error")
 		return
 	var eligible := 0
 	for unit in expedition_units:
 		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_harvest(unit) and not ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 			eligible += 1
 	if eligible == 0:
-		_play_sound("ui_error")
-		toast("当前选择中没有可执行资源采集的单位", 2.5)
+		toast(_rt("toast_harvest_unavailable"), 2.5, "error")
 		return
 	mode = "harvest_zone"
 	defense_zone_drawing = false
 	_play_sound("ui_confirm")
-	toast("按住右键拖出正方形采区；Esc 取消", 3.0)
+	toast(_rt("toast_harvest_prompt"), 3.0, "info")
 
 
 func _clear_unit_harvest(unit: Dictionary) -> void:
@@ -2766,10 +2770,9 @@ func _clear_selected_persistent_orders() -> void:
 	defense_zone_drawing = false
 	if cleared > 0:
 		_play_sound("ui_cancel")
-		toast("已清除 %d 个单位的命令；%d 个恢复自动行动" % [cleared, resumed], 2.4)
+		toast(_rt("toast_clear_orders_fmt") % [cleared, resumed], 2.4, "info")
 	else:
-		_play_sound("ui_error")
-		toast("所选单位没有可清除的手动命令或持久区域", 1.8)
+		toast(_rt("toast_clear_none"), 1.8, "error")
 
 
 func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
@@ -2800,10 +2803,9 @@ func _assign_harvest_zone(start_world: Vector2, end_world: Vector2) -> int:
 	defense_zone_drawing = false
 	if assigned > 0:
 		_play_sound("command", clampf(0.82 + assigned * 0.02, 0.82, 1.2))
-		toast("已为 %d 个单位设置持久采区" % assigned, 2.4)
+		toast(_rt("toast_harvest_assigned_fmt") % assigned, 2.4, "info")
 	else:
-		_play_sound("ui_error")
-		toast("采区超出菌落行动范围，或单位暂时无法执行", 2.8)
+		toast(_rt("toast_harvest_failed"), 2.8, "error")
 	return assigned
 
 
@@ -2951,13 +2953,12 @@ func _begin_purge_zone_mode() -> void:
 		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_purge(unit) and not ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 			eligible += 1
 	if eligible == 0:
-		_play_sound("ui_error")
-		toast("请先选择可猎食细菌的游猎、裂菌或溶菌单位", 2.6)
+		toast(_rt("toast_purge_select"), 2.6, "error")
 		return
 	mode = "purge_zone"
 	defense_zone_drawing = false
 	_play_sound("ui_confirm")
-	toast("按住右键拖出正方形细菌清剿区；Esc 取消", 3.0)
+	toast(_rt("toast_purge_prompt"), 3.0, "info")
 
 
 func _clear_unit_purge(unit: Dictionary) -> void:
@@ -3004,10 +3005,9 @@ func _assign_purge_zone(start_world: Vector2, end_world: Vector2) -> int:
 	defense_zone_drawing = false
 	if assigned > 0:
 		_play_sound("command", clampf(0.84 + assigned * 0.02, 0.84, 1.2))
-		toast("已为 %d 个单位设置持久细菌清剿区" % assigned, 2.5)
+		toast(_rt("toast_purge_assigned_fmt") % assigned, 2.5, "info")
 	else:
-		_play_sound("ui_error")
-		toast("清剿区超出菌落行动范围，或单位暂时无法执行", 2.8)
+		toast(_rt("toast_purge_failed"), 2.8, "error")
 	return assigned
 
 
@@ -3212,21 +3212,19 @@ func _begin_defense_zone_mode() -> void:
 	if game_over or upgrade_open or goals_open or pause_menu_open or offline_report_open or chapter_report_open:
 		return
 	if selected_expedition_ids.is_empty():
-		_play_sound("ui_error")
-		toast("请先选择可以出击的体外孢子", 2.2)
+		toast(_rt("toast_defense_select"), 2.2, "error")
 		return
 	var eligible := 0
 	for unit in expedition_units:
 		if selected_expedition_ids.has(int(unit.get("id", -1))) and _unit_can_defend_fungi(unit) and not _is_deployable_unit_type(String(unit.get("unit_type", "forager"))):
 			eligible += 1
 	if eligible == 0:
-		_play_sound("ui_error")
-		toast("当前选择中没有可执行真菌防御的单位", 2.5)
+		toast(_rt("toast_defense_unavailable"), 2.5, "error")
 		return
 	mode = "defense_zone"
 	defense_zone_drawing = false
 	_play_sound("ui_confirm")
-	toast("按住右键拖出正方形防区；Esc 取消", 3.0)
+	toast(_rt("toast_defense_prompt"), 3.0, "info")
 
 
 func _clear_unit_defense(unit: Dictionary) -> void:
@@ -3274,10 +3272,9 @@ func _assign_defense_zone(start_world: Vector2, end_world: Vector2) -> int:
 	defense_zone_drawing = false
 	if assigned > 0:
 		_play_sound("command", clampf(0.82 + assigned * 0.02, 0.82, 1.2))
-		toast("已为 %d 个单位设置持久防区" % assigned, 2.4)
+		toast(_rt("toast_defense_assigned_fmt") % assigned, 2.4, "info")
 	else:
-		_play_sound("ui_error")
-		toast("防区超出菌落行动范围，或单位暂时无法执行", 2.8)
+		toast(_rt("toast_defense_failed"), 2.8, "error")
 	return assigned
 
 
@@ -3546,7 +3543,7 @@ func _damage_enemy_hypha(hypha_id: int, amount: float) -> bool:
 	lifetime_enemy_hyphae_severed += 1
 	_refresh_enemy_hypha_connectivity()
 	_play_sound("hypha_cut")
-	toast("敌方菌丝被切断；远端分支已失去供给", 4.0)
+	toast(_rt("toast_hypha_severed"), 4.0, "info")
 	return true
 
 
@@ -3674,10 +3671,10 @@ func _sync_enemy_fungi_discovery(show_feedback: bool) -> int:
 		discovered_now += 1
 	if show_feedback and discovered_now > 0:
 		_play_sound("discovery", 1.15)
-		discovery_banner_title = "发现竞争性真菌菌落"
-		discovery_banner_detail = "它会消耗真实营养扩张菌丝；真菌食性可解锁穿壁孢子"
+		discovery_banner_title = _rt("rival_discovery_title")
+		discovery_banner_detail = _rt("rival_discovery_detail")
 		discovery_banner_time = 7.0
-		toast("发现敌对菌落　右键可下达攻击指令", 4.0)
+		toast(_rt("rival_discovery_toast"), 4.0, "info")
 	return discovered_now
 
 
@@ -3890,7 +3887,7 @@ func _select_expedition_box(start_screen: Vector2, end_screen: Vector2) -> void:
 	mode = "normal"
 	if not selected_expedition_ids.is_empty():
 		_play_sound("select_unit", clampf(0.75 + selected_expedition_ids.size() * 0.025, 0.75, 1.25))
-		toast("已选中 %d 个体外单位" % selected_expedition_ids.size(), 1.8)
+		toast(_rt("toast_selected_fmt") % selected_expedition_ids.size(), 1.8, "info")
 
 
 func _unit_filter_ids() -> Array:
@@ -3900,6 +3897,13 @@ func _unit_filter_ids() -> Array:
 func _unit_filter_rects() -> Array:
 	var ids := _unit_filter_ids()
 	var gap := 3.0
+	var viewport := _layout_viewport_size()
+	if viewport.x < 800.0:
+		var compact_width: float = floorf((320.0 - gap * float(ids.size() - 1)) / float(ids.size()))
+		var compact_rects: Array = []
+		for i in range(ids.size()):
+			compact_rects.append({"id": ids[i], "rect": Rect2(18.0 + i * (compact_width + gap), 70.0, compact_width, 48.0)})
+		return compact_rects
 	var left_edge := _resource_bar_rect().end.x + 5.0
 	var right_edge := _minimap_rect().position.x - 8.0
 	var width := clampf(floor((right_edge - left_edge - gap * float(ids.size() - 1)) / float(ids.size())), 22.0, 28.0)
@@ -3930,9 +3934,9 @@ func _select_units_by_filter(filter_id: String) -> void:
 	selected_tip_valid = false
 	show_status = false
 	mode = "normal"
-	var label := "全部" if filter_id == "all" else String(BARRACK_UNIT_NAMES.get(filter_id, filter_id))
+	var label := _rt("filter_all") if filter_id == "all" else _localized_unit_name(filter_id)
 	_play_sound("select_unit", clampf(0.75 + selected_expedition_ids.size() * 0.015, 0.75, 1.2))
-	toast("%s筛选：已选 %d 个单位" % [label, selected_expedition_ids.size()], 1.8)
+	toast(_rt("toast_filter_fmt") % [label, selected_expedition_ids.size()], 1.8, "info")
 
 
 func _resource_at_world(world_pos: Vector2, radius: float) -> Dictionary:
@@ -4022,7 +4026,7 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			if bool(unit.get("purge_enabled", false)):
 				_clear_unit_purge(unit)
 			unit["home_core_id"] = friendly_barracks_id
-			_set_expedition_retreat(unit, "手动返巢")
+			_set_expedition_retreat(unit, "manual_return")
 			commanded += 1
 			continue
 		if ["retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
@@ -4100,10 +4104,9 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 			fallback_commanded += 1
 	if commanded > 0:
 		_play_sound("command", clampf(0.8 + commanded * 0.02, 0.8, 1.25))
-		toast("指令回执：%d 执行　%d 改为警戒　%d 暂不可用" % [commanded - fallback_commanded, fallback_commanded, unavailable], 2.8)
+		toast(_rt("toast_command_receipt_fmt") % [commanded - fallback_commanded, fallback_commanded, unavailable], 2.8, "info")
 	elif not selected_expedition_ids.is_empty():
-		_play_sound("ui_error")
-		toast("重伤、修复中或食性不匹配的单位无法执行", 2.5)
+		toast(_rt("toast_command_unavailable"), 2.5, "error")
 
 
 func _order_selected_expedition_return() -> void:
@@ -4119,11 +4122,11 @@ func _order_selected_expedition_return() -> void:
 			_clear_unit_harvest(unit)
 		if bool(unit.get("purge_enabled", false)):
 			_clear_unit_purge(unit)
-		_set_expedition_retreat(unit, "手动返巢")
+		_set_expedition_retreat(unit, "manual_return")
 		ordered += 1
 	if ordered > 0:
 		_play_sound("return_order", clampf(0.8 + ordered * 0.02, 0.8, 1.2))
-		toast("%d 个体外单位正在返回兵营" % ordered, 2.5)
+		toast(_rt("toast_returning_fmt") % ordered, 2.5, "info")
 
 
 func _discover_feeders() -> void:
@@ -4523,7 +4526,7 @@ func _update_core_hazards(sim_delta: float) -> void:
 		var damage_rate := minf(CORE_MAX_TOXIN_DAMAGE_RATE, bacteria_damage_rate + _ecology_toxin_damage_rate_at(core_pos))
 		core["toxin_pressure"] = damage_rate
 		if damage_rate > 0.0:
-			_damage_core(core_id, damage_rate * sim_delta, "细菌毒素")
+			_damage_core(core_id, damage_rate * sim_delta, "bacteria_toxin")
 		if not _is_core_alive(core_id):
 			continue
 		var maximum := float(core.get("max_biomass", CORE_MAX_BIOMASS))
@@ -4539,7 +4542,7 @@ func _update_core_hazards(sim_delta: float) -> void:
 		core["repair_reserve"] = minf(float(core.get("repair_reserve", 0.0)), maxf(0.0, maximum - float(core["biomass"])))
 
 
-func _damage_core(core_id: int, amount: float, source: String = "环境压力") -> void:
+func _damage_core(core_id: int, amount: float, source: String = "environment_pressure") -> void:
 	if not _is_core_alive(core_id) or amount <= 0.0:
 		return
 	var core: Dictionary = cores[core_id]
@@ -4593,7 +4596,8 @@ func _kill_core(core_id: int, source: String) -> void:
 	if selected_core == core_id or selected_tip_core == core_id:
 		selected_core = -1
 		selected_tip_valid = false
-	toast("孢子核心 %d 因%s失活；其菌丝网络开始衰退" % [core_id + 1, source], 6.0)
+	var core_type := _gt("core_type_barracks") if String(core.get("kind", "normal")) == "barracks" else _gt("core_type_spore")
+	toast(_rt("toast_player_core_lost_fmt") % [core_type, core_id + 1, _localized_combat_reason(source)], 6.0, "info")
 	if _living_core_count() <= 0:
 		game_over = true
 		sim_speed = 0.0
@@ -4792,7 +4796,7 @@ func _update_audio_hover(pos: Vector2) -> void:
 
 
 func _audio_hover_target_at(pos: Vector2) -> String:
-	var viewport := get_viewport_rect().size
+	var viewport := _layout_viewport_size()
 	if splash_active:
 		return ""
 	if main_menu_active:
@@ -4803,7 +4807,7 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 	if offline_report_open:
 		return "offline_close" if _offline_report_button_rect(viewport).has_point(pos) else ""
 	if chapter_report_open:
-		for index in range(3):
+		for index in range(2):
 			if _chapter_report_button_rect(viewport, index).has_point(pos):
 				return "chapter_%d" % index
 		return ""
@@ -4851,7 +4855,7 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 	if filter_id != "":
 		return "filter_" + filter_id
 	if not selected_expedition_ids.is_empty():
-		for index in range(3):
+		for index in range(4):
 			if _defense_zone_button_rect(viewport, index).has_point(pos):
 				return "persistent_order_%d" % index
 	if _speed_button_at(pos) > 0.0:
@@ -5015,8 +5019,9 @@ func _unhandled_input(event: InputEvent) -> void:
 						var cancelled_mode := mode
 						defense_zone_drawing = false
 						mode = "normal"
-						var cancel_label := "采区" if cancelled_mode.contains("harvest") else ("猎区" if cancelled_mode.contains("purge") else "防区")
-						toast("已取消设置%s" % cancel_label, 1.6)
+						var cancelled_type := "harvest" if cancelled_mode.contains("harvest") else ("purge" if cancelled_mode.contains("purge") else "defense")
+						var cancel_label := _localized_barracks_directive_name(cancelled_type)
+						toast(_bt("toast_zone_setup_cancelled_fmt") % cancel_label, 1.6, "info")
 				return
 			if event.pressed:
 				dragging = true
@@ -5029,7 +5034,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if not right_dragged:
 					if mode == "set_rally":
 						mode = "normal"
-						toast("已取消设置集结点", 1.8)
+						toast(_bt("toast_rally_cancelled"), 1.8, "info")
 					else:
 						_issue_expedition_command(event.position)
 			return
@@ -5747,6 +5752,14 @@ func _clamp_camera() -> void:
 	camera_center.y = clamp(camera_center.y, -WORLD_HALF + 300.0, WORLD_HALF - 300.0)
 
 
+func _layout_viewport_size(fallback := Vector2.ZERO) -> Vector2:
+	if layout_viewport_override.x > 0.0 and layout_viewport_override.y > 0.0:
+		return layout_viewport_override
+	if fallback.x > 0.0 and fallback.y > 0.0:
+		return fallback
+	return get_viewport_rect().size
+
+
 func world_to_screen(world_pos: Vector2) -> Vector2:
 	return (world_pos - camera_center) * camera_zoom + get_viewport_rect().size * 0.5
 
@@ -5905,6 +5918,33 @@ func _ct(key: String) -> String:
 
 func _et(key: String) -> String:
 	return WorldEventLocalization.text(key, settings_locale)
+
+func _rt(key: String) -> String:
+	return RivalCombatLocalization.text(key, settings_locale)
+
+
+func _normalize_combat_reason_id(reason: String) -> String:
+	var value := reason.strip_edges()
+	if value.is_empty():
+		return ""
+	if RivalCombatLocalization.REASON_IDS.has(value):
+		return value
+	var legacy := {
+		"竞争菌守卫孢子": "enemy_guard", "竞争真菌反击": "rival_core_counter",
+		"菌丝缠绕反击": "rival_hypha_counter", "敌对真菌侵染": "rival_infection",
+		"生态毒素": "ecology_toxin", "细菌毒素反噬": "bacteria_toxin", "细菌毒素": "bacteria_toxin",
+		"范围裂解反击": "lytic_burst_counter", "生物量过低": "low_biomass",
+		"前往兵营修复": "repair_transfer", "手动返巢": "manual_return",
+		"失去全部菌落核心": "no_core", "环境压力": "environment_pressure"
+	}
+	return String(legacy.get(value, "unknown"))
+
+
+func _localized_combat_reason(reason: String) -> String:
+	var reason_id := _normalize_combat_reason_id(reason)
+	if reason_id.is_empty():
+		reason_id = "unknown"
+	return _rt("reason_%s" % reason_id)
 
 
 
@@ -6982,7 +7022,7 @@ func _draw_unit_filter_bar() -> void:
 
 func _resource_bar_rect() -> Rect2:
 	# Keep a visible gutter before the right-side minimap, including at 640 px.
-	var available_width := get_viewport_rect().size.x - 260.0
+	var available_width := _layout_viewport_size().x - 260.0
 	return Rect2(18, 16, clampf(available_width, 320.0, 708.0), 48)
 
 
@@ -7016,7 +7056,7 @@ func _draw_resource_readout(rect: Rect2, color: Color, text_value: String) -> vo
 
 
 func _minimap_rect() -> Rect2:
-	var viewport := get_viewport_rect().size
+	var viewport := _layout_viewport_size()
 	return Rect2(viewport.x - 230.0, 18.0, 208.0, 176.0)
 
 
@@ -7266,8 +7306,8 @@ func _draw_goal_tracker_tooltip(viewport: Vector2) -> void:
 
 
 func _ecology_event_hud_rect() -> Rect2:
-	var viewport := get_viewport_rect().size
-	return Rect2(viewport.x - 230.0, 202.0, 208.0, 66.0)
+	var viewport := _layout_viewport_size()
+	return Rect2(viewport.x - 230.0, 202.0, 208.0, 34.0 if viewport.x < 800.0 or viewport.y < 500.0 else 66.0)
 
 
 func _draw_ecology_event_hud(_viewport: Vector2) -> void:
@@ -7282,7 +7322,7 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 	draw_style_box(_rounded_style(Color(0.08, 0.08, 0.12, 0.97) if hovered else Color(0.035, 0.075, 0.11, 0.96), Color(accent, 0.92), 8, 2), rect)
 	var phase_text := _et("event_phase_warning") if warning else _et("event_phase_active")
 	var seconds_left := ceili(float(event.get("remaining", 0.0)))
-	draw_string(fallback_font, rect.position + Vector2(12, 23), _et("ecology_hud_title_fmt") % [_ecology_event_name(event_type), phase_text], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, _fit_font_size(_et("ecology_hud_title_fmt") % [_ecology_event_name(event_type), phase_text], rect.size.x - 24.0), accent)
+	var title := _et("ecology_hud_title_fmt") % [_ecology_event_name(event_type), phase_text]
 	var detail := _et("event_locate_time_fmt") % [seconds_left / 60, seconds_left % 60]
 	if not warning and event_type == "bloom":
 		var event_id := int(event.get("id", -1))
@@ -7290,6 +7330,11 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 		var uncontrolled := _count_event_uncontrolled_bacteria(event_id)
 		var hold := floori(float(event.get("control_progress", 0.0)))
 		detail = _et("ecology_bloom_control_fmt") % [uncontrolled, total, hold, roundi(BLOOM_CONTAINMENT_HOLD_SECONDS)]
+	if rect.size.y < 50.0:
+		var compact_text := title + " · " + detail
+		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20.0, _fit_font_size(compact_text, rect.size.x - 20.0, UI_FONT_SIZE, 7), accent)
+		return
+	draw_string(fallback_font, rect.position + Vector2(12, 23), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, _fit_font_size(title, rect.size.x - 24.0), accent)
 	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, _fit_font_size(detail, rect.size.x - 24.0), COLOR_TEXT)
 
 
@@ -7298,11 +7343,12 @@ func _fungal_incursion_hud_visible() -> bool:
 
 
 func _fungal_incursion_hud_rect() -> Rect2:
-	var viewport := get_viewport_rect().size
+	var viewport := _layout_viewport_size()
+	var compact := viewport.x < 800.0 or viewport.y < 500.0
 	var y := 202.0
 	if not _current_ecology_event().is_empty():
-		y += 74.0
-	return Rect2(viewport.x - 322.0, y, 300.0, 66.0)
+		y += 38.0 if compact else 74.0
+	return Rect2(viewport.x - (230.0 if compact else 322.0), y, 208.0 if compact else 300.0, 34.0 if compact else 66.0)
 
 
 func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
@@ -7319,7 +7365,6 @@ func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
 		title = _et("sporefall_warning_title_fmt") % wave
 	elif phase == "active":
 		title = _et("sporefall_active_title_fmt") % wave
-	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
 	var detail := _et("sporefall_next_signal_fmt") % _format_duration(float(fungal_incursion.get("remaining", 0.0)))
 	if paused and phase != "active":
 		detail = _et("sporefall_paused_detail")
@@ -7328,6 +7373,11 @@ func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
 		detail = _et("event_locate_time_fmt") % [seconds_left / 60, seconds_left % 60]
 	elif phase == "active":
 		detail = _et("sporefall_locate_core")
+	if rect.size.y < 50.0:
+		var compact_text := title + " · " + detail
+		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20.0, _fit_font_size(compact_text, rect.size.x - 20.0, UI_FONT_SIZE, 7), accent)
+		return
+	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
 	draw_string(fallback_font, rect.position + Vector2(13, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(detail, rect.size.x - 26.0), COLOR_TEXT)
 
 
@@ -7362,14 +7412,15 @@ func _draw_fungal_incursion_marker() -> void:
 
 
 func _chapter_guidance_rect() -> Rect2:
-	var viewport := get_viewport_rect().size
+	var viewport := _layout_viewport_size()
+	var compact := viewport.x < 800.0 or viewport.y < 500.0
 	var y := 202.0
 	if not _current_ecology_event().is_empty():
-		y += 74.0
+		y += 38.0 if compact else 74.0
 	if _fungal_incursion_hud_visible():
-		y += 74.0
-	var height := 42.0 if guidance_collapsed else (64.0 if chapter_complete else 112.0)
-	return Rect2(viewport.x - 322.0, y, 300.0, height)
+		y += 38.0 if compact else 74.0
+	var height := 34.0 if compact else (42.0 if guidance_collapsed else (64.0 if chapter_complete else 112.0))
+	return Rect2(viewport.x - (230.0 if compact else 322.0), y, 208.0 if compact else 300.0, height)
 
 
 func _draw_chapter_guidance(_viewport: Vector2) -> void:
@@ -7378,6 +7429,11 @@ func _draw_chapter_guidance(_viewport: Vector2) -> void:
 	var hovered := rect.has_point(last_mouse)
 	draw_style_box(_rounded_style(Color(0.025, 0.085, 0.105, 0.97) if hovered else Color(0.018, 0.060, 0.085, 0.96), Color(accent, 0.78), 9, 2), rect)
 	var arrow := "＋" if guidance_collapsed else "－"
+	if rect.size.y < 40.0:
+		var compact_title := _ct("complete") if chapter_complete else (_ct("task_heading_fmt") % [chapter_task_index + 1, _chapter_tasks().size(), String((_chapter_tasks()[clampi(chapter_task_index, 0, _chapter_tasks().size() - 1)] as Dictionary)["title"])])
+		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 42.0, _fit_font_size(compact_title, rect.size.x - 42.0, UI_FONT_SIZE, 7), accent)
+		draw_string(fallback_font, rect.position + Vector2(rect.size.x - 25, 22), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+		return
 	if chapter_complete:
 		draw_string(fallback_font, rect.position + Vector2(13, 25), _ct("complete"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 50.0, _fit_font_size(_ct("complete"), rect.size.x - 50.0), accent)
 		draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 25), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
@@ -7399,6 +7455,13 @@ func _handle_chapter_guidance_click(pos: Vector2) -> bool:
 	var rect := _chapter_guidance_rect()
 	if not rect.has_point(pos):
 		return false
+	if rect.size.y < 40.0:
+		if chapter_complete:
+			toast(_ct("free_culture"), 5.0, "info")
+		else:
+			var compact_tasks := _chapter_tasks()
+			toast(String(compact_tasks[clampi(chapter_task_index, 0, compact_tasks.size() - 1)]["hint"]), 7.0, "info")
+		return true
 	if pos.y <= rect.position.y + 38.0 or guidance_collapsed or chapter_complete:
 		guidance_collapsed = not guidance_collapsed
 	else:
@@ -7410,7 +7473,8 @@ func _handle_chapter_guidance_click(pos: Vector2) -> bool:
 
 func _enemy_threat_hud_rect() -> Rect2:
 	var guide := _chapter_guidance_rect()
-	return Rect2(guide.position + Vector2(0.0, guide.size.y + 8.0), Vector2(guide.size.x, 62.0))
+	var compact := _layout_viewport_size().x < 800.0 or _layout_viewport_size().y < 500.0
+	return Rect2(guide.position + Vector2(0.0, guide.size.y + (4.0 if compact else 8.0)), Vector2(guide.size.x, 34.0 if compact else 62.0))
 
 
 func _draw_enemy_threat_hud(_viewport: Vector2) -> void:
@@ -7424,6 +7488,10 @@ func _draw_enemy_threat_hud(_viewport: Vector2) -> void:
 	elif enemy_threat_level == 3:
 		title = _et("threat_contact")
 	draw_style_box(_rounded_style(Color(0.12, 0.045, 0.055, 0.97), Color(accent, 0.92), 9, 2), rect)
+	if rect.size.y < 50.0:
+		var compact_text := title + " · " + _et("threat_locate")
+		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20.0, _fit_font_size(compact_text, rect.size.x - 20.0, UI_FONT_SIZE, 7), accent)
+		return
 	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
 	draw_string(fallback_font, rect.position + Vector2(13, 48), _et("threat_locate"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_et("threat_locate"), rect.size.x - 26.0), COLOR_TEXT)
 
@@ -8206,15 +8274,30 @@ func _draw_upgrade_placeholders(panel: Rect2, message: String) -> void:
 
 
 func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
-	return Rect2(22.0 + 246.0 + index * 80.0, viewport.y - 80.0, 74.0, 22.0)
+	var layout_viewport := _layout_viewport_size(viewport)
+	if layout_viewport.x < 800.0:
+		var panel_width := minf(360.0, layout_viewport.x - 280.0)
+		var gap := 6.0
+		var button_width := (panel_width - 24.0 - gap * 3.0) / 4.0
+		return Rect2(34.0 + index * (button_width + gap), layout_viewport.y - 80.0, button_width, 22.0)
+	return Rect2(22.0 + 246.0 + index * 80.0, layout_viewport.y - 80.0, 74.0, 22.0)
+
+
+func _selection_status_rect(viewport: Vector2) -> Rect2:
+	var layout_viewport := _layout_viewport_size(viewport)
+	var width := minf(560.0, layout_viewport.x - 280.0) if layout_viewport.x < 800.0 else 560.0
+	return Rect2(22, layout_viewport.y - 134, width, 82)
 
 
 func _draw_help(viewport: Vector2) -> void:
-	var text_value := "左键点击/拖框选兵　右键指令　Z 防区　X 采区　V 猎区　C 清令　R 返巢　滚轮缩放　F5 保存　Esc 暂停"
-	draw_string(fallback_font, Vector2(viewport.x * 0.5 - 310.0, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color(COLOR_MUTED, 0.78))
+	viewport = _layout_viewport_size(viewport)
+	var text_value := _rt("hud_help")
+	var help_font_size := _fit_font_size(text_value, viewport.x - 24.0, UI_FONT_SIZE, 7)
+	var help_width := fallback_font.get_string_size(text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, help_font_size).x
+	draw_string(fallback_font, Vector2(viewport.x * 0.5 - help_width * 0.5, viewport.y - 20.0), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, help_font_size, Color(COLOR_MUTED, 0.78))
 	if not selected_expedition_ids.is_empty():
-		var filter_name := "全部" if unit_selection_filter == "all" else String(BARRACK_UNIT_NAMES.get(unit_selection_filter, unit_selection_filter))
-		var selected_text := "%s筛选　已选 %d / %d" % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
+		var filter_name := _rt("filter_all") if unit_selection_filter == "all" else _localized_unit_name(unit_selection_filter)
+		var selected_text := _rt("selection_fmt") % [filter_name, selected_expedition_ids.size(), expedition_units.size()]
 		var health_total := 0.0
 		var health_count := 0
 		var retreating := 0
@@ -8240,17 +8323,19 @@ func _draw_help(viewport: Vector2) -> void:
 			elif state == "repairing":
 				repairing += 1
 		var average_health := health_total / maxf(1.0, float(health_count)) * 100.0
-		var rect := Rect2(22, viewport.y - 134, 560, 82)
+		var rect := _selection_status_rect(viewport)
 		draw_style_box(_rounded_style(Color(0.025, 0.11, 0.11, 0.94), Color(0.38, 1.0, 0.56, 0.72), 7, 1), rect)
-		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("baffd0"))
-		draw_string(fallback_font, rect.position + Vector2(12, 45), "平均生物量 %.1f%%　防 %d　采 %d　猎 %d　返 %d　修 %d" % [average_health, defending, harvesting, purging, retreating, repairing], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-		var button_labels := ["设防 Z", "采区 X", "猎区 V", "清令 C"]
+		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(selected_text, rect.size.x - 24.0, UI_FONT_SIZE, 8), Color("baffd0"))
+		var stats_text := _rt("selection_stats_fmt") % [average_health, defending, harvesting, purging, retreating, repairing]
+		draw_string(fallback_font, rect.position + Vector2(12, 45), stats_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(stats_text, rect.size.x - 24.0, UI_FONT_SIZE, 8), COLOR_MUTED)
+		var button_labels := [_rt("action_defense"), _rt("action_harvest"), _rt("action_purge"), _rt("action_clear")]
 		var button_borders := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER, 0.82)]
 		for button_index in range(4):
 			var button := _defense_zone_button_rect(viewport, button_index)
 			var active := (button_index == 0 and mode == "defense_zone") or (button_index == 1 and mode == "harvest_zone") or (button_index == 2 and mode == "purge_zone")
 			draw_style_box(_rounded_style(Color(0.05, 0.23, 0.17, 0.98) if active else Color(0.035, 0.14, 0.13, 0.96), button_borders[button_index] if active else Color(COLOR_BORDER, 0.82), 5, 1), button)
-			draw_string(fallback_font, button.position + Vector2(8, 16), String(button_labels[button_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+			var button_label := String(button_labels[button_index])
+			draw_string(fallback_font, button.position + Vector2(4, 16), button_label, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 8.0, _fit_font_size(button_label, button.size.x - 8.0, UI_FONT_SIZE, 7), COLOR_TEXT)
 
 
 func _expedition_state_name(state: String) -> String:
@@ -8328,6 +8413,14 @@ func _draw_expedition_tooltip() -> bool:
 		elif deploy_state == "deployed":
 			detail = _bt("hover_antifungal_deployed_fmt") % [radius_um, decay_percent]
 		lines.append(detail)
+	var retreat_reason := _normalize_combat_reason_id(String(unit.get("retreat_reason", "")))
+	var unit_state := String(unit.get("state", "idle"))
+	if not retreat_reason.is_empty() and ["returning", "retreating", "repairing", "wounded"].has(unit_state):
+		lines.append(_rt("hover_reason_fmt") % _localized_combat_reason(retreat_reason))
+	else:
+		var damage_source := _normalize_combat_reason_id(String(unit.get("last_damage_source", "")))
+		if not damage_source.is_empty():
+			lines.append(_rt("hover_damage_fmt") % _localized_combat_reason(damage_source))
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
@@ -8400,6 +8493,12 @@ func _draw_core_tooltip() -> bool:
 	return true
 
 
+func _rival_origin_text(enemy: Dictionary) -> String:
+	if String(enemy.get("source", "initial")) == "incursion":
+		return _rt("origin_sporefall_fmt") % int(enemy.get("wave", 1))
+	return _rt("origin_initial")
+
+
 func _draw_enemy_guard_tooltip() -> bool:
 	if camera_zoom < 0.08:
 		return false
@@ -8410,25 +8509,34 @@ func _draw_enemy_guard_tooltip() -> bool:
 	var guard: Dictionary = enemy_guard_spores[guard_index]
 	var maximum := maxf(0.001, float(guard.get("max_biomass", ENEMY_GUARD_MAX_BIOMASS)))
 	var biomass := clampf(float(guard.get("biomass", maximum)), 0.0, maximum)
-	var state_names := {"patrol": "沿菌丝巡逻", "chasing": "追击体外孢子", "attacking": "接触攻击", "returning": "返回菌网", "orphaned": "失联衰亡"}
+	var state_id := String(guard.get("state", "patrol"))
+	var state_name := _rt("guard_state_unknown")
+	match state_id:
+		"patrol": state_name = _rt("guard_state_patrol")
+		"chasing": state_name = _rt("guard_state_chasing")
+		"attacking": state_name = _rt("guard_state_attacking")
+		"returning": state_name = _rt("guard_state_returning")
+		"orphaned": state_name = _rt("guard_state_orphaned")
 	var lines := [
-		"竞争菌守卫孢子",
-		"生物量 %.3f / %.3f（%.1f%%）" % [biomass, maximum, biomass / maximum * 100.0],
-		"状态：%s" % state_names.get(String(guard.get("state", "patrol")), "巡逻"),
-		"基础游猎孢子可弱攻；穿壁孢子具有真菌特攻"
+		_rt("guard_name"),
+		_gt("hover_biomass_fmt") % [biomass, maximum, biomass / maximum * 100.0],
+		_gt("hover_state_fmt") % state_name,
+		_rt("guard_hint")
 	]
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
-	var size := Vector2(max_width + 28.0, 18.0 + lines.size() * 22.0)
 	var viewport := get_viewport_rect().size
+	var size := Vector2(minf(max_width + 28.0, maxf(160.0, viewport.x - 24.0)), 18.0 + lines.size() * 22.0)
 	var pos := last_mouse + Vector2(18, 14)
 	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
 	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
 	var rect := Rect2(_pixel_snap(pos), size)
 	draw_style_box(_rounded_style(Color(0.10, 0.045, 0.025, 0.98), Color("ff9a5f"), 8, 2), rect)
 	for i in range(lines.size()):
-		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffe0bd") if i == 0 else COLOR_MUTED)
+		var line_text := String(lines[i])
+		var line_font_size := _fit_font_size(line_text, size.x - 28.0, UI_FONT_SIZE, 7)
+		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, line_font_size, Color("ffe0bd") if i == 0 else COLOR_MUTED)
 	return true
 
 
@@ -8443,25 +8551,34 @@ func _draw_enemy_fungus_tooltip() -> bool:
 	var enemy: Dictionary = enemy_fungi[enemy_index]
 	var maximum := maxf(0.001, float(enemy.get("max_biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS)))
 	var percent := clampf(float(enemy.get("biomass", maximum)) / maximum * 100.0, 0.0, 100.0)
-	var state_names := {"dormant": "休眠", "foraging": "觅食", "assault": "侵染扩张", "starved": "营养匮乏", "dead": "失活"}
-	var origin_text := "第 %d 轮孢子雨" % int(enemy.get("wave", 1)) if String(enemy.get("source", "initial")) == "incursion" else "初始竞争菌落"
+	var state_id := String(enemy.get("state", "foraging"))
+	var state_name := _rt("core_state_unknown")
+	match state_id:
+		"dormant": state_name = _rt("core_state_dormant")
+		"foraging": state_name = _rt("core_state_foraging")
+		"assault": state_name = _rt("core_state_assault")
+		"starved": state_name = _rt("core_state_starved")
+		"dead": state_name = _rt("core_state_dead")
+	var origin_text := _rival_origin_text(enemy)
 	var lines := [
-		"%s　生物量 %.1f%%" % [origin_text, percent],
-		"状态：%s　有机储备 %.3f" % [state_names.get(String(enemy.get("state", "foraging")), "未知"), float(enemy.get("organic_reserve", 0.0))],
-		"确立真菌食性并生产穿壁孢子可以攻击核心"
+		_rt("core_header_fmt") % [origin_text, percent],
+		_rt("core_status_fmt") % [state_name, float(enemy.get("organic_reserve", 0.0))],
+		_rt("core_hint")
 	]
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
-	var size := Vector2(max_width + 28.0, 18.0 + lines.size() * 22.0)
 	var viewport := get_viewport_rect().size
+	var size := Vector2(minf(max_width + 28.0, maxf(160.0, viewport.x - 24.0)), 18.0 + lines.size() * 22.0)
 	var pos := last_mouse + Vector2(18, 14)
 	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
 	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
 	var rect := Rect2(_pixel_snap(pos), size)
 	draw_style_box(_rounded_style(Color(0.10, 0.035, 0.045, 0.98), Color("ff755f"), 8, 2), rect)
 	for i in range(lines.size()):
-		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffd2c8") if i == 0 else COLOR_MUTED)
+		var line_text := String(lines[i])
+		var line_font_size := _fit_font_size(line_text, size.x - 28.0, UI_FONT_SIZE, 7)
+		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, line_font_size, Color("ffd2c8") if i == 0 else COLOR_MUTED)
 	return true
 
 
@@ -8480,18 +8597,18 @@ func _draw_enemy_hypha_tooltip() -> bool:
 		return false
 	var enemy: Dictionary = enemy_fungi[enemy_index]
 	var integrity := clampf(float(segment.get("viability", 1.0)) * 100.0, 0.0, 100.0)
-	var connection_text := "连通供给" if bool(segment.get("connected", false)) else "失联衰败"
-	var origin_text := "第 %d 轮孢子雨" % int(enemy.get("wave", 1)) if String(enemy.get("source", "initial")) == "incursion" else "初始竞争菌落"
+	var connection_text := _rt("hypha_connected") if bool(segment.get("connected", false)) else _rt("hypha_disconnected")
+	var origin_text := _rival_origin_text(enemy)
 	var lines := [
-		"敌方菌丝　完整度 %.1f%%" % integrity,
-		"%s　·　%s" % [connection_text, origin_text],
-		"缠丝猎手可右键指定并切断这段菌丝"
+		_rt("hypha_integrity_fmt") % integrity,
+		_rt("hypha_status_origin_fmt") % [connection_text, origin_text],
+		_rt("hypha_hint")
 	]
 	var max_width := 0.0
 	for line in lines:
 		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
-	var size := Vector2(max_width + 28.0, 18.0 + lines.size() * 22.0)
 	var viewport := get_viewport_rect().size
+	var size := Vector2(minf(max_width + 28.0, maxf(160.0, viewport.x - 24.0)), 18.0 + lines.size() * 22.0)
 	var pos := last_mouse + Vector2(18, 14)
 	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
 	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
@@ -8499,7 +8616,9 @@ func _draw_enemy_hypha_tooltip() -> bool:
 	var accent := Color("ff755f") if bool(segment.get("connected", false)) else Color("9d78b8")
 	draw_style_box(_rounded_style(Color(0.08, 0.035, 0.055, 0.98), accent, 8, 2), rect)
 	for i in range(lines.size()):
-		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffd2c8") if i == 0 else COLOR_MUTED)
+		var line_text := String(lines[i])
+		var line_font_size := _fit_font_size(line_text, size.x - 28.0, UI_FONT_SIZE, 7)
+		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, line_font_size, Color("ffd2c8") if i == 0 else COLOR_MUTED)
 	return true
 
 
@@ -8612,28 +8731,40 @@ func _draw_menu_tooltip(button: Dictionary) -> void:
 
 
 func _status_panel_rect() -> Rect2:
-	if selected_core >= 0 and selected_core < cores.size() and String(cores[selected_core].get("kind", "normal")) == "barracks":
+	var viewport := _layout_viewport_size()
+	var is_barracks := selected_core >= 0 and selected_core < cores.size() and String(cores[selected_core].get("kind", "normal")) == "barracks"
+	if viewport.y < 500.0:
+		return Rect2(22, 124, minf(376.0 if is_barracks else 350.0, viewport.x - 44.0), 202)
+	if is_barracks:
 		return Rect2(22, 156, 390, 500)
 	return Rect2(22, 156, 350, 282)
 
 
 func _barracks_auto_button_rect() -> Rect2:
 	var panel := _status_panel_rect()
+	if _layout_viewport_size().y < 500.0:
+		return Rect2(panel.position + Vector2(16, 104), Vector2(144, 28))
 	return Rect2(panel.position + Vector2(16, 366), Vector2(154, 32))
 
 
 func _barracks_target_button_rect() -> Rect2:
 	var panel := _status_panel_rect()
+	if _layout_viewport_size().y < 500.0:
+		return Rect2(panel.position + Vector2(168, 104), Vector2(76, 28))
 	return Rect2(panel.position + Vector2(178, 366), Vector2(88, 32))
 
 
 func _barracks_rally_button_rect() -> Rect2:
 	var panel := _status_panel_rect()
+	if _layout_viewport_size().y < 500.0:
+		return Rect2(panel.position + Vector2(252, 104), Vector2(108, 28))
 	return Rect2(panel.position + Vector2(274, 366), Vector2(100, 32))
 
 
 func _barracks_directive_button_rect(index: int) -> Rect2:
 	var panel := _status_panel_rect()
+	if _layout_viewport_size().y < 500.0:
+		return Rect2(panel.position + Vector2(16 + index * 86, 160), Vector2(80, 28))
 	return Rect2(panel.position + Vector2(16 + index * 92, 444), Vector2(86, 32))
 
 
@@ -8651,7 +8782,7 @@ func _handle_barracks_status_click(pos: Vector2) -> bool:
 			_clear_barracks_rally(selected_core)
 		else:
 			mode = "set_rally"
-			toast("左键点击地图设置集结点；右键或 Esc 取消", 3.0)
+			toast(_bt("toast_rally_prompt"), 3.0, "info")
 		return true
 	for index in range(4):
 		if _barracks_directive_button_rect(index).has_point(pos):
@@ -8664,10 +8795,14 @@ func _handle_barracks_status_click(pos: Vector2) -> bool:
 
 
 func _draw_status_panel(viewport: Vector2) -> void:
+	viewport = _layout_viewport_size(viewport)
 	var core = cores[selected_core]
 	var is_barracks := String(core.get("kind", "normal")) == "barracks"
 	var rect := _status_panel_rect()
 	draw_style_box(_panel_style(), rect)
+	if viewport.y < 500.0:
+		_draw_status_panel_compact(rect, core, is_barracks)
+		return
 	var core_type := _gt("core_type_barracks") if is_barracks else _gt("core_type_spore")
 	draw_string(fallback_font, rect.position + Vector2(16, 28), _gt("core_name_fmt") % [core_type, selected_core + 1], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("a7f4d7") if is_barracks else COLOR_TEXT)
 	var biomass_percent := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS))) * 100.0
@@ -8763,6 +8898,65 @@ func _draw_status_panel(viewport: Vector2) -> void:
 			draw_string(fallback_font, directive_button.position + Vector2(9, 21), String(directive_labels[directive_index]), HORIZONTAL_ALIGNMENT_LEFT, -1, directive_font_size, COLOR_TEXT if available else COLOR_MUTED)
 	if viewport.x < 800:
 		return
+
+
+func _draw_status_panel_compact(rect: Rect2, core: Dictionary, is_barracks: bool) -> void:
+	var core_type := _gt("core_type_barracks") if is_barracks else _gt("core_type_spore")
+	var title := _gt("core_name_fmt") % [core_type, selected_core + 1]
+	draw_string(fallback_font, rect.position + Vector2(16, 23), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(title, rect.size.x - 32.0, UI_FONT_SIZE, 8), Color("a7f4d7") if is_barracks else COLOR_TEXT)
+	var biomass_percent := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS))) * 100.0
+	if not is_barracks:
+		var lines := [
+			_gt("stat_biomass_fmt") % biomass_percent,
+			_gt("stat_repair_fmt") % [float(core.get("repair_reserve", 0.0)), _repair_recovery_rate()],
+			_gt("stat_toxin_fmt") % float(core.get("toxin_pressure", 0.0)),
+			_gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)],
+			_gt("stat_dna_queue_fmt") % (core["jobs"] as Array).size(),
+			_gt("stat_feeder_fmt") % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))],
+			_gt("stat_dna_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
+		]
+		for line_index in range(lines.size()):
+			var line := String(lines[line_index])
+			draw_string(fallback_font, rect.position + Vector2(16, 47 + line_index * 21), line, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(line, rect.size.x - 32.0, UI_FONT_SIZE, 8), Color("ff9f9f") if line_index == 0 else COLOR_MUTED)
+		return
+	var counts := _barracks_expedition_status_counts(selected_core)
+	var summary := (_gt("stat_biomass_fmt") % biomass_percent) + " · " + (_gt("stat_barracks_counts_fmt") % [int(counts.get("total", 0)), int(counts.get("injured", 0)), int(counts.get("returning", 0)), int(counts.get("repairing", 0))])
+	draw_string(fallback_font, rect.position + Vector2(16, 45), summary, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(summary, rect.size.x - 32.0, UI_FONT_SIZE, 7), COLOR_MUTED)
+	var jobs: Array = core.get("spore_jobs", [])
+	var queue_text := _gt("stat_unit_queue_fmt") % [_localized_unit_name(String(core.get("production_unit", "forager"))), jobs.size(), BARRACKS_QUEUE_CAPACITY]
+	draw_string(fallback_font, rect.position + Vector2(16, 67), queue_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(queue_text, rect.size.x - 32.0, UI_FONT_SIZE, 7), COLOR_TEXT)
+	var auto_unit := String(core.get("auto_replenish_unit", "forager"))
+	var auto_target := int(core.get("auto_replenish_target", 4))
+	var auto_enabled := bool(core.get("auto_replenish", false))
+	var auto_text := _bt("stat_auto_replenish_fmt") % [_bt("common_enabled") if auto_enabled else _bt("common_disabled"), _localized_unit_name(auto_unit), _barracks_unit_count(selected_core, auto_unit, true), auto_target]
+	if auto_enabled and not _available_barracks_units().has(auto_unit):
+		auto_text = _bt("stat_auto_replenish_paused_diet_fmt") % _localized_unit_name(auto_unit)
+	draw_string(fallback_font, rect.position + Vector2(16, 89), auto_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(auto_text, rect.size.x - 32.0, UI_FONT_SIZE, 7), COLOR_MUTED)
+	var auto_button := _barracks_auto_button_rect()
+	var target_button := _barracks_target_button_rect()
+	var rally_button := _barracks_rally_button_rect()
+	draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("76f5ca"), 6, 1), auto_button)
+	draw_style_box(_rounded_style(Color(0.045, 0.12, 0.18, 0.98), Color("5edcf5"), 6, 1), target_button)
+	draw_style_box(_rounded_style(Color(0.045, 0.18, 0.14, 0.98), Color("56f08d"), 6, 1), rally_button)
+	var auto_button_text := _bt("button_auto_replenish_fmt") % (_bt("common_on_short") if auto_enabled else _bt("common_off_short"))
+	var target_button_text := _bt("button_auto_target_fmt") % auto_target
+	var rally_button_text := _bt("button_rally_clear") if bool(core.get("rally_enabled", false)) else _bt("button_rally_set")
+	for item in [[auto_button, auto_button_text], [target_button, target_button_text], [rally_button, rally_button_text]]:
+		var button: Rect2 = item[0]
+		var label := String(item[1])
+		draw_string(fallback_font, button.position + Vector2(5, 19), label, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(label, button.size.x - 10.0, UI_FONT_SIZE, 7), COLOR_TEXT)
+	var directive_enabled := bool(core.get("directive_enabled", false))
+	var directive_text := _bt("stat_directive_unset")
+	if directive_enabled:
+		directive_text = _bt("stat_directive_active_fmt") % [_localized_unit_name(String(core.get("directive_unit", "forager"))), _localized_barracks_directive_name(String(core.get("directive_type", ""))), _barracks_directive_member_count(selected_core)]
+	draw_string(fallback_font, rect.position + Vector2(16, 151), directive_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 32.0, _fit_font_size(directive_text, rect.size.x - 32.0, UI_FONT_SIZE, 7), Color("76f5ca") if directive_enabled else COLOR_MUTED)
+	var directive_labels := [_bt("directive_defense_short"), _bt("directive_harvest_short"), _bt("directive_purge_short"), _bt("directive_clear_short")]
+	var directive_colors := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER)]
+	for directive_index in range(4):
+		var directive_button := _barracks_directive_button_rect(directive_index)
+		draw_style_box(_rounded_style(Color(0.035, 0.12, 0.13, 0.96), directive_colors[directive_index], 5, 1), directive_button)
+		var directive_label := String(directive_labels[directive_index])
+		draw_string(fallback_font, directive_button.position + Vector2(4, 19), directive_label, HORIZONTAL_ALIGNMENT_CENTER, directive_button.size.x - 8.0, _fit_font_size(directive_label, directive_button.size.x - 8.0, UI_FONT_SIZE, 7), COLOR_TEXT)
 
 
 func _draw_game_over(viewport: Vector2) -> void:
@@ -9225,38 +9419,67 @@ func _chapter_report_button_rect(viewport: Vector2, index: int) -> Rect2:
 	return Rect2(_pixel_snap(Vector2(panel.get_center().x - total_width * 0.5 + index * (width + gap), panel.end.y - 62.0)), Vector2(width, 38.0))
 
 
+func _chapter_report_layout(viewport: Vector2) -> Dictionary:
+	var panel := _chapter_report_panel_rect(viewport)
+	var compact := panel.size.y < 430.0
+	var column_width := (panel.size.x - 82.0) * 0.5
+	return {
+		"panel": panel,
+		"compact": compact,
+		"title_y": 34.0 if compact else 42.0,
+		"subtitle_y": 58.0 if compact else 73.0,
+		"divider_y": 70.0 if compact else 92.0,
+		"first_y": 96.0 if compact else 132.0,
+		"row_gap": 23.0 if compact else 31.0,
+		"left_x": 34.0,
+		"right_x": panel.size.x * 0.5 + 12.0,
+		"column_width": column_width,
+		"notice_one_y": panel.size.y - 102.0,
+		"notice_two_y": panel.size.y - 78.0
+	}
+
+
 func _draw_chapter_report(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.86))
-	var panel := _chapter_report_panel_rect(viewport)
+	var layout := _chapter_report_layout(viewport)
+	var panel: Rect2 = layout["panel"]
 	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.085, 0.995), Color("76f5ca"), 14, 2), panel)
-	draw_string(fallback_font, panel.position + Vector2(30, 42), "第一章完成 · 实验室培养", HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color("c6ffe4"))
-	draw_string(fallback_font, panel.position + Vector2(30, 73), "从一枚孢子开始，你已建立远征体系并清除了竞争菌落。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_line(panel.position + Vector2(30, 92), Vector2(panel.end.x - 30, panel.position.y + 92), Color(COLOR_BORDER, 0.78), 1.0)
-	var left_x := panel.position.x + 34.0
-	var right_x := panel.position.x + panel.size.x * 0.54
-	var first_y := panel.position.y + 132.0
-	var gap := 31.0
+	var report_title := _ct("report_title")
+	var report_subtitle := _ct("report_subtitle")
+	draw_string(fallback_font, panel.position + Vector2(30, float(layout["title_y"])), report_title, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(report_title, panel.size.x - 60.0, 19, 10), Color("c6ffe4"))
+	draw_string(fallback_font, panel.position + Vector2(30, float(layout["subtitle_y"])), report_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(report_subtitle, panel.size.x - 60.0, UI_FONT_SIZE, 7), COLOR_TEXT)
+	var divider_y := float(layout["divider_y"])
+	draw_line(panel.position + Vector2(30, divider_y), Vector2(panel.end.x - 30, panel.position.y + divider_y), Color(COLOR_BORDER, 0.78), 1.0)
+	var left_x := panel.position.x + float(layout["left_x"])
+	var right_x := panel.position.x + float(layout["right_x"])
+	var first_y := panel.position.y + float(layout["first_y"])
+	var gap := float(layout["row_gap"])
+	var column_width := float(layout["column_width"])
 	var left_lines := [
-		"培养时长　%s" % _format_duration(chapter_completed_at),
-		"主菌丝长度　%d μm" % int(_total_hypha_length() / 2.0),
-		"存活核心　%d" % _living_core_count(),
-		"有机吸收　%.3f" % lifetime_organic_absorbed,
-		"矿物吸收　%.3f" % lifetime_mineral_absorbed
+		_ct("report_duration_fmt") % _format_duration(chapter_completed_at),
+		_ct("report_hypha_length_fmt") % int(_total_hypha_length() / 2.0),
+		_ct("report_living_cores_fmt") % _living_core_count(),
+		_ct("report_organic_absorbed_fmt") % lifetime_organic_absorbed,
+		_ct("report_mineral_absorbed_fmt") % lifetime_mineral_absorbed
 	]
 	var right_lines := [
-		"DNA 记录　%d" % lifetime_dna_produced,
-		"体外单位　建造 %d　损失 %d" % [lifetime_expedition_units_built, lifetime_expedition_units_lost],
-		"消化细菌　%d" % lifetime_bacteria_consumed,
-		"探索比例　%.2f%%" % (_explored_fraction() * 100.0),
-		"竞争守卫 %d　菌落 %d　孢子雨 %d" % [lifetime_enemy_guards_defeated, lifetime_enemy_fungi_defeated, lifetime_fungal_incursions_defeated]
+		_ct("report_dna_produced_fmt") % lifetime_dna_produced,
+		_ct("report_units_fmt") % [lifetime_expedition_units_built, lifetime_expedition_units_lost],
+		_ct("report_bacteria_digested_fmt") % lifetime_bacteria_consumed,
+		_ct("report_exploration_fmt") % (_explored_fraction() * 100.0),
+		_ct("report_rivals_fmt") % [lifetime_enemy_guards_defeated, lifetime_enemy_fungi_defeated, lifetime_fungal_incursions_defeated]
 	]
 	for i in range(left_lines.size()):
-		draw_string(fallback_font, Vector2(left_x, first_y + i * gap), String(left_lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		var line_text := String(left_lines[i])
+		draw_string(fallback_font, Vector2(left_x, first_y + i * gap), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(line_text, column_width, UI_FONT_SIZE, 7), COLOR_TEXT)
 	for i in range(right_lines.size()):
-		draw_string(fallback_font, Vector2(right_x, first_y + i * gap), String(right_lines[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, panel.position + Vector2(34, 320), "长期目标中的未领取奖励仍可继续完成；本结算不会结束当前存档。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, 352), "后续阶段将继承这一章形成的生理与传播倾向。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("8ce9ff"))
-	var labels := ["继续培养", "返回主菜单", "下一章节尚未开放"]
+		var line_text := String(right_lines[i])
+		draw_string(fallback_font, Vector2(right_x, first_y + i * gap), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(line_text, column_width, UI_FONT_SIZE, 7), COLOR_TEXT)
+	var unclaimed_notice := _ct("report_unclaimed_notice")
+	var inheritance_notice := _ct("report_inheritance_notice")
+	draw_string(fallback_font, panel.position + Vector2(34, float(layout["notice_one_y"])), unclaimed_notice, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(unclaimed_notice, panel.size.x - 68.0, UI_FONT_SIZE, 6), COLOR_MUTED)
+	draw_string(fallback_font, panel.position + Vector2(34, float(layout["notice_two_y"])), inheritance_notice, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(inheritance_notice, panel.size.x - 68.0, UI_FONT_SIZE, 6), Color("8ce9ff"))
+	var labels := [_ui("continue_culture"), _ui("back_main"), _ct("report_next_locked")]
 	for i in range(3):
 		var button := _chapter_report_button_rect(viewport, i)
 		var disabled := i == 2
@@ -9265,8 +9488,8 @@ func _draw_chapter_report(viewport: Vector2) -> void:
 		var border := COLOR_MUTED.darkened(0.45) if disabled else (Color("68efad") if hovered else COLOR_BORDER)
 		draw_style_box(_rounded_style(background, border, 8, 2 if hovered else 1), button)
 		var label := String(labels[i])
-		var label_size := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11 if disabled else UI_FONT_SIZE)
-		draw_string(fallback_font, Vector2(button.get_center().x - label_size.x * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11 if disabled else UI_FONT_SIZE, COLOR_MUTED if disabled else COLOR_TEXT)
+		var label_font_size := _fit_font_size(label, button.size.x - 16.0, 11 if disabled else UI_FONT_SIZE, 7)
+		draw_string(fallback_font, Vector2(button.position.x + 8.0, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, label_font_size, COLOR_MUTED if disabled else COLOR_TEXT)
 
 
 func _handle_chapter_report_click(pos: Vector2) -> void:
@@ -9430,7 +9653,7 @@ func _save_game() -> void:
 			"cargo_mineral": float(unit.get("cargo_mineral", 0.0)),
 			"biomass": float(unit.get("biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))),
 			"max_biomass": float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))),
-			"retreat_reason": String(unit.get("retreat_reason", "")),
+			"retreat_reason": _normalize_combat_reason_id(String(unit.get("retreat_reason", ""))),
 			"manual": bool(unit.get("manual", false)),
 			"search_cooldown": float(unit.get("search_cooldown", 0.0)),
 			"phase": float(unit.get("phase", 0.0))
@@ -10112,7 +10335,7 @@ func _load_game() -> bool:
 			"cargo_mineral": clampf(float(item.get("cargo_mineral", 0.0)), 0.0, 9.0),
 			"biomass": maximum * health_fraction,
 			"max_biomass": maximum,
-			"retreat_reason": String(item.get("retreat_reason", "")),
+			"retreat_reason": _normalize_combat_reason_id(String(item.get("retreat_reason", ""))),
 			"last_damage_source": "",
 			"damage_flash": 0.0,
 			"lost": false,

@@ -6,7 +6,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.45.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.46.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Languages
 
@@ -21,6 +21,7 @@ The main menu, settings, pause/session screens, and repository introduction supp
 - v0.43 adds a six-page illustrated gameplay guide to the Esc pause menu. It explains germination, nutrients and DNA, evolution, barracks commands, exploration and goals, and colony survival in all seven interface languages, with a dedicated coarse-pixel image beside every topic.
 - v0.44 completes seven-language diet detail, bacterial-component and diet-specialist pages, and localizes evolution purchases, unlocks and failure feedback. Long labels now scale inside their pixel UI controls, including Spanish, German and Russian.
 - v0.45 localizes real-time Chapter 1 guidance, ecology-event warnings and outcomes, Rival Sporefall phases and rewards, enemy-threat cards, and shared time units in all seven languages. Long event banners and toasts now fit narrow viewports.
+- v0.46 localizes the Chapter 1 completion report, rival guard/core/hypha tooltips, rival discovery and battle feedback, selection HUD, command receipts, and existing barracks-directive interactions in all seven languages. Legacy Chinese retreat reasons migrate to stable IDs, while report and enemy-tooltip text now fits narrow screens.
 
 ## Download and play
 
@@ -111,7 +112,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.45.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.46.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 语言支持
 
@@ -126,6 +127,7 @@ The source code, visual assets, game design, text, and other repository contents
 - v0.43 在 Esc 暂停菜单中加入六页带插图的玩法指引，以七种界面语言说明萌发菌丝、营养与 DNA、进化、兵营指挥、探索目标和菌落生存；每个主题旁都有独立的粗像素插图。
 - v0.44 完成食性详情、细菌组件与食性专属兵种页面的七语化，并翻译进化购买、解锁及失败反馈；西班牙语、德语和俄语等较长文字现在也会在像素 UI 控件内自适应缩放。
 - v0.45 将第一章实时指引、生态事件预警与结果、竞争孢子雨阶段与奖励、敌菌威胁卡和共用时间单位扩展为七语；较长的事件横幅和提示现在会适配窄屏。
+- v0.46 将第一章完成报告、敌方守卫/核心/菌丝悬停说明、敌菌发现与战斗反馈、选兵 HUD、指令回执及既有兵营持续任务交互扩展为七语；旧存档中的中文撤退原因会迁移为稳定 ID，报告和敌方悬停文字也会适配窄屏。
 
 ## 下载与运行
 
