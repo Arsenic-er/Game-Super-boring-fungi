@@ -204,12 +204,14 @@ func _run() -> void:
 		"anchor_core_id": 0,
 		"spawned": 0
 	}]
-	game.ecology_banner_title = "生态预警：局部细菌暴发"
-	game.ecology_banner_detail = "准备裂菌孢子、抗生素或修复储备。"
+	for locale_id in ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]:
+		game.settings_locale = locale_id
+		game._show_ecology_banner(game._et("ecology_warning_title_fmt") % game._ecology_event_name("bloom"), game._et("ecology_warning_detail"), 5.0)
+		game.queue_redraw()
+		await process_frame
+		await process_frame
+	game.settings_locale = "zh_CN"
 	game.ecology_banner_time = 5.0
-	game.queue_redraw()
-	await process_frame
-	await process_frame
 	var ecology_hud: Rect2 = game._ecology_event_hud_rect()
 	if ecology_hud.position.y <= game._minimap_rect().end.y:
 		push_error("UPGRADE_UI_FAIL: ecology event card must remain below the minimap")

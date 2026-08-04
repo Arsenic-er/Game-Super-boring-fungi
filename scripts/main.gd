@@ -7,6 +7,8 @@ const GoalLocalization = preload("res://scripts/goal_localization.gd")
 const BarracksLocalization = preload("res://scripts/barracks_localization.gd")
 const UpgradeLocalization = preload("res://scripts/upgrade_localization.gd")
 const GuideLocalization = preload("res://scripts/guide_localization.gd")
+const ChapterLocalization = preload("res://scripts/chapter_localization.gd")
+const WorldEventLocalization = preload("res://scripts/world_event_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -851,7 +853,7 @@ func _begin_fungal_incursion_warning() -> bool:
 
 
 func _show_fungal_incursion_warning() -> void:
-	toast("检测到竞争孢子雨：落点已标记，90 秒后形成菌落", 6.0)
+	toast(_et("sporefall_warning_toast_fmt") % roundi(FUNGAL_INCURSION_WARNING_SECONDS), 6.0, "info")
 
 
 func _cleanup_old_fungal_incursions() -> void:
@@ -901,7 +903,7 @@ func _activate_fungal_incursion() -> bool:
 
 
 func _show_fungal_incursion_active(wave: int) -> void:
-	toast("第 %d 轮竞争菌落已形成" % wave, 5.0)
+	toast(_et("sporefall_active_toast_fmt") % wave, 5.0, "info")
 
 
 func _complete_fungal_incursion(enemy_id: int) -> void:
@@ -922,8 +924,8 @@ func _complete_fungal_incursion(enemy_id: int) -> void:
 		"wave": wave,
 		"enemy_id": -1
 	}
-	var dna_text := "　DNA +1" if dna_reward > 0 else ""
-	toast("击退第 %d 轮孢子雨：有机 +%.3f　矿物 +%.3f%s" % [wave, organic_reward, mineral_reward, dna_text], 7.0)
+	var reward_key := "sporefall_defeated_dna_fmt" if dna_reward > 0 else "sporefall_defeated_fmt"
+	toast(_et(reward_key) % ([wave, organic_reward, mineral_reward, dna_reward] if dna_reward > 0 else [wave, organic_reward, mineral_reward]), 7.0, "info")
 
 
 func _update_fungal_incursion(sim_delta: float) -> void:
@@ -3680,17 +3682,7 @@ func _sync_enemy_fungi_discovery(show_feedback: bool) -> int:
 
 
 func _chapter_tasks() -> Array:
-	return [
-		{"title": "唤醒孢子", "detail": "点击中央孢子核心", "hint": "左键点击发光的孢子核心，打开它的操作菜单。"},
-		{"title": "初次萌发", "detail": "延伸第一段主菌丝", "hint": "在核心菜单选择“延伸菌丝”，再点击附近空地。"},
-		{"title": "建立吸收网络", "detail": "累计吸收 1.000 有机营养", "hint": "让主菌丝靠近橙色营养点，细吸收丝会自动长出。"},
-		{"title": "记录遗传变化", "detail": "由核心完成 1 次 DNA 记录", "hint": "点击孢子核心并选择“产生 DNA”；生产会持续一段时间。"},
-		{"title": "扩建菌落", "detail": "拥有 2 个存活核心", "hint": "延伸足够长的菌丝后，在末端长出新的孢子核心。"},
-		{"title": "形成营养策略", "detail": "在升级界面解锁 1 条主食性", "hint": "打开左上角“升级 [E]”，在食性页选择你的第一条路线。"},
-		{"title": "组织远征", "detail": "建造兵营并生产 1 个体外孢子", "hint": "从菌丝末端建立兵营核心，然后在核心菜单排队生产游猎孢子。"},
-		{"title": "发现竞争菌落", "detail": "探索并发现竞争性真菌", "hint": "派侦察孢子向黑幕外移动；竞争菌只有进入视野后才会显示。"},
-		{"title": "清除竞争菌落", "detail": "使竞争性真菌核心失活", "hint": "框选部队后右键敌菌核心。穿壁孢子效率最高，游猎孢子也能缓慢啃噬。"}
-	]
+	return ChapterLocalization.tasks(settings_locale)
 
 
 func _chapter_task_complete(index: int) -> bool:
@@ -3744,10 +3736,10 @@ func _update_chapter_flow(show_feedback: bool = true) -> void:
 		if autosave_enabled:
 			_save_game()
 		if show_feedback:
-			toast("第一章目标完成：培养皿已被你的菌落掌控", 5.0)
+			toast(_ct("complete_toast"), 5.0, "info")
 	elif advanced and show_feedback:
 		var task: Dictionary = tasks[chapter_task_index]
-		toast("新任务：%s" % String(task["title"]), 4.0)
+		toast(_ct("new_task_fmt") % String(task["title"]), 4.0, "info")
 
 
 func _update_enemy_threat() -> void:
@@ -3779,12 +3771,12 @@ func _update_enemy_threat() -> void:
 	elif closest <= ENEMY_THREAT_NOTICE_RADIUS:
 		enemy_threat_level = 1
 	if enemy_threat_level > previous and game_started:
-		var warning := "竞争菌丝已进入警戒范围"
+		var warning := _et("threat_notice")
 		if enemy_threat_level == 2:
-			warning = "竞争菌丝正在逼近核心"
+			warning = _et("threat_imminent")
 		elif enemy_threat_level == 3:
-			warning = "竞争菌丝已接触菌落！"
-		toast(warning, 4.0)
+			warning = _et("threat_contact")
+		toast(warning, 4.0, "info")
 
 
 func _discovered_hotspot_count(kind: int = -1) -> int:
@@ -4234,7 +4226,7 @@ func _ecology_events_enabled() -> bool:
 
 
 func _ecology_event_name(event_type: String) -> String:
-	return "局部细菌暴发" if event_type == "bloom" else "代谢毒素区"
+	return _et("ecology_name_%s" % event_type) if event_type == "bloom" or event_type == "toxin" else event_type
 
 
 func _show_ecology_banner(title: String, detail: String, seconds: float = 6.0) -> void:
@@ -4278,7 +4270,7 @@ func _begin_ecology_event() -> void:
 	_play_sound("warning")
 	_reveal_exploration(center, float(event["radius"]) + 48.0)
 	_update_exploration(false)
-	_show_ecology_banner("生态预警：%s" % _ecology_event_name(event_type), "点击右侧事件卡定位；准备裂菌孢子、抗生素或修复储备。", 7.0)
+	_show_ecology_banner(_et("ecology_warning_title_fmt") % _ecology_event_name(event_type), _et("ecology_warning_detail"), 7.0)
 
 
 func _spawn_bloom_bacteria(event: Dictionary) -> int:
@@ -4327,16 +4319,16 @@ func _activate_ecology_event(event: Dictionary) -> bool:
 	if String(event.get("type", "bloom")) == "bloom":
 		if MAX_BACTERIA - bacteria.size() < ECOLOGY_BLOOM_SPAWN_COUNT:
 			event["remaining"] = 30.0
-			_show_ecology_banner("暴发延后", "培养皿细菌数量接近上限，事件将在 30 秒后重新评估。", 4.0)
+			_show_ecology_banner(_et("ecology_delayed_title"), _et("ecology_delayed_detail_fmt") % roundi(float(event["remaining"])), 4.0)
 			return false
 		event["phase"] = "active"
 		event["remaining"] = ECOLOGY_BLOOM_ACTIVE_SECONDS
 		var spawned := _spawn_bloom_bacteria(event)
-		_show_ecology_banner("局部细菌暴发", "%d 个高活性细菌出现；消灭至3个以下，或用抑菌区封锁12秒。" % spawned, 7.0)
+		_show_ecology_banner(_et("ecology_bloom_active_title"), _et("ecology_bloom_active_detail_fmt") % [spawned, 3, roundi(BLOOM_CONTAINMENT_HOLD_SECONDS)], 7.0)
 	else:
 		event["phase"] = "active"
 		event["remaining"] = ECOLOGY_TOXIN_ACTIVE_SECONDS
-		_show_ecology_banner("代谢毒素区形成", "抗生素分泌与解毒代谢会降低伤害，坚持 75 秒即可消散。", 7.0)
+		_show_ecology_banner(_et("ecology_toxin_active_title"), _et("ecology_toxin_active_detail_fmt") % roundi(ECOLOGY_TOXIN_ACTIVE_SECONDS), 7.0)
 	return true
 
 
@@ -4347,9 +4339,9 @@ func _finish_ecology_event(event: Dictionary, contained: bool) -> void:
 		lifetime_ecology_events_contained += 1
 		if bool(event.get("controlled_by_suppressor", false)):
 			lifetime_suppressed_blooms_contained += 1
-		_show_ecology_banner("生态事件已应对", "%s 已平息；长期目标进度已更新。" % _ecology_event_name(String(event.get("type", "bloom"))), 7.0)
+		_show_ecology_banner(_et("ecology_contained_title"), _et("ecology_contained_detail_fmt") % _ecology_event_name(String(event.get("type", "bloom"))), 7.0)
 	else:
-		_show_ecology_banner("暴发期结束", "高活性阶段已经结束，但残余细菌仍留在培养皿中。", 6.0)
+		_show_ecology_banner(_et("ecology_expired_title"), _et("ecology_expired_detail"), 6.0)
 	ecology_events.clear()
 	ecology_event_countdown = rng.randf_range(ECOLOGY_EVENT_INTERVAL_MIN, ECOLOGY_EVENT_INTERVAL_MAX)
 
@@ -5161,7 +5153,7 @@ func _handle_left_click(pos: Vector2, shift_pressed: bool = false, ctrl_pressed:
 	if not _current_ecology_event().is_empty() and _ecology_event_hud_rect().has_point(pos):
 		camera_center = _current_ecology_event()["pos"]
 		_clamp_camera()
-		toast("镜头已定位到生态事件区域", 2.0)
+		toast(_et("ecology_located_toast"), 2.0, "info")
 		return
 	if _goal_tracker_hud_rect(get_viewport_rect().size).has_point(pos):
 		_play_sound("panel_open")
@@ -5907,6 +5899,14 @@ func _localized_diet_unit_requirement(diet_id: String, available: bool) -> Strin
 func _guide(key: String) -> String:
 	return GuideLocalization.text(key, settings_locale)
 
+func _ct(key: String) -> String:
+	return ChapterLocalization.text(key, settings_locale)
+
+
+func _et(key: String) -> String:
+	return WorldEventLocalization.text(key, settings_locale)
+
+
 
 func _fit_font_size(text_value: String, max_width: float, preferred: int = UI_FONT_SIZE, minimum: int = 8) -> int:
 	var font_size := maxi(minimum, preferred)
@@ -6375,7 +6375,7 @@ func _draw_ecology_zones(viewport: Vector2) -> void:
 			var distance := radius_pixels * (0.18 + float((i * 7) % 10) / 12.0)
 			var point := _pixel_snap(center + Vector2.from_angle(angle) * distance)
 			draw_rect(Rect2(point, Vector2(2, 2)), Color(color, 0.16 if event_type == "bloom" else 0.22))
-	var label := "预警" if warning else _ecology_event_name(event_type)
+	var label := _et("event_phase_warning") if warning else _ecology_event_name(event_type)
 	_draw_label_box(center + Vector2(12, -radius_pixels - 8), label, color)
 
 
@@ -7280,17 +7280,17 @@ func _draw_ecology_event_hud(_viewport: Vector2) -> void:
 	var accent := Color("f4ca83") if warning else (Color("ff789f") if event_type == "bloom" else Color("b884ec"))
 	var hovered := rect.has_point(last_mouse)
 	draw_style_box(_rounded_style(Color(0.08, 0.08, 0.12, 0.97) if hovered else Color(0.035, 0.075, 0.11, 0.96), Color(accent, 0.92), 8, 2), rect)
-	var phase_text := "预警" if warning else "活跃"
+	var phase_text := _et("event_phase_warning") if warning else _et("event_phase_active")
 	var seconds_left := ceili(float(event.get("remaining", 0.0)))
-	draw_string(fallback_font, rect.position + Vector2(12, 23), "%s · %s" % [_ecology_event_name(event_type), phase_text], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
-	var detail := "点击定位　%02d:%02d" % [seconds_left / 60, seconds_left % 60]
+	draw_string(fallback_font, rect.position + Vector2(12, 23), _et("ecology_hud_title_fmt") % [_ecology_event_name(event_type), phase_text], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, _fit_font_size(_et("ecology_hud_title_fmt") % [_ecology_event_name(event_type), phase_text], rect.size.x - 24.0), accent)
+	var detail := _et("event_locate_time_fmt") % [seconds_left / 60, seconds_left % 60]
 	if not warning and event_type == "bloom":
 		var event_id := int(event.get("id", -1))
 		var total := _count_event_bacteria(event_id)
 		var uncontrolled := _count_event_uncontrolled_bacteria(event_id)
 		var hold := floori(float(event.get("control_progress", 0.0)))
-		detail = "未控 %d/%d　维持 %d/12秒" % [uncontrolled, total, hold]
-	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		detail = _et("ecology_bloom_control_fmt") % [uncontrolled, total, hold, roundi(BLOOM_CONTAINMENT_HOLD_SECONDS)]
+	draw_string(fallback_font, rect.position + Vector2(12, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 24.0, _fit_font_size(detail, rect.size.x - 24.0), COLOR_TEXT)
 
 
 func _fungal_incursion_hud_visible() -> bool:
@@ -7314,21 +7314,21 @@ func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
 	var accent := Color("ff8b68") if phase == "warning" else (Color("ff5f6d") if phase == "active" else Color("c98f78"))
 	var rect := _fungal_incursion_hud_rect()
 	draw_style_box(_rounded_style(Color(0.105, 0.040, 0.055, 0.97), Color(accent, 0.90), 9, 2), rect)
-	var title := "竞争孢子雨 · 冷却"
+	var title := _et("sporefall_cooldown_title")
 	if phase == "warning":
-		title = "第 %d 轮孢子雨 · 落点预警" % wave
+		title = _et("sporefall_warning_title_fmt") % wave
 	elif phase == "active":
-		title = "第 %d 轮竞争菌落 · 活跃" % wave
-	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
-	var detail := "下一次信号　%s" % _format_duration(float(fungal_incursion.get("remaining", 0.0)))
+		title = _et("sporefall_active_title_fmt") % wave
+	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
+	var detail := _et("sporefall_next_signal_fmt") % _format_duration(float(fungal_incursion.get("remaining", 0.0)))
 	if paused and phase != "active":
-		detail = "生态事件或兵营缺失，计时已延后"
+		detail = _et("sporefall_paused_detail")
 	elif phase == "warning":
 		var seconds_left := ceili(float(fungal_incursion.get("remaining", 0.0)))
-		detail = "点击定位　%02d:%02d" % [seconds_left / 60, seconds_left % 60]
+		detail = _et("event_locate_time_fmt") % [seconds_left / 60, seconds_left % 60]
 	elif phase == "active":
-		detail = "点击定位竞争核心"
-	draw_string(fallback_font, rect.position + Vector2(13, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+		detail = _et("sporefall_locate_core")
+	draw_string(fallback_font, rect.position + Vector2(13, 49), detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(detail, rect.size.x - 26.0), COLOR_TEXT)
 
 
 func _handle_fungal_incursion_click(pos: Vector2) -> bool:
@@ -7343,7 +7343,7 @@ func _handle_fungal_incursion_click(pos: Vector2) -> bool:
 	if target.is_finite():
 		camera_center = target
 		_clamp_camera()
-		toast("镜头已定位竞争孢子雨", 2.0)
+		toast(_et("sporefall_located_toast"), 2.0, "info")
 	return true
 
 
@@ -7379,20 +7379,20 @@ func _draw_chapter_guidance(_viewport: Vector2) -> void:
 	draw_style_box(_rounded_style(Color(0.025, 0.085, 0.105, 0.97) if hovered else Color(0.018, 0.060, 0.085, 0.96), Color(accent, 0.78), 9, 2), rect)
 	var arrow := "＋" if guidance_collapsed else "－"
 	if chapter_complete:
-		draw_string(fallback_font, rect.position + Vector2(13, 25), "第一章完成", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+		draw_string(fallback_font, rect.position + Vector2(13, 25), _ct("complete"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 50.0, _fit_font_size(_ct("complete"), rect.size.x - 50.0), accent)
 		draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 25), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
 		if not guidance_collapsed:
-			draw_string(fallback_font, rect.position + Vector2(13, 49), "自由培养中 · 下一章节尚未开放", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+			draw_string(fallback_font, rect.position + Vector2(13, 49), _ct("free_culture"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("free_culture"), rect.size.x - 26.0), COLOR_MUTED)
 		return
 	var tasks := _chapter_tasks()
 	var task: Dictionary = tasks[clampi(chapter_task_index, 0, tasks.size() - 1)]
-	draw_string(fallback_font, rect.position + Vector2(13, 24), "章节任务 %d/%d　%s" % [chapter_task_index + 1, tasks.size(), String(task["title"])], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
+	draw_string(fallback_font, rect.position + Vector2(13, 24), _ct("task_heading_fmt") % [chapter_task_index + 1, tasks.size(), String(task["title"])], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 50.0, _fit_font_size(_ct("task_heading_fmt") % [chapter_task_index + 1, tasks.size(), String(task["title"])], rect.size.x - 50.0), accent)
 	draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 24), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
 	if guidance_collapsed:
 		return
-	draw_string(fallback_font, rect.position + Vector2(13, 52), String(task["detail"]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, rect.position + Vector2(13, 78), "按自己的节奏完成，不限时", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	draw_string(fallback_font, rect.position + Vector2(13, 101), "点击查看操作提示", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(accent, 0.82))
+	draw_string(fallback_font, rect.position + Vector2(13, 52), String(task["detail"]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(String(task["detail"]), rect.size.x - 26.0), COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(13, 78), _ct("unlimited"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("unlimited"), rect.size.x - 26.0), COLOR_MUTED)
+	draw_string(fallback_font, rect.position + Vector2(13, 101), _ct("show_hint"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("show_hint"), rect.size.x - 26.0, 10), Color(accent, 0.82))
 
 
 func _handle_chapter_guidance_click(pos: Vector2) -> bool:
@@ -7418,14 +7418,14 @@ func _draw_enemy_threat_hud(_viewport: Vector2) -> void:
 		return
 	var rect := _enemy_threat_hud_rect()
 	var accent := Color("f4ca83") if enemy_threat_level == 1 else (Color("ff956b") if enemy_threat_level == 2 else Color("ff5f6d"))
-	var title := "竞争菌丝进入警戒范围"
+	var title := _et("threat_notice")
 	if enemy_threat_level == 2:
-		title = "竞争菌丝正在逼近"
+		title = _et("threat_imminent")
 	elif enemy_threat_level == 3:
-		title = "菌落正在遭受接触攻击"
+		title = _et("threat_contact")
 	draw_style_box(_rounded_style(Color(0.12, 0.045, 0.055, 0.97), Color(accent, 0.92), 9, 2), rect)
-	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
-	draw_string(fallback_font, rect.position + Vector2(13, 48), "点击定位已发现的威胁", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
+	draw_string(fallback_font, rect.position + Vector2(13, 48), _et("threat_locate"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_et("threat_locate"), rect.size.x - 26.0), COLOR_TEXT)
 
 
 func _handle_enemy_threat_click(pos: Vector2) -> bool:
@@ -7435,7 +7435,7 @@ func _handle_enemy_threat_click(pos: Vector2) -> bool:
 		return true
 	camera_center = enemy_threat_pos
 	_clamp_camera()
-	toast("镜头已定位竞争菌丝前缘", 2.0)
+	toast(_et("threat_located"), 2.0, "info")
 	return true
 
 
@@ -9127,21 +9127,21 @@ func _draw_discovery_banner(viewport: Vector2) -> void:
 
 
 func _draw_ecology_banner(viewport: Vector2) -> void:
-	var width := minf(620.0, viewport.x - 80.0)
+	var width := minf(620.0, maxf(200.0, viewport.x - 80.0))
 	var rect := Rect2(_pixel_snap(Vector2(viewport.x * 0.5 - width * 0.5, 206.0)), Vector2(width, 74.0))
 	var pulse := 0.70 + sin(sim_time * 4.0) * 0.16
 	draw_style_box(_rounded_style(Color(0.095, 0.035, 0.075, 0.98), Color(0.94, 0.45, 0.62, pulse), 10, 2), rect)
 	draw_rect(Rect2(rect.position + Vector2(17, 15), Vector2(8, 8)), Color("ff789f"))
 	draw_rect(Rect2(rect.position + Vector2(20, 12), Vector2(2, 14)), Color("ffd2dc"))
-	draw_string(fallback_font, rect.position + Vector2(38, 29), ecology_banner_title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffd2dc"))
-	draw_string(fallback_font, rect.position + Vector2(38, 55), ecology_banner_detail, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(38, 29), ecology_banner_title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 54.0, _fit_font_size(ecology_banner_title, rect.size.x - 54.0), Color("ffd2dc"))
+	draw_string(fallback_font, rect.position + Vector2(38, 55), ecology_banner_detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 54.0, _fit_font_size(ecology_banner_detail, rect.size.x - 54.0), COLOR_TEXT)
 
 
 func _draw_toast(viewport: Vector2) -> void:
-	var width := fallback_font.get_string_size(toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 34.0
+	var width := minf(maxf(120.0, fallback_font.get_string_size(toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x + 34.0), viewport.x - 32.0)
 	var rect := Rect2(viewport.x * 0.5 - width * 0.5, 78, width, 38)
 	draw_style_box(_panel_style(), rect)
-	draw_string(fallback_font, rect.position + Vector2(17, 25), toast_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(17, 25), toast_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 34.0, _fit_font_size(toast_text, rect.size.x - 34.0), COLOR_TEXT)
 
 
 func _offline_report_panel_rect(viewport: Vector2) -> Rect2:
@@ -10321,7 +10321,7 @@ func _apply_offline_progress(seconds: float, actual_seconds: float = -1.0) -> vo
 
 func _format_duration(seconds: float) -> String:
 	if seconds >= 3600.0:
-		return "%0.1f 小时" % (seconds / 3600.0)
+		return _et("duration_hours_fmt") % (seconds / 3600.0)
 	if seconds < 60.0:
-		return "%d 秒" % int(seconds)
-	return "%d 分钟" % int(seconds / 60.0)
+		return _et("duration_seconds_fmt") % int(seconds)
+	return _et("duration_minutes_fmt") % int(seconds / 60.0)

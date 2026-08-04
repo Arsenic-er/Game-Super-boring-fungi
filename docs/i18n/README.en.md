@@ -4,7 +4,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype, version `0.44.0`. Chapter 1 is a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores. Version 0.40 adds role-safe commands so units no longer gather or attack targets that do not match their specialization.
+The project is currently an early Windows prototype, version `0.45.0`. Chapter 1 is a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores. Version 0.40 adds role-safe commands so units no longer gather or attack targets that do not match their specialization.
 
 Version 0.41 shows the seven-language selector on the first launch of a new installation and provides Simplified Chinese, Traditional Chinese, English, Japanese, Spanish, German, and Russian text for the resource HUD, core radial actions, core status and common hover tooltips, expedition status, bacterial descriptions, and all ten unit names; the upgrade shop and full long-term-goal descriptions are not yet fully localized.
 
@@ -12,6 +12,7 @@ Version 0.42 localizes all 22 long-term goals, the evolution-shop shell, node an
 
 Version 0.43 adds a six-page illustrated gameplay guide to the Esc pause menu. It explains germination, nutrients and DNA, evolution, barracks commands, exploration and goals, and colony survival in all seven interface languages, with a dedicated coarse-pixel image beside every topic.
 Version 0.44 completes seven-language diet detail, bacterial-component and diet-specialist pages, and localizes evolution purchases, unlocks and failure feedback. Long labels now scale inside their pixel UI controls, including Spanish, German and Russian.
+Version 0.45 localizes real-time Chapter 1 guidance, ecology-event warnings and outcomes, Rival Sporefall phases and rewards, enemy-threat cards, and shared time units in all seven languages. Long event banners and toasts now fit narrow viewports.
 
 ## Download and play
 
