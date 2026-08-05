@@ -4176,7 +4176,7 @@ func _discover_feeders() -> void:
 		if connected.has(resource_id):
 			continue
 		var p: Vector2 = resource["pos"]
-		var source := _nearest_colony_source(p)
+		var source := _nearest_colony_source(p, true)
 		var core_id := int(source["core_id"])
 		if core_id < 0:
 			continue
@@ -4741,7 +4741,7 @@ func _resource_by_id(resource_id: int) -> Dictionary:
 	return {}
 
 
-func _nearest_colony_source(p: Vector2) -> Dictionary:
+func _nearest_colony_source(p: Vector2, mature_segments_only: bool = false) -> Dictionary:
 	var best := Vector2.ZERO
 	var best_distance := INF
 	var best_core_id := -1
@@ -4758,17 +4758,21 @@ func _nearest_colony_source(p: Vector2) -> Dictionary:
 	for segment in segments:
 		if bool(segment.get("orphaned", false)) or not _is_core_alive(int(segment["core_id"])):
 			continue
+		if mature_segments_only and float(segment.get("growth", 0.0)) < 1.0:
+			continue
 		var a: Vector2 = segment["a"]
 		var full_b: Vector2 = segment["b"]
-		var b := a.lerp(full_b, float(segment["growth"]))
-		var ab := b - a
-		var t := 0.0 if ab.length_squared() < 0.001 else clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
-		var point := a + ab * t
-		var distance := p.distance_squared_to(point)
-		if distance < best_distance:
-			best_distance = distance
-			best = point
-			best_core_id = int(segment["core_id"])
+		# Feeder origins must be sampled from the same stable curved prefix that is
+		# rendered. Projecting onto the straight a-b chord makes child hyphae float
+		# away from curved trunks, especially after a still-growing trunk matures.
+		var points := _curved_points_grown(a, full_b, float(segment.get("curve", 0.0)), float(segment.get("growth", 1.0)))
+		for point_index in range(points.size() - 1):
+			var point := Geometry2D.get_closest_point_to_segment(p, points[point_index], points[point_index + 1])
+			var distance := p.distance_squared_to(point)
+			if distance < best_distance:
+				best_distance = distance
+				best = point
+				best_core_id = int(segment["core_id"])
 	return {"point": best, "core_id": best_core_id, "distance": sqrt(best_distance)}
 
 
@@ -6928,9 +6932,9 @@ func _draw_feeder(feeder: Dictionary) -> void:
 func _draw_hypha_segment(segment: Dictionary) -> void:
 	var a: Vector2 = segment["a"]
 	var full_b: Vector2 = segment["b"]
-	var growth := float(segment["growth"])
-	var b := a.lerp(full_b, growth)
-	var world_points := _curved_points(a, b, float(segment["curve"]) * growth)
+	var growth := clampf(float(segment["growth"]), 0.0, 1.0)
+	var world_points := _curved_points_grown(a, full_b, float(segment["curve"]), growth)
+	var b: Vector2 = world_points[world_points.size() - 1]
 	var screen_points := PackedVector2Array()
 	for p in world_points:
 		screen_points.append(_pixel_snap(world_to_screen(p)))
@@ -6955,16 +6959,33 @@ func _draw_hypha_segment(segment: Dictionary) -> void:
 		draw_rect(Rect2(tip - Vector2(2, 2), Vector2(4, 4)), Color(0.72, 0.96, 0.78, 0.78))
 
 
-func _curved_points(a: Vector2, b: Vector2, curve: float) -> PackedVector2Array:
-	var points := PackedVector2Array()
+func _quadratic_curve_point(a: Vector2, b: Vector2, curve: float, t: float) -> Vector2:
 	var delta := b - a
 	var normal := Vector2(-delta.y, delta.x).normalized()
 	var control := (a + b) * 0.5 + normal * delta.length() * curve
-	for i in range(9):
-		var t := i / 8.0
-		var p := a * ((1.0 - t) * (1.0 - t)) + control * (2.0 * (1.0 - t) * t) + b * (t * t)
-		points.append(p)
+	var clamped_t := clampf(t, 0.0, 1.0)
+	var inverse := 1.0 - clamped_t
+	return a * (inverse * inverse) + control * (2.0 * inverse * clamped_t) + b * (clamped_t * clamped_t)
+
+
+func _curved_points_grown(a: Vector2, b: Vector2, curve: float, growth: float) -> PackedVector2Array:
+	var points := PackedVector2Array()
+	var grown_t := clampf(growth, 0.0, 1.0)
+	points.append(_quadratic_curve_point(a, b, curve, 0.0))
+	if grown_t <= 0.0:
+		points.append(points[0])
+		return points
+	for i in range(1, 9):
+		var step_t := i / 8.0
+		if step_t >= grown_t:
+			points.append(_quadratic_curve_point(a, b, curve, grown_t))
+			break
+		points.append(_quadratic_curve_point(a, b, curve, step_t))
 	return points
+
+
+func _curved_points(a: Vector2, b: Vector2, curve: float) -> PackedVector2Array:
+	return _curved_points_grown(a, b, curve, 1.0)
 
 
 func _draw_core(core_id: int) -> void:
@@ -8040,6 +8061,26 @@ func _scout_upgrade_button_rect(panel: Rect2, upgrade_id: String) -> Rect2:
 	return Rect2(card.end - Vector2(142, 44), Vector2(124, 30))
 
 
+func _scout_unlock_button_rect(panel: Rect2) -> Rect2:
+	var card := _barracks_unit_card_rect(panel, BARRACK_UNIT_IDS.find("scout"))
+	return Rect2(card.position + Vector2(card.size.x * 0.5 - 52.0, card.size.y - 44), Vector2(104, 30))
+
+
+func _developer_level_part_rect(button: Rect2, increase: bool) -> Rect2:
+	var width := minf(34.0, button.size.x * 0.28)
+	return Rect2(button.end.x - width, button.position.y, width, button.size.y) if increase else Rect2(button.position, Vector2(width, button.size.y))
+
+
+func _draw_developer_level_control(button: Rect2, level: int, maximum: int, accent: Color, can_decrease: bool = true, can_increase: bool = true) -> void:
+	var active := can_decrease or can_increase
+	draw_style_box(_rounded_style(Color(0.055, 0.15, 0.16, 1.0) if active else Color(0.04, 0.06, 0.075, 1.0), Color(accent, 0.86) if active else COLOR_MUTED, 7, 2), button)
+	var minus_rect := _developer_level_part_rect(button, false)
+	var plus_rect := _developer_level_part_rect(button, true)
+	draw_string(fallback_font, minus_rect.position + Vector2(2, 20), "-", HORIZONTAL_ALIGNMENT_CENTER, minus_rect.size.x - 4.0, UI_FONT_SIZE, accent if can_decrease else COLOR_MUTED)
+	draw_string(fallback_font, button.position + Vector2(minus_rect.size.x, 20), "%d/%d" % [level, maximum], HORIZONTAL_ALIGNMENT_CENTER, button.size.x - minus_rect.size.x - plus_rect.size.x, _fit_font_size("%d/%d" % [level, maximum], button.size.x - minus_rect.size.x - plus_rect.size.x), COLOR_TEXT)
+	draw_string(fallback_font, plus_rect.position + Vector2(2, 20), "+", HORIZONTAL_ALIGNMENT_CENTER, plus_rect.size.x - 4.0, UI_FONT_SIZE, accent if can_increase else COLOR_MUTED)
+
+
 func _handle_upgrade_click(pos: Vector2) -> void:
 	var panel := _upgrade_panel_rect(get_viewport_rect().size)
 	if panel.has_point(pos):
@@ -8055,12 +8096,19 @@ func _handle_upgrade_click(pos: Vector2) -> void:
 			diet_detail_tab = 0
 			return
 	if upgrade_tab == 0 and _upgrade_node_button_rect(panel).has_point(pos):
-		_upgrade_feeder_range(upgrade_core_id)
+		if developer_mode_enabled:
+			_developer_adjust_upgrade_from_button(pos, _upgrade_node_button_rect(panel), "node", "feeder_range", upgrade_core_id)
+		else:
+			_upgrade_feeder_range(upgrade_core_id)
 		return
 	if upgrade_tab == 0:
 		for i in range(SURVIVAL_IDS.size()):
-			if _survival_button_rect(panel, i).has_point(pos):
-				_purchase_survival(SURVIVAL_IDS[i])
+			var survival_button := _survival_button_rect(panel, i)
+			if survival_button.has_point(pos):
+				if developer_mode_enabled:
+					_developer_adjust_upgrade_from_button(pos, survival_button, "survival", SURVIVAL_IDS[i])
+				else:
+					_purchase_survival(SURVIVAL_IDS[i])
 				return
 	if upgrade_tab == 1:
 		if diet_detail_id != "":
@@ -8074,38 +8122,70 @@ func _handle_upgrade_click(pos: Vector2) -> void:
 						return
 			if diet_detail_id == "bacteria" and diet_detail_tab == 0:
 				for i in range(BACTERIA_COMPONENT_IDS.size()):
-					if _bacteria_component_button_rect(panel, i).has_point(pos):
-						_purchase_bacteria_component(BACTERIA_COMPONENT_IDS[i])
+					var component_button := _bacteria_component_button_rect(panel, i)
+					if component_button.has_point(pos):
+						if developer_mode_enabled:
+							_developer_adjust_upgrade_from_button(pos, component_button, "component", BACTERIA_COMPONENT_IDS[i])
+						else:
+							_purchase_bacteria_component(BACTERIA_COMPONENT_IDS[i])
 						return
 			else:
 				var special_units: Array = DIET_SPECIAL_UNITS.get(diet_detail_id, [])
 				for i in range(special_units.size()):
-					if _diet_special_unit_button_rect(panel, i).has_point(pos):
-						_purchase_diet_unit(diet_detail_id, String((special_units[i] as Dictionary).get("id", "")))
+					var unit_id := String((special_units[i] as Dictionary).get("id", ""))
+					var special_button := _diet_special_unit_button_rect(panel, i)
+					if special_button.has_point(pos):
+						if developer_mode_enabled:
+							_developer_adjust_upgrade_from_button(pos, special_button, "diet_unit", unit_id)
+						else:
+							_purchase_diet_unit(diet_detail_id, unit_id)
 						return
 			return
 		for i in range(DIET_IDS.size()):
-			if int(diet_levels.get(DIET_IDS[i], 0)) > 0 and _diet_components_button_rect(panel, i).has_point(pos):
-				diet_detail_id = DIET_IDS[i]
+			var diet_id: String = DIET_IDS[i]
+			if (int(diet_levels.get(diet_id, 0)) > 0 or developer_mode_enabled) and _diet_components_button_rect(panel, i).has_point(pos):
+				diet_detail_id = diet_id
 				diet_detail_tab = 1
 				return
-			if _diet_button_rect(panel, i).has_point(pos):
-				_purchase_diet(DIET_IDS[i])
+			var diet_button := _diet_button_rect(panel, i)
+			if diet_button.has_point(pos):
+				if developer_mode_enabled:
+					_developer_adjust_upgrade_from_button(pos, diet_button, "diet", diet_id)
+				else:
+					_purchase_diet(diet_id)
 				return
 	if upgrade_tab == 2:
 		for i in range(STRUCTURE_IDS.size()):
-			if _structure_button_rect(panel, i).has_point(pos):
-				_purchase_structure(STRUCTURE_IDS[i])
+			var structure_button := _structure_button_rect(panel, i)
+			if structure_button.has_point(pos):
+				if developer_mode_enabled:
+					_developer_adjust_upgrade_from_button(pos, structure_button, "structure", STRUCTURE_IDS[i])
+				else:
+					_purchase_structure(STRUCTURE_IDS[i])
 				return
 	if upgrade_tab == 3:
+		if developer_mode_enabled and _scout_unlock_button_rect(panel).has_point(pos):
+			_developer_adjust_upgrade_from_button(pos, _scout_unlock_button_rect(panel), "barracks", "scout")
+			return
 		if bool(barracks_unit_unlocks.get("scout", false)):
 			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
-				if _scout_upgrade_button_rect(panel, scout_upgrade_id).has_point(pos):
-					_purchase_scout_upgrade(scout_upgrade_id)
+				var scout_button := _scout_upgrade_button_rect(panel, scout_upgrade_id)
+				if scout_button.has_point(pos):
+					if developer_mode_enabled:
+						_developer_adjust_upgrade_from_button(pos, scout_button, "scout", scout_upgrade_id)
+					else:
+						_purchase_scout_upgrade(scout_upgrade_id)
 					return
 		for i in range(BARRACK_UNIT_IDS.size()):
-			if _barracks_unit_button_rect(panel, i).has_point(pos):
-				_purchase_barracks_unit(BARRACK_UNIT_IDS[i])
+			var unit_id: String = BARRACK_UNIT_IDS[i]
+			if developer_mode_enabled and unit_id == "scout":
+				continue
+			var unit_button := _barracks_unit_button_rect(panel, i)
+			if unit_button.has_point(pos):
+				if developer_mode_enabled:
+					_developer_adjust_upgrade_from_button(pos, unit_button, "barracks", unit_id)
+				else:
+					_purchase_barracks_unit(unit_id)
 				return
 
 
@@ -8157,9 +8237,12 @@ func _draw_node_upgrade_card(panel: Rect2) -> void:
 	draw_string(fallback_font, card.position + Vector2(22, 242), _up("node_cost_note"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("node_cost_note"), card.size.x - 44.0), COLOR_MUTED)
 	var button := _upgrade_node_button_rect(panel)
 	var maxed := level >= MAX_FEEDER_RANGE_LEVEL
-	draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.06, 0.08, 0.10, 1.0), Color(COLOR_ORGANIC, 0.88) if not maxed else COLOR_MUTED, 8, 2), button)
-	var button_text := _up("maxed") if maxed else _up("node_action_fmt") % _feeder_upgrade_cost(upgrade_core_id)
-	draw_string(fallback_font, button.position + Vector2(8, 27), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, _fit_font_size(button_text, button.size.x - 16.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+	if developer_mode_enabled:
+		_draw_developer_level_control(button, level, MAX_FEEDER_RANGE_LEVEL, COLOR_ORGANIC, level > 0, not maxed)
+	else:
+		draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.06, 0.08, 0.10, 1.0), Color(COLOR_ORGANIC, 0.88) if not maxed else COLOR_MUTED, 8, 2), button)
+		var button_text := _up("maxed") if maxed else _up("node_action_fmt") % _feeder_upgrade_cost(upgrade_core_id)
+		draw_string(fallback_font, button.position + Vector2(8, 27), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 16.0, _fit_font_size(button_text, button.size.x - 16.0), COLOR_TEXT if not maxed else COLOR_MUTED)
 	var side := _survival_panel_rect(panel)
 	draw_style_box(_rounded_style(Color(0.02, 0.08, 0.11, 0.94), COLOR_BORDER, 10, 2), side)
 	draw_string(fallback_font, side.position + Vector2(16, 28), _up("survival_title"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("survival_title"), side.size.x - 32.0), COLOR_TEXT)
@@ -8183,9 +8266,12 @@ func _draw_node_upgrade_card(panel: Rect2) -> void:
 		draw_string(fallback_font, row.position + Vector2(10, 45), effect_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 		var survival_button := _survival_button_rect(panel, i)
 		var survival_maxed := survival_level >= 4
-		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not survival_maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.78) if not survival_maxed else COLOR_MUTED, 6, 1), survival_button)
-		var survival_button_text := _up("maxed_short") if survival_maxed else _up("dna_cost_fmt") % _survival_cost(survival_id)
-		draw_string(fallback_font, survival_button.position + Vector2(5, 19), survival_button_text, HORIZONTAL_ALIGNMENT_CENTER, survival_button.size.x - 10.0, _fit_font_size(survival_button_text, survival_button.size.x - 10.0), COLOR_TEXT if not survival_maxed else COLOR_MUTED)
+		if developer_mode_enabled:
+			_draw_developer_level_control(survival_button, survival_level, 4, COLOR_ORGANIC, survival_level > 0, not survival_maxed)
+		else:
+			draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not survival_maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.78) if not survival_maxed else COLOR_MUTED, 6, 1), survival_button)
+			var survival_button_text := _up("maxed_short") if survival_maxed else _up("dna_cost_fmt") % _survival_cost(survival_id)
+			draw_string(fallback_font, survival_button.position + Vector2(5, 19), survival_button_text, HORIZONTAL_ALIGNMENT_CENTER, survival_button.size.x - 10.0, _fit_font_size(survival_button_text, survival_button.size.x - 10.0), COLOR_TEXT if not survival_maxed else COLOR_MUTED)
 
 
 func _draw_diet_upgrade_cards(panel: Rect2) -> void:
@@ -8208,11 +8294,19 @@ func _draw_diet_upgrade_cards(panel: Rect2) -> void:
 			draw_string(fallback_font, components_button.position + Vector2(5, 20), _up("diet_special"), HORIZONTAL_ALIGNMENT_CENTER, components_button.size.x - 10.0, _fit_font_size(_up("diet_special"), components_button.size.x - 10.0), detail_color)
 		else:
 			draw_string(fallback_font, card.position + Vector2(18, 86), _up("diet_unset"), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 36.0, _fit_font_size(_up("diet_unset"), card.size.x - 36.0), COLOR_MUTED)
+			if developer_mode_enabled:
+				var components_button := _diet_components_button_rect(panel, i)
+				var detail_color := COLOR_BACTERIA if diet_id == "bacteria" else COLOR_ORGANIC
+				draw_style_box(_rounded_style(Color(0.08, 0.15, 0.23, 1.0), Color(detail_color, 0.58), 7, 2), components_button)
+				draw_string(fallback_font, components_button.position + Vector2(5, 20), _up("diet_special"), HORIZONTAL_ALIGNMENT_CENTER, components_button.size.x - 10.0, _fit_font_size(_up("diet_special"), components_button.size.x - 10.0), detail_color)
 		var button := _diet_button_rect(panel, i)
 		var maxed := level >= 5
-		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := _up("maxed") if maxed else (_up("evolve_dna_fmt") % _diet_level_cost(diet_id) if unlocked else _up("establish_dna_fmt") % _diet_unlock_cost())
-		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+		if developer_mode_enabled:
+			_draw_developer_level_control(button, level, 5, COLOR_ORGANIC, level > 0, not maxed)
+		else:
+			draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_ORGANIC, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
+			var button_text := _up("maxed") if maxed else (_up("evolve_dna_fmt") % _diet_level_cost(diet_id) if unlocked else _up("establish_dna_fmt") % _diet_unlock_cost())
+			draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("diet_footer"), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("diet_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
@@ -8255,9 +8349,13 @@ func _draw_bacteria_components(panel: Rect2) -> void:
 		draw_string(fallback_font, card.position + Vector2(430, 56), effect_text, HORIZONTAL_ALIGNMENT_RIGHT, card.size.x - 448.0, _fit_font_size(effect_text, card.size.x - 448.0), COLOR_ORGANIC)
 		var button := _bacteria_component_button_rect(panel, i)
 		var maxed := level >= 3
-		draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_BACTERIA, 0.84) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _bacteria_component_cost(component_id)
-		draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+		if developer_mode_enabled:
+			var dependency_met := _developer_upgrade_dependency_met("component", component_id)
+			_draw_developer_level_control(button, level, 3, COLOR_BACTERIA, level > 0, not maxed and dependency_met)
+		else:
+			draw_style_box(_rounded_style(Color(0.08, 0.22, 0.18, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_BACTERIA, 0.84) if not maxed else COLOR_MUTED, 7, 2), button)
+			var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _bacteria_component_cost(component_id)
+			draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(34, 510), _up("component_footer"), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("component_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
@@ -8277,9 +8375,13 @@ func _draw_diet_special_units(panel: Rect2, diet_id: String) -> void:
 		draw_string(fallback_font, card.position + Vector2(430, 56), requirement, HORIZONTAL_ALIGNMENT_RIGHT, card.size.x - 448.0, _fit_font_size(requirement, card.size.x - 448.0), accent if available else COLOR_MUTED)
 		var button := _diet_special_unit_button_rect(panel, i)
 		var button_color := accent if available and not unlocked else COLOR_MUTED
-		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(button_color, 0.82), 7, 2), button)
-		var button_text := _up("unit_unlocked") if unlocked else (_up("unlock_dna_fmt") % int(item.get("cost", 0)) if available else _up("locked"))
-		draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
+		if developer_mode_enabled and available and diet_unit_unlocks.has(unit_id):
+			var dependency_met := _developer_upgrade_dependency_met("diet_unit", unit_id)
+			_draw_developer_level_control(button, int(unlocked), 1, accent, unlocked, not unlocked and dependency_met)
+		else:
+			draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(button_color, 0.82), 7, 2), button)
+			var button_text := _up("unit_unlocked") if unlocked else (_up("unlock_dna_fmt") % int(item.get("cost", 0)) if available else _up("locked"))
+			draw_string(fallback_font, button.position + Vector2(5, 22), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(34, 510), _up("diet_unit_footer_fmt") % _localized_diet_name(diet_id), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, _fit_font_size(_up("diet_unit_footer_fmt") % _localized_diet_name(diet_id), panel.size.x - 68.0), COLOR_MUTED)
 
 
@@ -8298,6 +8400,15 @@ func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
 		if unit_id == "scout" and unlocked:
 			stat_text = _up("scout_stats_fmt") % [int(scout_upgrade_levels.get("vision", 0)), int(scout_upgrade_levels.get("speed", 0)), _scout_reveal_radius() / 2.0]
 		draw_string(fallback_font, card.position + Vector2(18, 88), stat_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC if unlocked else COLOR_MUTED)
+		if developer_mode_enabled and unit_id == "scout":
+			var scout_dependency := bool(barracks_unit_unlocks.get("scout", false))
+			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
+				var scout_level := int(scout_upgrade_levels.get(scout_upgrade_id, 0))
+				var scout_button := _scout_upgrade_button_rect(panel, scout_upgrade_id)
+				_draw_developer_level_control(scout_button, scout_level, MAX_SCOUT_UPGRADE_LEVEL, Color("5edcf5"), scout_level > 0, scout_level < MAX_SCOUT_UPGRADE_LEVEL and scout_dependency)
+			var scout_unlock := _scout_unlock_button_rect(panel)
+			_draw_developer_level_control(scout_unlock, int(unlocked), 1, Color("76f5ca"), unlocked, not unlocked)
+			continue
 		if unit_id == "scout" and unlocked:
 			for scout_upgrade_id in SCOUT_UPGRADE_IDS:
 				var scout_level := int(scout_upgrade_levels.get(scout_upgrade_id, 0))
@@ -8309,9 +8420,12 @@ func _draw_barracks_upgrade_cards(panel: Rect2) -> void:
 				draw_string(fallback_font, scout_button.position + Vector2(5, 20), scout_button_text, HORIZONTAL_ALIGNMENT_CENTER, scout_button.size.x - 10.0, _fit_font_size(scout_button_text, scout_button.size.x - 10.0), COLOR_TEXT if not scout_maxed else COLOR_MUTED)
 			continue
 		var button := _barracks_unit_button_rect(panel, i)
-		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(Color("76f5ca"), 0.82) if available and not unlocked else COLOR_BORDER, 7, 2), button)
-		var button_text := _up("mastered") if unlocked else (_up("unlock_dna_fmt") % int(BARRACK_UNIT_UNLOCK_COSTS.get(unit_id, 0)) if available else _up("locked"))
-		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
+		if developer_mode_enabled:
+			_draw_developer_level_control(button, int(unlocked), 1, Color("76f5ca"), unlocked and unit_id != "forager", not unlocked and unit_id != "forager")
+		else:
+			draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if available and not unlocked else Color(0.05, 0.07, 0.09, 1.0), Color(Color("76f5ca"), 0.82) if available and not unlocked else COLOR_BORDER, 7, 2), button)
+			var button_text := _up("mastered") if unlocked else (_up("unlock_dna_fmt") % int(BARRACK_UNIT_UNLOCK_COSTS.get(unit_id, 0)) if available else _up("locked"))
+			draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if available and not unlocked else COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("barracks_footer"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("barracks_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
@@ -8338,9 +8452,12 @@ func _draw_structure_upgrade_cards(panel: Rect2) -> void:
 		draw_string(fallback_font, card.position + Vector2(18, 88), effect_text, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_ORGANIC)
 		var button := _structure_button_rect(panel, i)
 		var maxed := level >= 4
-		draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_HYPHA, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
-		var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _structure_cost(structure_id)
-		draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
+		if developer_mode_enabled:
+			_draw_developer_level_control(button, level, 4, COLOR_HYPHA, level > 0, not maxed)
+		else:
+			draw_style_box(_rounded_style(Color(0.07, 0.20, 0.17, 1.0) if not maxed else Color(0.05, 0.07, 0.09, 1.0), Color(COLOR_HYPHA, 0.86) if not maxed else COLOR_MUTED, 7, 2), button)
+			var button_text := _up("maxed") if maxed else _up("evolve_dna_fmt") % _structure_cost(structure_id)
+			draw_string(fallback_font, button.position + Vector2(5, 20), button_text, HORIZONTAL_ALIGNMENT_CENTER, button.size.x - 10.0, _fit_font_size(button_text, button.size.x - 10.0), COLOR_TEXT if not maxed else COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(34, 512), _up("structure_footer"), HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(_up("structure_footer"), panel.size.x - 68.0), COLOR_MUTED)
 
 
@@ -10812,21 +10929,142 @@ func _switch_developer_profile(enabled: bool) -> void:
 
 
 func _developer_unlock_all() -> void:
-	diet_order = DIET_IDS.duplicate()
 	for diet_id in DIET_IDS:
-		diet_levels[diet_id] = 5
+		_developer_set_upgrade_level("diet", diet_id, 5)
 	for component_id in BACTERIA_COMPONENT_IDS:
-		bacteria_components[component_id] = 3
+		_developer_set_upgrade_level("component", component_id, 3)
 	for structure_id in STRUCTURE_IDS:
-		structure_levels[structure_id] = 4
+		_developer_set_upgrade_level("structure", structure_id, 4)
 	for survival_id in SURVIVAL_IDS:
-		survival_levels[survival_id] = 4
+		_developer_set_upgrade_level("survival", survival_id, 4)
 	for unit_id in BARRACK_UNIT_IDS:
-		barracks_unit_unlocks[unit_id] = true
+		_developer_set_upgrade_level("barracks", unit_id, 1)
 	for unit_id in diet_unit_unlocks.keys():
-		diet_unit_unlocks[unit_id] = true
+		_developer_set_upgrade_level("diet_unit", String(unit_id), 1)
 	for upgrade_id in SCOUT_UPGRADE_IDS:
-		scout_upgrade_levels[upgrade_id] = MAX_SCOUT_UPGRADE_LEVEL
+		_developer_set_upgrade_level("scout", upgrade_id, MAX_SCOUT_UPGRADE_LEVEL)
+
+
+func _developer_upgrade_max(group: String) -> int:
+	match group:
+		"node", "diet":
+			return 5
+		"component":
+			return 3
+		"structure", "survival", "scout":
+			return 4
+		"barracks", "diet_unit":
+			return 1
+	return -1
+
+
+func _developer_upgrade_level(group: String, upgrade_id: String, core_id: int = -1) -> int:
+	match group:
+		"node":
+			var target_core := upgrade_core_id if core_id < 0 else core_id
+			if target_core < 0 or target_core >= cores.size():
+				return -1
+			return int(cores[target_core].get("feeder_range_level", 0))
+		"diet":
+			return int(diet_levels.get(upgrade_id, -1)) if DIET_IDS.has(upgrade_id) else -1
+		"component":
+			return int(bacteria_components.get(upgrade_id, -1)) if BACTERIA_COMPONENT_IDS.has(upgrade_id) else -1
+		"structure":
+			return int(structure_levels.get(upgrade_id, -1)) if STRUCTURE_IDS.has(upgrade_id) else -1
+		"survival":
+			return int(survival_levels.get(upgrade_id, -1)) if SURVIVAL_IDS.has(upgrade_id) else -1
+		"barracks":
+			return int(bool(barracks_unit_unlocks.get(upgrade_id, false))) if BARRACK_UNIT_IDS.has(upgrade_id) else -1
+		"diet_unit":
+			return int(bool(diet_unit_unlocks.get(upgrade_id, false))) if diet_unit_unlocks.has(upgrade_id) else -1
+		"scout":
+			return int(scout_upgrade_levels.get(upgrade_id, -1)) if SCOUT_UPGRADE_IDS.has(upgrade_id) else -1
+	return -1
+
+
+func _developer_upgrade_dependency_met(group: String, upgrade_id: String) -> bool:
+	match group:
+		"component":
+			return int(diet_levels.get("bacteria", 0)) > 0
+		"diet_unit":
+			if ["lytic", "suppressor", "disperser"].has(upgrade_id):
+				return int(diet_levels.get("bacteria", 0)) > 0
+			if ["piercer", "coil", "antifungal"].has(upgrade_id):
+				return int(diet_levels.get("fungi", 0)) > 0
+			return false
+		"scout":
+			return bool(barracks_unit_unlocks.get("scout", false))
+	return true
+
+
+func _developer_set_upgrade_level(group: String, upgrade_id: String, requested_level: int, core_id: int = -1) -> bool:
+	if not developer_mode_enabled:
+		return false
+	var maximum := _developer_upgrade_max(group)
+	var current := _developer_upgrade_level(group, upgrade_id, core_id)
+	if maximum < 0 or current < 0:
+		return false
+	var level := clampi(requested_level, 0, maximum)
+	if level > current and not _developer_upgrade_dependency_met(group, upgrade_id):
+		return false
+	match group:
+		"node":
+			var target_core := upgrade_core_id if core_id < 0 else core_id
+			if not _is_core_alive(target_core):
+				return false
+			cores[target_core]["feeder_range_level"] = level
+		"diet":
+			diet_levels[upgrade_id] = level
+			if level > 0 and not diet_order.has(upgrade_id):
+				diet_order.append(upgrade_id)
+			elif level == 0:
+				diet_order.erase(upgrade_id)
+		"component":
+			bacteria_components[upgrade_id] = level
+		"structure":
+			structure_levels[upgrade_id] = level
+		"survival":
+			var previous_level := int(survival_levels.get(upgrade_id, 0))
+			survival_levels[upgrade_id] = level
+			if upgrade_id == "wall" and previous_level != level:
+				var new_maximum := _core_max_biomass_value()
+				for core_id_iter in range(cores.size()):
+					var core: Dictionary = cores[core_id_iter]
+					var previous_maximum := maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS + previous_level * 25.0)))
+					var biomass_ratio := clampf(float(core.get("biomass", 0.0)) / previous_maximum, 0.0, 1.0)
+					core["max_biomass"] = new_maximum
+					core["biomass"] = biomass_ratio * new_maximum if bool(core.get("alive", true)) else 0.0
+					core["repair_reserve"] = clampf(float(core.get("repair_reserve", 0.0)), 0.0, maxf(0.0, new_maximum - float(core["biomass"])))
+		"barracks":
+			if upgrade_id == "forager":
+				barracks_unit_unlocks[upgrade_id] = true
+				return level == 1
+			barracks_unit_unlocks[upgrade_id] = level > 0
+		"diet_unit":
+			diet_unit_unlocks[upgrade_id] = level > 0
+		"scout":
+			scout_upgrade_levels[upgrade_id] = level
+			if upgrade_id == "vision":
+				for unit in expedition_units:
+					if String(unit.get("unit_type", "forager")) == "scout":
+						unit["reveal_cell"] = -1
+				_update_exploration()
+	_play_sound("upgrade", 0.92)
+	queue_redraw()
+	return true
+
+
+func _developer_adjust_upgrade_from_button(pos: Vector2, button: Rect2, group: String, upgrade_id: String, core_id: int = -1) -> bool:
+	if not developer_mode_enabled or not button.has_point(pos):
+		return false
+	var current := _developer_upgrade_level(group, upgrade_id, core_id)
+	if current < 0:
+		return true
+	if _developer_level_part_rect(button, false).has_point(pos):
+		_developer_set_upgrade_level(group, upgrade_id, current - 1, core_id)
+	elif _developer_level_part_rect(button, true).has_point(pos):
+		_developer_set_upgrade_level(group, upgrade_id, current + 1, core_id)
+	return true
 
 
 func _developer_grant_resources(organic_amount: float = -1.0, mineral_amount: float = -1.0, dna_amount: int = -1) -> void:
@@ -10843,7 +11081,6 @@ func _developer_grant_resources(organic_amount: float = -1.0, mineral_amount: fl
 	organic = maxf(organic, DEVELOPER_RESOURCE_FLOOR)
 	mineral = maxf(mineral, DEVELOPER_RESOURCE_FLOOR)
 	dna = maxi(dna, DEVELOPER_DNA_FLOOR)
-	_developer_unlock_all()
 
 
 func _developer_spawn_resource(pos: Vector2, kind: int, amount: float) -> int:
