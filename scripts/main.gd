@@ -337,6 +337,8 @@ var selected_tip_core := -1
 var mode := "normal"
 var show_status := false
 var menu_anim := 0.0
+var barracks_production_open := false
+var barracks_production_core_id := -1
 var upgrade_open := false
 var upgrade_tab := 0
 var upgrade_core_id := 0
@@ -1579,17 +1581,27 @@ func _total_queued_expedition_units() -> int:
 	return total
 
 
+func _expedition_batch_size_from_modifiers(shift_pressed: bool, ctrl_pressed: bool) -> int:
+	if ctrl_pressed:
+		return 10
+	if shift_pressed:
+		return 5
+	return 1
+
+
+func _barracks_unit_batch_quote(unit_type: String, batch_size: int = 1) -> Dictionary:
+	var amount := clampi(batch_size, 1, 10)
+	return {
+		"unit_type": unit_type,
+		"amount": amount,
+		"organic": float(UNIT_ORGANIC_COSTS.get(unit_type, EXPEDITION_SPORE_ORGANIC_COST)) * amount,
+		"mineral": float(UNIT_MINERAL_COSTS.get(unit_type, EXPEDITION_SPORE_MINERAL_COST)) * amount,
+		"build_seconds_each": float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS))
+	}
+
+
 func _queue_expedition_spore(core_id: int, automatic: bool = false) -> bool:
 	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
-		return false
-	if expedition_units.size() + _total_queued_expedition_units() >= MAX_EXPEDITION_SPORES:
-		if not automatic:
-			toast("现役与排队部队总数已达到 %d" % MAX_EXPEDITION_SPORES, 3.0)
-		return false
-	var jobs: Array = cores[core_id].get("spore_jobs", [])
-	if jobs.size() >= BARRACKS_QUEUE_CAPACITY:
-		if not automatic:
-			toast("兵营生产队列已满", 3.0)
 		return false
 	var unit_type := String(cores[core_id].get("auto_replenish_unit", "forager")) if automatic else String(cores[core_id].get("production_unit", "forager"))
 	if not _available_barracks_units().has(unit_type):
@@ -1597,20 +1609,45 @@ func _queue_expedition_spore(core_id: int, automatic: bool = false) -> bool:
 			return false
 		unit_type = "forager"
 		cores[core_id]["production_unit"] = unit_type
-	var organic_cost := float(UNIT_ORGANIC_COSTS.get(unit_type, EXPEDITION_SPORE_ORGANIC_COST))
-	var mineral_cost := float(UNIT_MINERAL_COSTS.get(unit_type, EXPEDITION_SPORE_MINERAL_COST))
-	var build_seconds := float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS))
-	if organic < organic_cost or mineral < mineral_cost:
-		if not automatic:
-			toast("生产%s需要 %.3f 有机营养与 %.3f 矿物" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), organic_cost, mineral_cost], 3.0)
+	return _queue_expedition_spores(core_id, unit_type, 1, automatic)
+
+
+func _queue_expedition_spores(core_id: int, unit_type: String, batch_size: int = 1, automatic: bool = false) -> bool:
+	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
 		return false
-	organic -= organic_cost
-	mineral -= mineral_cost
-	jobs.append({"remaining": build_seconds, "total": build_seconds, "unit_type": unit_type, "automatic": automatic})
+	var amount := clampi(batch_size, 1, 10)
+	if not _available_barracks_units().has(unit_type):
+		if not automatic:
+			toast("该兵种尚未解锁，无法生产", 3.0)
+		return false
+	var jobs: Array = cores[core_id].get("spore_jobs", [])
+	if jobs.size() + amount > BARRACKS_QUEUE_CAPACITY:
+		if not automatic:
+			toast("兵营队列空间不足：生产 %d 个需要 %d 个空位" % [amount, amount], 3.0)
+		return false
+	if expedition_units.size() + _total_queued_expedition_units() + amount > MAX_EXPEDITION_SPORES:
+		if not automatic:
+			toast("现役与排队部队总数不能超过 %d" % MAX_EXPEDITION_SPORES, 3.0)
+		return false
+	var quote := _barracks_unit_batch_quote(unit_type, amount)
+	var organic_cost := float(quote["organic"])
+	var mineral_cost := float(quote["mineral"])
+	if not developer_mode_enabled and (organic < organic_cost or mineral < mineral_cost):
+		if not automatic:
+			toast("生产 %s ×%d 需要 %.3f 有机营养与 %.3f 矿物" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), amount, organic_cost, mineral_cost], 3.0)
+		return false
+	var build_seconds := float(quote["build_seconds_each"])
+	var new_jobs: Array = []
+	for _job_index in range(amount):
+		new_jobs.append({"remaining": build_seconds, "total": build_seconds, "unit_type": unit_type, "automatic": automatic})
+	if not developer_mode_enabled:
+		organic -= organic_cost
+		mineral -= mineral_cost
+	jobs.append_array(new_jobs)
 	cores[core_id]["spore_jobs"] = jobs
 	if not automatic:
 		_play_sound("unit_queue")
-		toast("%s已进入生产队列（%d / %d）" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), jobs.size(), BARRACKS_QUEUE_CAPACITY], 3.0)
+		toast("%s ×%d 已进入生产队列（%d / %d）" % [BARRACK_UNIT_NAMES.get(unit_type, unit_type), amount, jobs.size(), BARRACKS_QUEUE_CAPACITY], 3.0)
 	return true
 
 
@@ -4888,6 +4925,13 @@ func _audio_hover_target_at(pos: Vector2) -> String:
 			if _goal_button_rect(goals_panel, index).has_point(pos):
 				return "goal_%d" % index
 		return ""
+	if barracks_production_open:
+		if _barracks_production_close_rect().has_point(pos):
+			return "barracks_production_close"
+		for card in _barracks_production_card_rects():
+			if (card["rect"] as Rect2).has_point(pos):
+				return "barracks_production_" + String(card["unit_type"])
+		return ""
 	if _pause_hud_rect().has_point(pos):
 		return "pause"
 	if _upgrade_hud_rect().has_point(pos):
@@ -5010,6 +5054,25 @@ func _unhandled_input(event: InputEvent) -> void:
 				_handle_game_over_click(event.position)
 		elif event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 			_return_to_main_menu()
+		return
+	if barracks_production_open:
+		if not _is_core_alive(barracks_production_core_id) or String(cores[barracks_production_core_id].get("kind", "normal")) != "barracks":
+			_close_barracks_production_menu()
+			return
+		if event is InputEventMouseMotion:
+			last_mouse = event.position
+			queue_redraw()
+		elif event is InputEventMouseButton:
+			last_mouse = event.position
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				_handle_barracks_production_click(event.position, event.shift_pressed, event.ctrl_pressed)
+			elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+				_close_barracks_production_menu()
+		elif event is InputEventKey:
+			if event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
+				_close_barracks_production_menu()
+			elif event.keycode == KEY_SHIFT or event.keycode == KEY_CTRL:
+				queue_redraw()
 		return
 	if event is InputEventMouseMotion:
 		last_mouse = event.position
@@ -5339,9 +5402,9 @@ func _apply_menu_action(action: String, dna_batch_size: int = 1) -> void:
 		"dna":
 			_queue_dna(selected_core, dna_batch_size)
 		"queue_spore":
-			_queue_expedition_spore(selected_core)
-		"cycle_spore_unit":
-			_cycle_barracks_unit(selected_core)
+			_open_barracks_production_menu(selected_core)
+		"cycle_spore_unit": # Legacy saves/tests may still invoke this action directly.
+			_open_barracks_production_menu(selected_core)
 		"upgrade_feeder_range":
 			_upgrade_feeder_range(selected_core)
 		"repair_core":
@@ -5391,6 +5454,77 @@ func _dna_batch_size_from_modifiers(shift_pressed: bool, ctrl_pressed: bool) -> 
 
 func _current_dna_batch_size() -> int:
 	return _dna_batch_size_from_modifiers(Input.is_key_pressed(KEY_SHIFT), Input.is_key_pressed(KEY_CTRL))
+
+
+func _barracks_production_batch_size() -> int:
+	return _expedition_batch_size_from_modifiers(Input.is_key_pressed(KEY_SHIFT), Input.is_key_pressed(KEY_CTRL))
+
+
+func _open_barracks_production_menu(core_id: int) -> bool:
+	if not _is_core_alive(core_id) or String(cores[core_id].get("kind", "normal")) != "barracks":
+		return false
+	barracks_production_open = true
+	barracks_production_core_id = core_id
+	selected_core = core_id
+	show_status = false
+	mode = "normal"
+	_play_sound("panel_open")
+	queue_redraw()
+	return true
+
+
+func _close_barracks_production_menu() -> void:
+	if barracks_production_open:
+		_play_sound("panel_close")
+	barracks_production_open = false
+	barracks_production_core_id = -1
+	queue_redraw()
+
+
+func _barracks_production_panel_rect() -> Rect2:
+	var viewport := _layout_viewport_size()
+	var side := clampf(minf(viewport.x - 24.0, viewport.y - 24.0), 300.0, 420.0)
+	return Rect2(_pixel_snap((viewport - Vector2.ONE * side) * 0.5), Vector2.ONE * side)
+
+
+func _barracks_production_close_rect() -> Rect2:
+	var panel := _barracks_production_panel_rect()
+	return Rect2(panel.end - Vector2(42.0, panel.size.y - 10.0), Vector2(30.0, 28.0))
+
+
+func _barracks_production_card_rects() -> Array:
+	var result: Array = []
+	var units := _available_barracks_units()
+	var panel := _barracks_production_panel_rect()
+	var columns := 2
+	var rows := maxi(1, ceili(float(units.size()) / float(columns)))
+	var gap := 6.0
+	var content := Rect2(panel.position + Vector2(12.0, 52.0), Vector2(panel.size.x - 24.0, panel.size.y - 84.0))
+	var card_size := Vector2((content.size.x - gap) / columns, (content.size.y - gap * (rows - 1)) / rows)
+	for index in range(units.size()):
+		var column := index % columns
+		var row := index / columns
+		result.append({"unit_type": String(units[index]), "rect": Rect2(content.position + Vector2(column * (card_size.x + gap), row * (card_size.y + gap)), card_size), "rank": index})
+	return result
+
+
+func _handle_barracks_production_click(pos: Vector2, shift_pressed: bool = false, ctrl_pressed: bool = false) -> bool:
+	if not barracks_production_open:
+		return false
+	if _barracks_production_close_rect().has_point(pos):
+		_close_barracks_production_menu()
+		return true
+	for card in _barracks_production_card_rects():
+		if (card["rect"] as Rect2).has_point(pos):
+			var unit_type := String(card["unit_type"])
+			var amount := _expedition_batch_size_from_modifiers(shift_pressed, ctrl_pressed)
+			var queued := _queue_expedition_spores(barracks_production_core_id, unit_type, amount, false)
+			if queued:
+				cores[barracks_production_core_id]["production_unit"] = unit_type
+			return queued
+	if not _barracks_production_panel_rect().has_point(pos):
+		_close_barracks_production_menu()
+	return true
 
 
 func _dna_batch_tooltip_title(core_id: int, batch_size: int) -> String:
@@ -5860,17 +5994,20 @@ func _draw() -> void:
 	if offline_settlement_active:
 		_draw_offline_settlement(viewport)
 		return
-	_draw_selection_menu()
-	if not upgrade_open and not goals_open:
+	if barracks_production_open:
+		_draw_barracks_production_menu(viewport)
+	else:
+		_draw_selection_menu()
+	if not upgrade_open and not goals_open and not barracks_production_open:
 		if not _draw_core_tooltip():
 			if not _draw_expedition_tooltip():
 				if not _draw_enemy_guard_tooltip():
 					if not _draw_enemy_fungus_tooltip():
 						if not _draw_enemy_hypha_tooltip():
 							_draw_bacteria_tooltip()
-	if show_status and selected_core >= 0:
+	if show_status and selected_core >= 0 and not barracks_production_open:
 		_draw_status_panel(viewport)
-	if not upgrade_open and not goals_open:
+	if not upgrade_open and not goals_open and not barracks_production_open:
 		_draw_goal_tracker_tooltip(viewport)
 	if upgrade_open:
 		_draw_upgrade_panel(viewport)
@@ -8850,8 +8987,6 @@ func _current_menu_buttons() -> Array:
 		var production_unit := String(cores[selected_core].get("production_unit", "forager"))
 		if not _available_barracks_units().has(production_unit):
 			production_unit = "forager"
-		var production_name := _localized_unit_name(production_unit)
-		var production_cost_text := _gt("core_produce_cost_fmt") % [float(UNIT_ORGANIC_COSTS.get(production_unit, EXPEDITION_SPORE_ORGANIC_COST)), float(UNIT_MINERAL_COSTS.get(production_unit, EXPEDITION_SPORE_MINERAL_COST))]
 		var dna_batch_size := _current_dna_batch_size()
 		var dna_tooltip_title := _dna_batch_tooltip_title(selected_core, dna_batch_size)
 		var dna_tooltip_cost := _dna_batch_tooltip_cost(dna_batch_size)
@@ -8860,12 +8995,13 @@ func _current_menu_buttons() -> Array:
 			upgrade_cost_text = (_gt("core_upgrade_range_fmt") % [current_range_um, current_range_um + FEEDER_RANGE_PER_LEVEL / 2.0]) + "\n" + (_gt("core_upgrade_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), int((_dna_speed_bonus(selected_core) + DNA_SPEED_BONUS_PER_NODE_LEVEL) * 100.0)]) + "\n" + (_gt("core_upgrade_cost_fmt") % _feeder_upgrade_cost(selected_core))
 		var specs := [
 			[Vector2(-90, -34), _gt("core_action_extend_short"), "extend_core", COLOR_HYPHA, _gt("core_extend_title"), _gt("core_extend_cost")],
-			[Vector2(-34, -92), _gt("core_action_produce_short") if is_barracks else _gt("core_action_dna_short"), "queue_spore" if is_barracks else "dna", COLOR_MINERAL, _gt("core_produce_title_fmt") % [production_name, float(UNIT_BUILD_SECONDS.get(production_unit, EXPEDITION_SPORE_BUILD_SECONDS))] if is_barracks else dna_tooltip_title, production_cost_text if is_barracks else dna_tooltip_cost],
+			[Vector2(-34, -92), _gt("core_action_produce_short") if is_barracks else _gt("core_action_dna_short"), "queue_spore" if is_barracks else "dna", COLOR_MINERAL, _gt("core_action_produce_short") + " · Shift ×5 · Ctrl ×10" if is_barracks else dna_tooltip_title, _gt("core_no_cost") if is_barracks else dna_tooltip_cost],
 			[Vector2(34, -92), _gt("core_action_upgrade_short"), "upgrade_feeder_range", COLOR_ORGANIC, _gt("core_upgrade_title_fmt") % range_level, upgrade_cost_text],
 			[Vector2(90, -34), _gt("core_action_status_short"), "status", COLOR_WATER, _gt("core_status_title"), _gt("core_no_cost")],
-			[Vector2(90, 34), _gt("core_action_repair_short"), "repair_core", Color("ff9f8f"), _gt("core_repair_title"), _gt("core_repair_cost_fmt") % [_repair_reserve_purchase_amount(), _repair_recovery_rate(), CORE_REPAIR_ORGANIC_COST]],
-			[Vector2(34, 92), _gt("core_action_switch_short") if is_barracks else _gt("core_action_barracks_short"), "cycle_spore_unit" if is_barracks else "barracks_mode", Color("76f5ca"), _gt("core_current_unit_fmt") % production_name if is_barracks else _gt("core_barracks_build_title"), _gt("core_switch_hint") if is_barracks else _gt("core_barracks_build_cost_fmt") % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]]
+			[Vector2(90, 34), _gt("core_action_repair_short"), "repair_core", Color("ff9f8f"), _gt("core_repair_title"), _gt("core_repair_cost_fmt") % [_repair_reserve_purchase_amount(), _repair_recovery_rate(), CORE_REPAIR_ORGANIC_COST]]
 		]
+		if not is_barracks:
+			specs.append([Vector2(34, 92), _gt("core_action_barracks_short"), "barracks_mode", Color("76f5ca"), _gt("core_barracks_build_title"), _gt("core_barracks_build_cost_fmt") % [BARRACKS_ORGANIC_COST, BARRACKS_MINERAL_COST, BARRACKS_DNA_COST]])
 		for i in range(specs.size()):
 			var progress := clampf(menu_anim * 1.35 - i * 0.12, 0.0, 1.0)
 			var eased := 1.0 - pow(1.0 - progress, 3.0)
@@ -8923,6 +9059,81 @@ func _draw_menu_tooltip(button: Dictionary) -> void:
 	for i in range(lines.size()):
 		var color := COLOR_TEXT if i == 0 else COLOR_MUTED
 		draw_string(fallback_font, rect.position + Vector2(14, 24 + i * 22), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, color)
+
+
+func _draw_barracks_production_menu(viewport: Vector2) -> void:
+	var panel := _barracks_production_panel_rect()
+	var amount := _barracks_production_batch_size()
+	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.0, 0.015, 0.03, 0.52))
+	draw_style_box(_rounded_style(Color(0.018, 0.055, 0.085, 0.99), Color("aa84ec"), 10, 2), panel)
+	var title := "%s ×%d" % [_gt("core_action_produce_short"), amount]
+	draw_string(fallback_font, panel.position + Vector2(14, 25), title, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE + 2, COLOR_TEXT)
+	var queue_size := 0
+	if _is_core_alive(barracks_production_core_id):
+		queue_size = (cores[barracks_production_core_id].get("spore_jobs", []) as Array).size()
+	var queue_label := "%d / %d" % [queue_size, BARRACKS_QUEUE_CAPACITY]
+	draw_string(fallback_font, panel.position + Vector2(14, 43), queue_label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE - 2, COLOR_MUTED)
+	var close_rect := _barracks_production_close_rect()
+	var close_hovered := close_rect.has_point(last_mouse)
+	draw_style_box(_rounded_style(Color(0.05, 0.10, 0.14, 0.98), Color("ff9f8f") if close_hovered else COLOR_BORDER, 6, 2), close_rect)
+	var close_label := "×"
+	var close_width := fallback_font.get_string_size(close_label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE + 4).x
+	draw_string(fallback_font, close_rect.get_center() + Vector2(-close_width * 0.5, 5.0), close_label, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE + 4, COLOR_TEXT)
+	for card in _barracks_production_card_rects():
+		var unit_type := String(card["unit_type"])
+		var rect: Rect2 = card["rect"]
+		var hovered := rect.has_point(last_mouse)
+		var current := _is_core_alive(barracks_production_core_id) and String(cores[barracks_production_core_id].get("production_unit", "forager")) == unit_type
+		var accent := _unit_color(unit_type)
+		var fill := Color(0.025, 0.085, 0.115, 0.99) if not hovered else Color(0.035, 0.13, 0.16, 0.99)
+		draw_style_box(_rounded_style(fill, accent if hovered or current else Color(accent, 0.44), 6, 2 if hovered or current else 1), rect)
+		var icon_side := minf(36.0, rect.size.y - 10.0)
+		var icon_rect := Rect2(rect.position + Vector2(6.0, (rect.size.y - icon_side) * 0.5), Vector2.ONE * icon_side)
+		_draw_barracks_unit_icon(unit_type, icon_rect)
+		var text_x := icon_rect.end.x + 6.0
+		var text_width := maxf(20.0, rect.end.x - text_x - 4.0)
+		var name := "%s ×%d" % [_localized_unit_name(unit_type), amount]
+		var name_size := _fit_font_size(name, text_width, UI_FONT_SIZE - 1, 7)
+		draw_string(fallback_font, Vector2(text_x, rect.position.y + 15.0), name, HORIZONTAL_ALIGNMENT_LEFT, -1, name_size, COLOR_TEXT)
+		var seconds := float(UNIT_BUILD_SECONDS.get(unit_type, EXPEDITION_SPORE_BUILD_SECONDS)) * amount
+		var time_text := "%.1f s" % seconds
+		draw_string(fallback_font, Vector2(text_x, rect.position.y + 28.0), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, COLOR_MUTED)
+		var organic_cost := float(UNIT_ORGANIC_COSTS.get(unit_type, EXPEDITION_SPORE_ORGANIC_COST)) * amount
+		var mineral_cost := float(UNIT_MINERAL_COSTS.get(unit_type, EXPEDITION_SPORE_MINERAL_COST)) * amount
+		var cost_text := "O %.3f  M %.3f" % [organic_cost, mineral_cost]
+		var cost_size := _fit_font_size(cost_text, text_width, 8, 6)
+		draw_string(fallback_font, Vector2(text_x, rect.end.y - 6.0), cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, cost_size, COLOR_ORGANIC if not developer_mode_enabled else Color("76f5ca"))
+	var hint := "Shift ×5 · Ctrl ×10"
+	var hint_width := fallback_font.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE - 2).x
+	draw_string(fallback_font, panel.position + Vector2((panel.size.x - hint_width) * 0.5, panel.size.y - 12.0), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE - 2, COLOR_MUTED)
+
+
+func _draw_barracks_unit_icon(unit_type: String, rect: Rect2) -> void:
+	var p := _pixel_snap(rect.get_center())
+	var color := _unit_color(unit_type)
+	draw_rect(Rect2(p + Vector2(-12, -1), Vector2(7, 3)), color.darkened(0.42))
+	draw_rect(Rect2(p + Vector2(-6, -6), Vector2(12, 12)), color.darkened(0.18))
+	draw_rect(Rect2(p + Vector2(-4, -4), Vector2(8, 8)), color)
+	draw_rect(Rect2(p + Vector2(0, -3), Vector2(2, 2)), Color("ffffff"))
+	match unit_type:
+		"carrier":
+			draw_rect(Rect2(p + Vector2(-7, -7), Vector2(5, 5)), COLOR_ORGANIC)
+			draw_rect(Rect2(p + Vector2(3, 3), Vector2(5, 5)), COLOR_ORGANIC)
+		"chelator":
+			draw_rect(Rect2(p + Vector2(-8, -8), Vector2(4, 4)), COLOR_MINERAL)
+			draw_rect(Rect2(p + Vector2(4, 4), Vector2(4, 4)), COLOR_MINERAL)
+		"scout":
+			draw_rect(Rect2(p + Vector2(7, -1), Vector2(6, 2)), Color("8af4ff"))
+		"lytic", "disperser":
+			draw_rect(Rect2(p + Vector2(-8, -8), Vector2(3, 3)), Color("ff91b8"))
+			draw_rect(Rect2(p + Vector2(5, -8), Vector2(3, 3)), Color("fff0a6"))
+		"suppressor", "antifungal":
+			draw_rect(Rect2(p + Vector2(-9, -9), Vector2(4, 4)), color.lightened(0.35))
+			draw_rect(Rect2(p + Vector2(5, 5), Vector2(4, 4)), color.lightened(0.35))
+		"piercer":
+			draw_rect(Rect2(p + Vector2(6, -1), Vector2(8, 2)), Color("ffe3bd"))
+		"coil":
+			draw_rect(Rect2(p + Vector2(-9, 6), Vector2(18, 2)), Color("ffe6a0"))
 
 
 func _status_panel_rect() -> Rect2:

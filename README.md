@@ -6,7 +6,7 @@
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
-The project is currently an early Windows prototype. Version `0.48.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
+The project is currently an early Windows prototype. Version `0.49.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
 
 ## Languages
 
@@ -24,6 +24,7 @@ The main menu, settings, pause/session screens, and repository introduction supp
 - v0.46 localizes the Chapter 1 completion report, rival guard/core/hypha tooltips, rival discovery and battle feedback, selection HUD, command receipts, and existing barracks-directive interactions in all seven languages. Legacy Chinese retreat reasons migrate to stable IDs, while report and enemy-tooltip text now fits narrow screens.
 - v0.47 makes save loading responsive by settling offline progress across frames with visible progress. It also adds a developer sandbox save isolated from normal progress, with free resources, upgrades, and stage control, plus map placement for resources, bacteria, player cores, barracks, all ten expedition-spore types, rival fungi and guards, and ecology events.
 - v0.48 keeps automatically grown absorption hyphae attached to the visible curved trunk throughout growth. Developer cultures now begin with zero-level upgrades, while every implemented shop upgrade can be freely raised or lowered without consuming resources.
+- v0.49 removes the barracks unit-cycle button and opens a square unit menu from Produce. It lists unlocked expedition spores from basic to advanced with pixel icons and live batch totals for organic nutrients and minerals; hold Shift for ×5 or Ctrl for ×10. Batches are queued atomically, so failed orders consume no resources.
 
 ## Download and play
 
@@ -114,7 +115,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 这是一款从微观孢子出发、逐步扩张至生态系统、人类社会、国家乃至整个地球的放置演化与征服游戏。
 
-项目目前是 Windows 早期原型，版本为 `0.48.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
+项目目前是 Windows 早期原型，版本为 `0.49.0`。现阶段集中制作第一章：玩家在俯视角实验室微观培养环境中只控制真菌，扩张菌丝网络、收集营养、进化能力，并指挥可离开母体活动的游猎孢子。
 
 ## 语言支持
 
@@ -132,6 +133,7 @@ The source code, visual assets, game design, text, and other repository contents
 - v0.46 将第一章完成报告、敌方守卫/核心/菌丝悬停说明、敌菌发现与战斗反馈、选兵 HUD、指令回执及既有兵营持续任务交互扩展为七语；旧存档中的中文撤退原因会迁移为稳定 ID，报告和敌方悬停文字也会适配窄屏。
 - v0.47 将存档离线结算改为显示进度的分帧载入，并新增与普通进度隔离的开发者沙盒存档：可免费获得资源与升级、控制阶段，并在地图放置资源、细菌、己方核心、兵营、全部 10 类体外孢子、敌方真菌与守卫，以及生态事件。
 - v0.48 修复自动生长的细吸收菌丝在主干生长动画中脱离可见曲线的问题。开发者档现在从零级升级开始，商店中所有已实现升级都可免费增加或降低等级。
+- v0.49 移除兵营的兵种切换按钮；点击“生产”会打开方形兵种菜单，按由基础到高级的顺序显示已解锁兵种、像素图标，以及随批量按键动态变化的有机营养与矿物总成本。按住 Shift 生产 5 个，按住 Ctrl 生产 10 个；批量生产采用原子结算，失败时不会扣除任何资源。
 
 ## 下载与运行
 
