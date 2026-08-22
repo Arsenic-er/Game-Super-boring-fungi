@@ -101,6 +101,8 @@ The current microculture is only the opening scale. Future independent chapters 
 
 The project uses Godot `4.7` with GDScript. Open `project.godot` in Godot to run the source project. Automated smoke tests live in `tests/`; the Windows export preset embeds the PCK into one executable.
 
+Project records: [conversation and decision summary (Chinese)](docs/PROJECT_HISTORY.zh-CN.md), [development log](docs/DEVELOPMENT_LOG.md), [server verification index](docs/TEST_LOG_INDEX.md), and [server testing guide](docs/SERVER_TESTING.md).
+
 ## Rights
 
 Copyright © 2026 koko. All rights reserved.
@@ -208,6 +210,8 @@ The source code, visual assets, game design, text, and other repository contents
 ## 开发
 
 项目使用 Godot `4.7` 与 GDScript。使用 Godot 打开 `project.godot` 即可运行源码；自动化冒烟测试位于 `tests/`，Windows 导出设置会将 PCK 内嵌为单一 EXE。
+
+项目记录：[对话与决策纪要](docs/PROJECT_HISTORY.zh-CN.md)、[开发日志](docs/DEVELOPMENT_LOG.md)、[服务器测试记录索引](docs/TEST_LOG_INDEX.md)和[服务器测试说明](docs/SERVER_TESTING.md)。
 
 ## 权利声明
 
