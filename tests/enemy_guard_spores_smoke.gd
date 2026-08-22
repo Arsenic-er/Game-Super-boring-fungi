@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -84,16 +86,14 @@ func _run() -> void:
 	enemy_id = int(enemy["id"])
 	guard = game.enemy_guard_spores[0]
 	piercer = game.expedition_units[0]
-	var frozen_guard_pos: Vector2 = guard["pos"]
 	var frozen_guard_biomass := float(guard["biomass"])
-	var frozen_unit_biomass := float(piercer["biomass"])
+	piercer["pos"] = guard["pos"]
 	piercer["state"] = "moving"
 	piercer["target_kind"] = "enemy_guard"
 	piercer["target_enemy_guard_id"] = int(guard["id"])
 	piercer["target_pos"] = guard["pos"]
-	var frozen_unit_pos: Vector2 = piercer["pos"]
 	game._apply_offline_progress(game.OFFLINE_MIN_SECONDS)
-	if not _check((guard["pos"] as Vector2).is_equal_approx(frozen_guard_pos) and is_equal_approx(float(guard["biomass"]), frozen_guard_biomass) and (piercer["pos"] as Vector2).is_equal_approx(frozen_unit_pos) and is_equal_approx(float(piercer["biomass"]), frozen_unit_biomass) and String(piercer["state"]) == "moving" and String(piercer["target_kind"]) == "enemy_guard" and int(piercer["target_enemy_guard_id"]) == int(guard["id"]), "the complete offline settlement path should preserve mobile rival combat and its pending command"):
+	if not _check(float(guard["biomass"]) < frozen_guard_biomass and (not bool(guard.get("alive", true)) or int(piercer.get("target_enemy_guard_id", -1)) == int(guard["id"])), "offline combat must let the player damage a targeted guard instead of advancing only the enemy side"):
 		return
 
 	guard["biomass"] = 0.020
@@ -121,7 +121,7 @@ func _run() -> void:
 		return
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("ENEMY_GUARDS_OK seeded=2 cap=", game.ENEMY_GUARD_MAX_PER_FUNGUS, " pursuit=dynamic combat=fractional save=compatible offline=frozen orphan=decays goal=5")
+	print("ENEMY_GUARDS_OK seeded=2 cap=", game.ENEMY_GUARD_MAX_PER_FUNGUS, " pursuit=dynamic combat=fractional save=compatible offline=active orphan=decays goal=5")
 	game.queue_free()
 	quit(0)
 

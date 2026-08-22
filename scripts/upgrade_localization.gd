@@ -98,6 +98,67 @@ const TEXTS := {
 }
 
 
+# Balance-pass copy overrides the original table without duplicating the large
+# base dictionaries. Keep the same key set in every supported locale.
+const BALANCE_TEXTS := {
+	"zh_CN": {
+		"node_per_level": "每级：范围 +12 μm，DNA 速度 +10%",
+		"diet_chapter_locked": "后续章节",
+		"diet_chapter_locked_reason": "当前实验室章节尚无对应食物",
+		"respec_button": "重置强化",
+		"toast_diet_chapter_locked": "该食性将在出现对应生物的后续章节开放",
+		"toast_respec_confirm_fmt": "再次点击重置%s强化：返还 %d DNA（强化投入的60%%），食性许可证保留",
+		"toast_respec_done_fmt": "已重置%s强化，返还 %d DNA；基础食性保留",
+		"toast_respec_nothing": "这条食性尚无可重置的额外强化"
+	},
+	"zh_TW": {
+		"node_per_level": "每級：範圍 +12 μm，DNA 速度 +10%",
+		"diet_chapter_locked": "後續章節",
+		"diet_chapter_locked_reason": "目前實驗室章節尚無對應食物",
+		"respec_button": "重置強化",
+		"toast_diet_chapter_locked": "此食性會在出現對應生物的後續章節開放",
+		"toast_respec_confirm_fmt": "再次點擊重置%s強化：返還 %d DNA（強化投入的60%%），食性許可保留",
+		"toast_respec_done_fmt": "已重置%s強化，返還 %d DNA；基礎食性保留",
+		"toast_respec_nothing": "這條食性尚無可重置的額外強化"
+	},
+	"en": {
+		"node_per_level": "Each level: +12 μm reach, +10% DNA speed",
+		"diet_chapter_locked": "Later chapter",
+		"diet_chapter_locked_reason": "No matching food exists in the laboratory chapter",
+		"respec_button": "Reset upgrades",
+		"toast_diet_chapter_locked": "This diet unlocks in a later chapter with matching organisms",
+		"toast_respec_confirm_fmt": "Click again to reset %s upgrades: refund %d DNA (60%% of upgrade spend); the diet license stays",
+		"toast_respec_done_fmt": "%s upgrades reset; %d DNA refunded and the base diet retained",
+		"toast_respec_nothing": "This diet has no extra upgrades to reset"
+	},
+	"ja": {
+		"node_per_level": "各レベル：範囲 +12 μm、DNA速度 +10%",
+		"diet_chapter_locked": "後のチャプター",
+		"diet_chapter_locked_reason": "研究室チャプターには対象の食物がありません",
+		"respec_button": "強化をリセット",
+		"toast_diet_chapter_locked": "対象生物が登場する後のチャプターで開放されます",
+		"toast_respec_confirm_fmt": "もう一度クリックして%sの強化をリセット：強化費の60%%、DNA %dを返還。食性ライセンスは保持",
+		"toast_respec_done_fmt": "%sの強化をリセットしDNA %dを返還。基本食性は保持しました",
+		"toast_respec_nothing": "この食性にはリセットできる追加強化がありません"
+	},
+	"es": {
+		"node_per_level": "Por nivel: +12 μm de alcance, +10% de velocidad",
+		"diet_chapter_locked": "Capítulo posterior", "diet_chapter_locked_reason": "No hay alimento compatible en el capítulo del laboratorio", "respec_button": "Reiniciar mejoras",
+		"toast_diet_chapter_locked": "Esta dieta se abre en un capítulo posterior con organismos compatibles", "toast_respec_confirm_fmt": "Haz clic otra vez para reiniciar las mejoras de %s: devuelve %d ADN (60%% de las mejoras); conserva la licencia", "toast_respec_done_fmt": "Mejoras de %s reiniciadas; %d ADN devuelto y dieta base conservada", "toast_respec_nothing": "Esta dieta no tiene mejoras adicionales que reiniciar"
+	},
+	"de": {
+		"node_per_level": "Je Stufe: +12 μm Reichweite, +10% DNA-Tempo",
+		"diet_chapter_locked": "Späteres Kapitel", "diet_chapter_locked_reason": "Im Laborkapitel gibt es keine passende Nahrung", "respec_button": "Verbesserungen zurücksetzen",
+		"toast_diet_chapter_locked": "Diese Ernährung wird in einem späteren Kapitel freigeschaltet", "toast_respec_confirm_fmt": "Nochmals klicken: Verbesserungen von %s zurücksetzen, %d DNA zurück (60%%); Lizenz bleibt", "toast_respec_done_fmt": "Verbesserungen von %s zurückgesetzt; %d DNA erstattet, Basisernährung bleibt", "toast_respec_nothing": "Diese Ernährung hat keine zusätzlichen Verbesserungen"
+	},
+	"ru": {
+		"node_per_level": "За уровень: +12 μm радиуса, +10% скорости ДНК",
+		"diet_chapter_locked": "Следующая глава", "diet_chapter_locked_reason": "В лабораторной главе нет подходящей пищи", "respec_button": "Сбросить улучшения",
+		"toast_diet_chapter_locked": "Это питание откроется в следующей главе с нужными организмами", "toast_respec_confirm_fmt": "Нажмите ещё раз: сбросить улучшения %s и вернуть %d ДНК (60%% затрат); лицензия сохранится", "toast_respec_done_fmt": "Улучшения %s сброшены; возвращено %d ДНК, базовое питание сохранено", "toast_respec_nothing": "У этого питания нет дополнительных улучшений для сброса"
+	}
+}
+
+
 static func normalize_locale(locale_id: String) -> String:
 	var value := locale_id.strip_edges().replace("-", "_").to_lower()
 	if value.begins_with("zh_hant") or value.begins_with("zh_tw") or value.begins_with("zh_hk") or value.begins_with("zh_mo"):
@@ -112,6 +173,9 @@ static func normalize_locale(locale_id: String) -> String:
 
 static func text(key: String, locale_id: String) -> String:
 	var locale := normalize_locale(locale_id)
+	var balance_table: Dictionary = BALANCE_TEXTS.get(locale, BALANCE_TEXTS["en"])
+	if balance_table.has(key):
+		return String(balance_table[key])
 	var table: Dictionary = TEXTS.get(locale, TEXTS["en"])
 	if table.has(key):
 		return String(table[key])

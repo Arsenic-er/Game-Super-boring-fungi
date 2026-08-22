@@ -44,6 +44,8 @@ func _run() -> void:
 	game.settings_master_volume = 0.80
 	game._apply_settings()
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.selected_core = 0
 	var growth_before: int = audio.cue_count("hypha_grow")
 	game._confirm_extension(Vector2(100.0, 0.0))

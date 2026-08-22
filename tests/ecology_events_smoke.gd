@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -95,7 +97,7 @@ func _run() -> void:
 	var full_toxin_rate: float = game._ecology_toxin_damage_rate_at(anchor_pos)
 	game.bacteria_components["antibiotic"] = 3
 	var mitigated_toxin_rate: float = game._ecology_toxin_damage_rate_at(anchor_pos)
-	if not _check(is_equal_approx(full_toxin_rate, game.ECOLOGY_TOXIN_DAMAGE_RATE) and is_equal_approx(mitigated_toxin_rate, game.ECOLOGY_TOXIN_DAMAGE_RATE * 0.25), "Antibiotic levels should reduce toxin-zone damage monotonically to one quarter"):
+	if not _check(is_equal_approx(full_toxin_rate, game.ECOLOGY_TOXIN_DAMAGE_RATE) and is_equal_approx(mitigated_toxin_rate, game.ECOLOGY_TOXIN_DAMAGE_RATE * 0.50), "Fixed antibiotics should mitigate toxin damage without outperforming the mobile suppressor"):
 		return
 	game.bacteria_components["antibiotic"] = 0
 	game.cores[anchor_id]["biomass"] = game.cores[anchor_id]["max_biomass"]
@@ -132,12 +134,17 @@ func _run() -> void:
 	var cargo_before_offline := float(offline_unit["cargo_organic"])
 	var kills_before_offline: int = game.lifetime_expedition_bacteria_killed
 	game._apply_offline_progress(60.0, 60.0)
-	if not _check(is_equal_approx(float(saved_event["remaining"]), event_timer_before_offline) and game._count_event_bacteria(int(saved_event["id"])) == event_population_before_offline and is_equal_approx(float(offline_unit["cargo_organic"]), cargo_before_offline) and game.lifetime_expedition_bacteria_killed == kills_before_offline and is_equal_approx(float(game.cores[0]["biomass"]), core_biomass_before_offline), "Offline freeze mismatch timer %.3f/%.3f population %d/%d cargo %.3f/%.3f kills %d/%d biomass %.3f/%.3f" % [float(saved_event["remaining"]), event_timer_before_offline, game._count_event_bacteria(int(saved_event["id"])), event_population_before_offline, float(offline_unit["cargo_organic"]), cargo_before_offline, game.lifetime_expedition_bacteria_killed, kills_before_offline, float(game.cores[0]["biomass"]), core_biomass_before_offline]):
+	if not _check(game.ecology_events.is_empty() and is_zero_approx(float(saved_event["remaining"])) and game._count_event_bacteria(int(saved_event["id"])) == 0 and is_equal_approx(float(offline_unit["cargo_organic"]), cargo_before_offline) and game.lifetime_expedition_bacteria_killed == kills_before_offline and is_equal_approx(float(game.cores[0]["biomass"]), core_biomass_before_offline), "offline settlement should advance the existing event without creating hidden combat"):
 		return
 	game._close_offline_report()
 
-	game._save_game()
+	game.ecology_event_countdown = 0.0
+	game._update_ecology_events(0.1)
+	if not _check(game.ecology_events.size() == 1, "a fresh in-progress ecology event should be available for save/load coverage"):
+		return
+	saved_event = game.ecology_events[0]
 	var saved_type := String(saved_event["type"])
+	game._save_game()
 	game.ecology_events.clear()
 	game.lifetime_ecology_events_seen = 0
 	game.lifetime_ecology_events_contained = 0

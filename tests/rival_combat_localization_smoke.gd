@@ -29,6 +29,8 @@ func _run() -> void:
 	var english: Array = RivalCombatLocalization.VALUES["en"]
 	for locale_id in expected_locales:
 		var row: Array = RivalCombatLocalization.VALUES.get(locale_id, [])
+		if not _check(not RivalCombatLocalization.purge_diet_hint(locale_id).strip_edges().is_empty(), "%s purge diet hint" % locale_id):
+			return
 		if not _check(row.size() == RivalCombatLocalization.KEYS.size(), "%s row length" % locale_id):
 			return
 		for index in range(row.size()):

@@ -28,6 +28,8 @@ func _run() -> void:
 	game.autosave_enabled = false
 	game.save_path = TEST_SAVE_PATH
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	if not _check(is_equal_approx(float(game.OFFLINE_CAP_SECONDS), 7200.0), "offline settlement cap should remain two hours"):

@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -121,7 +123,8 @@ func _run() -> void:
 	game.ecology_events = [{"id": 9001, "type": "toxin", "pos": second["pos"], "radius": game.ECOLOGY_TOXIN_ZONE_RADIUS, "phase": "active", "remaining": game.ECOLOGY_TOXIN_ACTIVE_SECONDS, "anchor_core_id": barracks_id, "spawned": 0, "control_progress": 0.0, "contained": false}]
 	game._apply_offline_progress(game.OFFLINE_MIN_SECONDS)
 	game.offline_report_open = false
-	if not _check((second["pos"] as Vector2).is_equal_approx(frozen_second_pos) and String(second["state"]) == frozen_second_state and String(second["target_kind"]) == frozen_second_target and (second["target_pos"] as Vector2).is_equal_approx(frozen_second_target_pos) and float(second["biomass"]) < frozen_second_biomass, "offline settlement should freeze defense movement and commands without granting toxin immunity"):
+	var defense_advanced := not (second["pos"] as Vector2).is_equal_approx(frozen_second_pos) or String(second["state"]) != frozen_second_state or String(second["target_kind"]) != frozen_second_target or not (second["target_pos"] as Vector2).is_equal_approx(frozen_second_target_pos)
+	if not _check(defense_advanced and bool(second["defense_enabled"]) and float(second["biomass"]) < frozen_second_biomass, "offline settlement should advance an existing defense command while still applying toxin damage"):
 		return
 
 	first["biomass"] = first["max_biomass"]
@@ -185,7 +188,7 @@ func _run() -> void:
 		return
 
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("DEFENSE_ZONE_OK shape=square input=right-drag priority=guard leash=bounded save=compatible offline=frozen normal-pan=preserved")
+	print("DEFENSE_ZONE_OK shape=square input=right-drag priority=guard leash=bounded save=compatible offline=active normal-pan=preserved")
 	game.queue_free()
 	quit(0)
 

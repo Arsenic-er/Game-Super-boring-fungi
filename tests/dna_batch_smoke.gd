@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -25,7 +27,7 @@ func _run() -> void:
 
 	if not _check(game._dna_batch_size_from_modifiers(false, false) == 1 and game._dna_batch_size_from_modifiers(true, false) == 5 and game._dna_batch_size_from_modifiers(false, true) == 10 and game._dna_batch_size_from_modifiers(true, true) == 10, "DNA modifiers should map click, Shift, Ctrl, and both keys to 1, 5, 10, and 10"):
 		return
-	if not _check(game._dna_batch_tooltip_title(0, 5) == "生产 5 DNA · 共 900.0 秒" and game._dna_batch_tooltip_cost(5).contains("有机营养 150.000") and game._dna_batch_tooltip_cost(5).contains("矿物离子 5.000") and game._dna_batch_tooltip_cost(10).contains("有机营养 300.000") and game._dna_batch_tooltip_cost(10).contains("矿物离子 10.000"), "localized tooltip copy should scale quantity, total time, and both nutrient costs"):
+	if not _check(game._dna_batch_tooltip_title(0, 5) == "生产 5 DNA · 共 1500.0 秒" and game._dna_batch_tooltip_cost(5).contains("有机营养 150.000") and game._dna_batch_tooltip_cost(5).contains("矿物离子 5.000") and game._dna_batch_tooltip_cost(10).contains("有机营养 300.000") and game._dna_batch_tooltip_cost(10).contains("矿物离子 10.000"), "localized tooltip copy should scale quantity, total time, and both nutrient costs"):
 		return
 	if not _check(game._dna_batch_tooltip_cost(1).contains("Shift：×5 · Ctrl：×10"), "localized tooltip should teach both batch modifiers"):
 		return

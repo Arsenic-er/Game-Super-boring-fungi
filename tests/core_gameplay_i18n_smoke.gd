@@ -18,6 +18,8 @@ func _run() -> void:
 	game.splash_active = false
 	game.autosave_enabled = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.game_started = true
 	game.main_menu_active = false
 	game.selected_core = 0

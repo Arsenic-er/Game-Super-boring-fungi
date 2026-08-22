@@ -28,6 +28,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = true
 	game.main_menu_has_save = true
 	game.main_menu_page = "main"

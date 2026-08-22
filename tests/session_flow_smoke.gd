@@ -70,7 +70,12 @@ func _run() -> void:
 		return
 	game.main_menu_page = "new_confirm"
 	game._handle_main_menu_click(game._main_menu_button_rect(Vector2(1280.0, 720.0), 0).get_center())
-	if not _check(not game.main_menu_active and game.cores.size() == 1 and is_equal_approx(game.organic, 220.0) and game.chapter_task_index == 0 and game.enemy_fungi.size() == 1, "confirmed new culture should reset all first-chapter anchors"):
+	if not _check(not game.main_menu_active and game.cores.is_empty() and game._founder_spore_active() and is_equal_approx(float(game.founder_spore.get("energy", -1.0)), 100.0) and is_equal_approx(game.organic, 220.0) and game.chapter_task_index == 0 and game.enemy_fungi.is_empty(), "confirmed new culture should reset to one independent founder spore"):
+		return
+	if not _check(game._begin_founder_spore_germination(), "the new founder spore should be able to germinate"):
+		return
+	game._process(2.5)
+	if not _check(not game._founder_spore_active() and game.cores.size() == 1 and game._is_core_alive(0) and game.enemy_fungi.size() == 1, "germination should hand the session flow to the settled culture"):
 		return
 
 	# Losing the last core must freeze all real-time clocks and expose recovery actions.
@@ -92,7 +97,7 @@ func _run() -> void:
 		return
 	game._handle_game_over_click(game._game_over_button_rect(Vector2(1280.0, 720.0), 0).get_center())
 	game._handle_pause_menu_click(game._pause_menu_button_rect(Vector2(1280.0, 720.0), 0).get_center())
-	if not _check(not game.game_over and game.cores.size() == 1 and game._is_core_alive(0) and is_equal_approx(game.sim_speed, 1.0), "confirmed restart should create a playable culture"):
+	if not _check(not game.game_over and game.cores.is_empty() and game._founder_spore_active() and is_equal_approx(float(game.founder_spore.get("energy", -1.0)), 100.0) and game.enemy_fungi.is_empty() and is_equal_approx(game.sim_speed, 1.0), "confirmed restart should create a playable founder-spore culture"):
 		return
 
 	# Modal geometry must remain usable at the default and a smaller supported window.

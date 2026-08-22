@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -73,12 +75,12 @@ func _run() -> void:
 	game.bacteria_components["antibiotic"] = 3
 	game.bacteria[0]["contact_cooldown"] = 0.0
 	game._update_bacteria(0.25)
-	if not _check(is_equal_approx(float(game.bacteria[0]["suppression_multiplier"]), 0.25), "level-three antibiotics should remain stronger than the deployed zone"):
+	if not _check(is_equal_approx(float(game.bacteria[0]["suppression_multiplier"]), 0.30), "the deployed mobile zone should remain stronger than level-three fixed antibiotics"):
 		return
 	game.bacteria[0]["cooldown"] = 10.0
 	game.bacteria[0]["contact_cooldown"] = 999.0
 	game._update_bacteria(1.0)
-	if not _check(is_equal_approx(float(game.bacteria[0]["cooldown"]), 9.75), "the actual division cooldown should use the stronger 0.25 antibiotic multiplier"):
+	if not _check(is_equal_approx(float(game.bacteria[0]["cooldown"]), 9.70), "the actual division cooldown should use the stronger 0.30 deployed-zone multiplier"):
 		return
 
 	game.bacteria_components["antibiotic"] = 0

@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -83,6 +85,8 @@ func _run() -> void:
 	var piercer: Dictionary = game.expedition_units.back()
 	piercer["pos"] = active["pos"]
 	piercer["target_enemy_id"] = active_id
+	piercer["target_kind"] = "enemy_fungus"
+	piercer["state"] = "attacking_fungus"
 	var piercer_health_before: float = piercer["biomass"]
 	game._update_expedition_fungus_attack(piercer, 1.0)
 	if not _check(is_equal_approx(piercer_health_before - float(piercer["biomass"]), game.EXPEDITION_ENEMY_FUNGUS_COUNTER_RATE * 0.75 * 0.75), "wave attack multiplier should affect the piercer's counterattack damage"):
@@ -92,7 +96,7 @@ func _run() -> void:
 	var offline_enemy_biomass := float(active["biomass"])
 	game._apply_offline_progress(60.0, 60.0)
 	game.offline_report_open = false
-	if not _check(String(game.fungal_incursion["phase"]) == offline_phase and is_equal_approx(float(active["biomass"]), offline_enemy_biomass), "offline settlement should freeze recurring-invasion timing and combat"):
+	if not _check(String(game.fungal_incursion["phase"]) == offline_phase and float(active["biomass"]) < offline_enemy_biomass, "offline settlement should keep invasion timing fixed while resolving already active combat"):
 		return
 
 	var reward_organic_before: float = game.organic

@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -129,18 +131,24 @@ func _run() -> void:
 	if not _check(bool(resident_piercer["defense_enabled"]), "fungi specialist should receive its barracks defense directive"):
 		return
 	var resident_lytic_id := int(resident_lytic["id"])
-	game.diet_levels["bacteria"] = 0
-	game.diet_levels["fungi"] = 0
-	if not _check(bool(game.cores[first_barracks]["directive_enabled"]) and not game._barracks_directive_valid(first_barracks, true) and game._barracks_directive_valid(first_barracks, false), "diet loss should pause rather than erase a compatible template"):
+	game.diet_levels["bacteria"] = 5
+	game.diet_levels["fungi"] = 5
+	game.diet_investments["bacteria"] = 28
+	game.diet_investments["fungi"] = 55
+	game._request_diet_respec("bacteria")
+	game._request_diet_respec("bacteria")
+	game._request_diet_respec("fungi")
+	game._request_diet_respec("fungi")
+	if not _check(int(game.diet_levels["bacteria"]) == 1 and int(game.diet_levels["fungi"]) == 1 and game.diet_order == ["bacteria", "fungi"] and game._barracks_directive_valid(first_barracks, true), "resetting enhancements must retain both diet licenses and their compatible barracks templates"):
 		return
 	game._update_expedition_units(0.1, false)
-	if not _check(bool(resident_lytic["purge_enabled"]) and String(resident_lytic["target_kind"]) != "bacteria" and bool(resident_piercer["defense_enabled"]) and String(resident_piercer["target_kind"]) != "enemy_fungus", "diet loss should pause existing specialist zones without erasing them"):
+	if not _check(bool(resident_lytic["purge_enabled"]) and bool(resident_piercer["defense_enabled"]), "base diet licenses must keep existing specialist zones active after enhancement reset"):
 		return
 	game._spawn_expedition_spore(first_barracks, "lytic", true)
-	if not _check(not bool(game.expedition_units.back()["purge_enabled"]), "paused directives must not assign inactive diet units"):
+	if not _check(bool(game.expedition_units.back()["purge_enabled"]), "automatic replacements must still inherit directives from a retained base diet license"):
 		return
 	game._save_game()
-	if not _check(game._load_game(), "a save made while specialist diets are inactive should load"):
+	if not _check(game._load_game(), "a save made after diet enhancement reset should load"):
 		return
 	var loaded_lytic: Dictionary = {}
 	var loaded_piercer: Dictionary = {}
@@ -149,12 +157,8 @@ func _run() -> void:
 			loaded_lytic = unit
 		elif int(unit["id"]) == resident_piercer_id:
 			loaded_piercer = unit
-	if not _check(not loaded_lytic.is_empty() and bool(loaded_lytic["purge_enabled"]) and not loaded_piercer.is_empty() and bool(loaded_piercer["defense_enabled"]), "paused specialist zones should survive a save round-trip"):
-		return
-	game.diet_levels["bacteria"] = 1
-	game.diet_levels["fungi"] = 1
 	game._update_expedition_units(2.1, false)
-	if not _check(bool(loaded_lytic["purge_enabled"]) and ["bacteria", "purge_patrol"].has(String(loaded_lytic["target_kind"])) and bool(loaded_piercer["defense_enabled"]) and ["enemy_guard", "enemy_fungus", "defense_patrol"].has(String(loaded_piercer["target_kind"])), "restored diets should resume existing barracks cohorts without new replacements"):
+	if not _check(not loaded_lytic.is_empty() and bool(loaded_lytic["purge_enabled"]) and not loaded_piercer.is_empty() and bool(loaded_piercer["defense_enabled"]) and int(game.diet_levels["bacteria"]) == 1 and int(game.diet_levels["fungi"]) == 1 and game.diet_order == ["bacteria", "fungi"], "retained diet licenses and specialist cohorts must survive a save round-trip"):
 		return
 
 	game.cores[first_barracks]["auto_replenish"] = true
@@ -236,7 +240,7 @@ func _run() -> void:
 	if not _check(not bool(game.cores[first_barracks]["directive_enabled"]) and cleared > 0 and game.barracks_directive_ever_set and game._goal_complete("barracks_directive"), "explicit template clearing should release matching units without regressing the teaching goal"):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("BARRACKS_DIRECTIVE_OK square=drag isolated=home automatic=inherits manual=free diet=pause-resume save=compatible offline=inherits")
+	print("BARRACKS_DIRECTIVE_OK square=drag isolated=home automatic=inherits manual=free diet=license-retained save=compatible offline=inherits")
 	game.queue_free()
 	quit(0)
 

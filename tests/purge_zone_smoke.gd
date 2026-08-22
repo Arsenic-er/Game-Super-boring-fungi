@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -28,6 +30,39 @@ func _run() -> void:
 		game._spawn_expedition_spore(barracks_id, unit_type)
 	if not _check(game.expedition_units.size() == roles.size(), "all role samples should spawn"):
 		return
+
+	# At strategic zoom, the minimum legal 80-world-unit square is only 1.44
+	# screen pixels wide. The input threshold must scale down as well, otherwise
+	# every legal purge-zone drag is rejected before assignment.
+	var low_zoom_forager: Dictionary = game.expedition_units[0]
+	game.selected_expedition_ids = [int(low_zoom_forager["id"])]
+	game.camera_zoom = 0.018
+	game._begin_purge_zone_mode()
+	var low_zoom_start: Vector2 = game.world_to_screen(Vector2(-50.0, -50.0))
+	var low_zoom_end: Vector2 = game.world_to_screen(Vector2(50.0, 50.0))
+	if not _check(low_zoom_start.distance_to(low_zoom_end) < 8.0, "regression drag must stay below the former fixed threshold"):
+		return
+	var low_zoom_press := InputEventMouseButton.new()
+	low_zoom_press.button_index = MOUSE_BUTTON_RIGHT
+	low_zoom_press.pressed = true
+	low_zoom_press.position = low_zoom_start
+	game._unhandled_input(low_zoom_press)
+	var low_zoom_motion := InputEventMouseMotion.new()
+	low_zoom_motion.position = low_zoom_end
+	low_zoom_motion.relative = low_zoom_end - low_zoom_start
+	game._unhandled_input(low_zoom_motion)
+	var low_zoom_release := InputEventMouseButton.new()
+	low_zoom_release.button_index = MOUSE_BUTTON_RIGHT
+	low_zoom_release.pressed = false
+	low_zoom_release.position = low_zoom_end
+	game._unhandled_input(low_zoom_release)
+	var low_zoom_zone: Rect2 = game._purge_rect(low_zoom_forager)
+	var low_zoom_zone_valid := bool(low_zoom_forager["purge_enabled"]) and absf(low_zoom_zone.size.x - low_zoom_zone.size.y) < 0.01 and absf(low_zoom_zone.size.x - 100.0) < 0.1
+	if not _check(game.mode == "normal" and low_zoom_zone_valid, "minimum zoom right-drag should assign a legal purge zone (mode=%s enabled=%s size=%s)" % [game.mode, low_zoom_forager["purge_enabled"], low_zoom_zone.size]):
+		return
+	game._clear_unit_purge(low_zoom_forager)
+	game.camera_zoom = 0.65
+
 	game.bacteria.clear()
 	for pos in [Vector2(-72.0, -48.0), Vector2(-18.0, -54.0), Vector2(52.0, 44.0), Vector2(58.0, 50.0), Vector2(64.0, 44.0), Vector2(52.0, 56.0), Vector2(64.0, 56.0), Vector2(220.0, 220.0)]:
 		game.bacteria.append(game._make_bacterium(pos))

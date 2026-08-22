@@ -2,6 +2,15 @@ extends RefCounted
 
 
 const LOCALES: Array[String] = ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]
+const PURGE_DIET_HINTS := {
+	"zh_CN": "请先开启细菌食性，再选择游猎、裂菌或溶菌单位",
+	"zh_TW": "請先開啟細菌食性，再選擇遊獵、裂菌或溶菌單位",
+	"en": "Activate the bacterial diet, then select forager, lytic, or disperser units",
+	"ja": "先に細菌食性を有効にし、採集・溶菌・散布ユニットを選択してください",
+	"es": "Activa primero la dieta bacteriana y selecciona recolectoras, líticas o dispersoras",
+	"de": "Zuerst die Bakterienernährung aktivieren und Sammler-, Lyse- oder Streueinheiten wählen",
+	"ru": "Сначала активируйте бактериальный тип питания и выберите сборщиков, литиков или рассеивателей"
+}
 const REASON_IDS: Array[String] = [
 	"enemy_guard", "rival_core_counter", "rival_hypha_counter", "rival_infection",
 	"ecology_toxin", "bacteria_toxin", "lytic_burst_counter", "low_biomass",
@@ -182,6 +191,11 @@ const VALUES := {
 		"Сначала выберите мобильные споры, готовые к вылазке", "Среди выбранных нет единиц, способных обороняться от грибов", "Удерживайте ПКМ и растяните квадратную зону обороны; Esc — отмена", "Постоянная зона обороны назначена %d единицам", "Зона обороны вне радиуса колонии или единицы пока не могут действовать"
 	]
 }
+
+
+static func purge_diet_hint(locale_id: String) -> String:
+	var locale := normalize_locale(locale_id)
+	return String(PURGE_DIET_HINTS.get(locale, PURGE_DIET_HINTS["en"]))
 
 
 static func normalize_locale(locale_id: String) -> String:

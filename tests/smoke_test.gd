@@ -20,6 +20,9 @@ func _run() -> void:
 	if not _check(game.main_menu_active and not game.game_started and game.cores.is_empty(), "Splash should lead to a paused main menu without loading or creating a culture"):
 		return
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
+	game.selected_core = -1
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -74,7 +77,7 @@ func _run() -> void:
 		return
 	if not _check(is_equal_approx(game._feeder_range_for_core(0), range_before + 24.0), "Range upgrade should add 12 micrometers"):
 		return
-	if not _check(is_equal_approx(dna_duration_before, 180.0) and is_equal_approx(game._dna_job_duration(0), 180.0 / 1.15), "Base DNA time should be 180 seconds and node upgrade should add 15 percent speed"):
+	if not _check(is_equal_approx(dna_duration_before, 300.0) and is_equal_approx(game._dna_job_duration(0), 300.0 / 1.10), "Base DNA time should be 300 seconds and node upgrade should add 10 percent speed"):
 		return
 	game.upgrade_open = false
 	game._handle_left_click(game._upgrade_hud_rect().get_center())
@@ -100,7 +103,7 @@ func _run() -> void:
 		return
 	var before_first_goal: float = game.organic
 	game._claim_goal("first_hypha")
-	if not _check(is_equal_approx(game.organic, before_first_goal + 25.0) and bool(game.goals_claimed.get("first_hypha", false)), "First hypha goal should reward organic nutrition"):
+	if not _check(is_equal_approx(game.organic, before_first_goal + 8.0) and bool(game.goals_claimed.get("first_hypha", false)), "First hypha goal should reward organic nutrition without bypassing early pacing"):
 		return
 
 	game._update_growth(24.0)
@@ -158,20 +161,23 @@ func _run() -> void:
 	if not _check(is_equal_approx(game.mineral, mineral_before_goal + 5.0), "Mineral goal should grant a mineral reward"):
 		return
 
-	game.dna = 4000
+	game.dna = 100
 	game._purchase_diet("animal")
-	if not _check(game.dna == 3997 and int(game.diet_levels["animal"]) == 1 and is_equal_approx(game._diet_efficiency("animal"), 0.20), "First diet should cost 3 DNA and start at 20 percent efficiency"):
-		return
 	game._purchase_diet("plant")
+	if not _check(game.dna == 100 and int(game.diet_levels["animal"]) == 0 and int(game.diet_levels["plant"]) == 0, "Animal and plant diets should remain disabled until their matching chapters"):
+		return
 	game._purchase_diet("bacteria")
+	if not _check(game.dna == 97 and int(game.diet_levels["bacteria"]) == 1 and is_equal_approx(game._diet_efficiency("bacteria"), 0.20), "The first active diet should cost 3 DNA and start at 20 percent efficiency"):
+		return
 	game._purchase_diet("fungi")
-	if not _check(game.dna == 667 and game.diet_order.size() == 4, "Additional diet unlock costs should increase tenfold: 30, 300, 3000"):
+	if not _check(game.dna == 67 and game.diet_order == ["bacteria", "fungi"], "The second active diet should preserve the tenfold 30-DNA unlock cost"):
 		return
-	game._purchase_diet("animal")
-	if not _check(game.dna == 665 and int(game.diet_levels["animal"]) == 2 and is_equal_approx(game._diet_efficiency("animal"), 0.40), "Diet efficiency should upgrade independently after unlock"):
+	game._purchase_diet("bacteria")
+	if not _check(game.dna == 65 and int(game.diet_levels["bacteria"]) == 2 and is_equal_approx(game._diet_efficiency("bacteria"), 0.40), "Diet efficiency should upgrade independently after unlock"):
 		return
+	var organic_before_diet_goal: float = game.organic
 	game._claim_goal("primary_diet")
-	if not _check(game.dna == 668, "Primary diet goal should grant a DNA reward"):
+	if not _check(game.dna == 66 and is_equal_approx(game.organic, organic_before_diet_goal + 15.0), "Primary diet goal should grant a small mixed reward"):
 		return
 	game.upgrade_open = true
 	game.upgrade_tab = 1
@@ -214,15 +220,15 @@ func _run() -> void:
 	game.bacteria.append(prey)
 	var before_predation: float = game.organic
 	game._update_bacteria(10.0)
-	if not _check(is_equal_approx(float(game.bacteria[0]["biomass"]), 0.9) and is_equal_approx(game.organic, before_predation + 0.1), "Unlocked bacteria diet should digest stationary bacteria on hypha contact at its current efficiency"):
+	if not _check(is_equal_approx(float(game.bacteria[0]["biomass"]), 0.8) and is_equal_approx(game.organic, before_predation + 0.1), "Predation should recover only half of consumed bacterial biomass"):
 		return
 
 	game._purchase_bacteria_component("trap")
 	game._purchase_bacteria_component("enzymes")
 	game._purchase_bacteria_component("antibiotic")
-	if not _check(game.dna == 656 and int(game.bacteria_components["trap"]) == 1 and int(game.bacteria_components["enzymes"]) == 1 and int(game.bacteria_components["antibiotic"]) == 1, "First bacteria components should cost 3, 4, and 5 DNA independently"):
+	if not _check(game.dna == 54 and int(game.bacteria_components["trap"]) == 1 and int(game.bacteria_components["enzymes"]) == 1 and int(game.bacteria_components["antibiotic"]) == 1, "First bacteria components should cost 3, 4, and 5 DNA independently"):
 		return
-	if not _check(is_equal_approx(game._bacteria_capture_radius(), 30.0) and is_equal_approx(game._bacteria_digestion_multiplier(), 1.35) and is_equal_approx(game._antibiotic_bacteria_multiplier(), 0.75), "Bacteria components should change capture, digestion, and suppression effects"):
+	if not _check(is_equal_approx(game._bacteria_capture_radius(), 30.0) and is_equal_approx(game._bacteria_digestion_multiplier(), 1.35) and is_equal_approx(game._antibiotic_bacteria_multiplier(), 0.80), "Bacteria components should change capture, digestion, and suppression effects"):
 		return
 	game.resources.clear()
 	game.bacteria.clear()
@@ -237,14 +243,14 @@ func _run() -> void:
 	})
 	game._rebuild_resource_grid()
 	game._update_bacteria(20.0)
-	if not _check(bool(game.bacteria[0]["suppressed"]) and is_equal_approx(float(game.bacteria[0]["stored"]), 0.075), "Level-one antibiotics should reduce nearby bacterial absorption to 75 percent"):
+	if not _check(bool(game.bacteria[0]["suppressed"]) and is_equal_approx(float(game.bacteria[0]["stored"]), 0.080), "Level-one antibiotics should reduce nearby bacterial absorption to 80 percent"):
 		return
 
 	game._purchase_structure("branching")
 	game._purchase_structure("elongation")
 	game._purchase_structure("feeders")
 	game._purchase_structure("growth")
-	if not _check(game.dna == 648, "First level of each structure component should cost 2 DNA"):
+	if not _check(game.dna == 46, "First level of each structure component should cost 2 DNA"):
 		return
 	if not _check(is_equal_approx(game._hypha_capacity_for_core(0), 2250.0), "Branching should add 25 percent hypha capacity per level"):
 		return
@@ -265,7 +271,7 @@ func _run() -> void:
 		return
 	var before_specialist_mineral: float = game.mineral
 	game._claim_goal("bacteria_specialist")
-	if not _check(game.dna == 652 and is_equal_approx(game.mineral, before_specialist_mineral + 2.0), "Bacteria specialist goal should grant a mixed DNA and mineral reward"):
+	if not _check(game.dna == 50 and is_equal_approx(game.mineral, before_specialist_mineral + 2.0), "Bacteria specialist goal should grant a mixed DNA and mineral reward"):
 		return
 	game.goals_open = true
 	game.goal_page = 0
@@ -294,7 +300,7 @@ func _run() -> void:
 		return
 	var queued_duration: float = game._dna_job_duration(0)
 	game._update_dna_jobs(queued_duration - 1.0)
-	if not _check(game.dna == 0, "DNA must not finish before the slowed 180-second-derived duration"):
+	if not _check(game.dna == 0, "DNA must not finish before the slowed 300-second-derived duration"):
 		return
 	game._update_dna_jobs(1.1)
 	if not _check(game.dna == 1, "Completed core work should grant one DNA"):

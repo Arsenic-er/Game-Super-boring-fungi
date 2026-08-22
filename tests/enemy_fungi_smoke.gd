@@ -14,6 +14,8 @@ func _run() -> void:
 	await process_frame
 	game.splash_active = false
 	game._start_new_culture()
+	if game._founder_spore_active():
+		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
 	game.autosave_enabled = false
@@ -66,7 +68,7 @@ func _run() -> void:
 	game.cores[0]["biomass"] = game.CORE_MAX_BIOMASS
 	var offline_enemy_reserve := float(enemy["organic_reserve"])
 	game._apply_offline_progress(60.0, 60.0)
-	if not _check(is_equal_approx(float(game.cores[0]["biomass"]), game.CORE_MAX_BIOMASS) and is_equal_approx(float(enemy["organic_reserve"]), offline_enemy_reserve), "offline progress should freeze rival fungus growth and attacks"):
+	if not _check(float(game.cores[0]["biomass"]) < game.CORE_MAX_BIOMASS and float(enemy["organic_reserve"]) < offline_enemy_reserve and bool(game.cores[0]["alive"]), "offline progress should resolve existing rival pressure without deleting the playable state"):
 		return
 	game.offline_report_open = false
 
