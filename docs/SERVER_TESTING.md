@@ -122,3 +122,27 @@ IndexedDB 中；要继续使用同一份预览存档，请保持本地端口为 
 
 Web 版本只用于日常开发测试。最终发布前仍须导出 Windows EXE，并通过
 Windows 端冒烟测试后才能作为发布版本。
+
+## Secure-context note / 安全上下文说明
+
+Godot 4.7 Web exports do not run from a plain `http://<server-ip>:8060/`
+origin. The engine rejects that origin because it is not a secure context.
+Use the loopback SSH tunnel shown above and open exactly
+`http://127.0.0.1:8060/`. A direct-IP HTTP 200 response only proves that the
+files are reachable; it does not prove that the game can start.
+
+Godot 4.7 的 Web 导出不能从普通的 `http://<server-ip>:8060/` 来源运行；
+即使该地址返回 HTTP 200，引擎仍会因为它不是安全上下文而拒绝启动。请使用
+上面的 SSH 本地转发，并准确打开 `http://127.0.0.1:8060/`。直接 IP 能访问
+只能证明文件可达，不能证明游戏已经成功运行。
+
+## Current isolated development checkout / 当前隔离开发检出
+
+The archived main checkout remains at `/home/ubuntu/fungi/game`. Ongoing work
+uses `/home/ubuntu/fungi/worktrees/codex-fungi-next` on branch
+`codex/fungi-next`. Run verification and exports from the worktree while the
+new iteration is under development.
+
+归档主检出仍位于 `/home/ubuntu/fungi/game`。当前开发使用
+`/home/ubuntu/fungi/worktrees/codex-fungi-next`，分支为 `codex/fungi-next`。
+新版本尚在迭代时，验证和导出均应从该工作树执行。

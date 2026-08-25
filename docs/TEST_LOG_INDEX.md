@@ -26,6 +26,7 @@ The full transient logs were stored outside the repository under `/home/ubuntu/f
 | 2026-08-11 09:44 | PASS | 59/59 | PASS | PASS | Extension cancellation coverage |
 | 2026-08-11 10:23 | PASS | 60/60 | PASS | PASS | Core/unit LOD integration |
 | 2026-08-11 10:56 | PASS | 60/60 | PASS | PASS | Minimum-zoom hunt-zone fix; 104 s |
+| 2026-08-25 11:10 | PASS | 60/60 | PASS | PASS | Restored-server clean baseline on `codex/fungi-next`; 108 s |
 
 ## Authoritative pre-archive verification / 归档前权威验证
 
@@ -41,3 +42,21 @@ The full transient logs were stored outside the repository under `/home/ubuntu/f
 This verification ran against the complete archive working tree immediately before staging and commit.
 
 本次验证在暂存和提交前针对完整归档工作树执行。
+
+## Restored-server authoritative baseline / 恢复服务器权威基线
+
+- UTC run: `2026-08-25T111050Z-156189`
+- Result: `PASS`
+- Source commit: `6c8886dd346c`
+- Dirty entries: `0`
+- Resource import: `PASS`
+- Smoke tests: `60/60 passed`
+- Main scene startup: `PASS`
+- Godot: `4.7.stable.official.5b4e0cb0f`
+- Elapsed time: `108 seconds`
+- Summary: `/home/ubuntu/fungi/test-logs/20260825T111050Z-156189/summary.txt`
+
+This is the first authoritative run from the restored server and the isolated
+`codex/fungi-next` worktree.
+
+这是恢复服务器后、从隔离 `codex/fungi-next` 工作树执行的第一份权威基线。

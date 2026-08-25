@@ -96,3 +96,17 @@ The following remain local build/runtime products and are intentionally not comm
 
 - Public game repository: source, automated tests, build instructions and only the runtime assets required by the game.
 - Private development-assets repository: source artwork, candidate boards, production-asset mirrors, fonts and their licenses, prompts, audio and design history.
+
+## 2026-08-25 — New-server recovery baseline / 新服务器恢复基线
+
+- Verified the restored game and development-assets repositories against their Git remotes before resuming development.
+- Created the isolated `codex/fungi-next` worktree at `/home/ubuntu/fungi/worktrees/codex-fungi-next`; the archived `main` checkout remains untouched.
+- Re-ran resource import, all 60 smoke tests and the real main-scene startup on Godot `4.7.stable.official.5b4e0cb0f`; all gates passed from a clean source tree.
+- Re-exported fresh Windows and Web builds, then created repository bundles, a manifest and SHA-256 checksums under `/home/ubuntu/fungi/releases/recovery-20260825T1115JST-6c8886d/`.
+- Browser-tested save loading, visible frame-sliced offline settlement, right-click extension cancellation, developer upgrade controls, bacterial-diet hunt-zone entry, equal main-core/barracks scale and far-zoom pixel LOD.
+
+- 在恢复开发前，先把新服务器上的游戏仓库和素材仓库逐一与 Git 远端核对。
+- 在 `/home/ubuntu/fungi/worktrees/codex-fungi-next` 建立隔离的 `codex/fungi-next` 工作树；归档后的 `main` 检出保持不变。
+- 使用 Godot `4.7.stable.official.5b4e0cb0f` 从干净源码重新执行资源导入、全部 60 项冒烟测试和真实主场景启动，全部通过。
+- 重新导出 Windows 与 Web 构建，并在 `/home/ubuntu/fungi/releases/recovery-20260825T1115JST-6c8886d/` 保存仓库 bundle、构建清单和 SHA-256 校验值。
+- 通过实际浏览器复核读取存档、分帧离线结算进度、右键取消延伸、开发者升级控制、细菌食性猎区入口、主基地与兵营等比例，以及远景粗像素 LOD。
