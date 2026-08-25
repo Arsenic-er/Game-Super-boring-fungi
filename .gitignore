@@ -4,11 +4,11 @@
 *.import
 
 # Server-only browser preview output and runtime state
-build/web/
 .web-preview/
 
 # Local exports and release archives are published through GitHub Releases
-build/
+build/*
+!build/.gdignore
 release/
 *.zip
 *.pck
