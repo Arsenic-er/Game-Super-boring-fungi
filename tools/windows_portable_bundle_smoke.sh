@@ -10,29 +10,28 @@ archive_path="$temp_dir/FungiMicroculture-Windows-x64.zip"
 GODOT_BIN="${GODOT_BIN:-/home/ubuntu/fungi/tools/godot/4.7/godot}" \
 	"$repo_root/tools/package_windows_portable.sh" "$archive_path"
 
-python3 - "$archive_path" <<'PY'
-import sys
-import zipfile
+python3 "$repo_root/tools/verify_windows_portable_zip.py" "$archive_path"
+printf 'WINDOWS_PORTABLE_BUNDLE_OK: verified packaged ZIP payload\n'
 
-archive_path = sys.argv[1]
-expected = {
-    "FungiMicroculture.exe",
-    "FungiMicroculture.pck",
-    "README-FIRST.txt",
-}
+preserved_archive="$temp_dir/preserved-existing.zip"
+printf 'previous-good-archive\n' >"$preserved_archive"
 
-with zipfile.ZipFile(archive_path) as archive:
-    names = set(archive.namelist())
-    if names != expected:
-        raise SystemExit(
-            "WINDOWS_PORTABLE_BUNDLE_FAIL: expected root entries "
-            f"{sorted(expected)}, got {sorted(names)}"
-        )
-    empty = sorted(info.filename for info in archive.infolist() if info.file_size <= 0)
-    if empty:
-        raise SystemExit(
-            "WINDOWS_PORTABLE_BUNDLE_FAIL: empty archive entries: " + ", ".join(empty)
-        )
+set +e
+GODOT_BIN="${GODOT_BIN:-/home/ubuntu/fungi/tools/godot/4.7/godot}" \
+	PYTHON_BIN=/bin/false \
+	"$repo_root/tools/package_windows_portable.sh" "$preserved_archive" \
+	>"$temp_dir/expected-package-failure.log" 2>&1
+failure_status=$?
+set -e
 
-print("WINDOWS_PORTABLE_BUNDLE_OK: " + ", ".join(sorted(expected)))
-PY
+if [[ $failure_status -eq 0 ]]; then
+	printf 'WINDOWS_PORTABLE_BUNDLE_FAIL: injected packaging failure unexpectedly succeeded\n' >&2
+	exit 1
+fi
+
+if [[ "$(cat "$preserved_archive")" != "previous-good-archive" ]]; then
+	printf 'WINDOWS_PORTABLE_BUNDLE_FAIL: failed packaging replaced the previous archive\n' >&2
+	exit 1
+fi
+
+printf 'WINDOWS_PORTABLE_ATOMIC_OK: previous archive survived an injected failure\n'

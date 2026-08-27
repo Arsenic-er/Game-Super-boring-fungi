@@ -114,13 +114,15 @@ The following remain local build/runtime products and are intentionally not comm
 ## 2026-08-28 — Portable split Windows package / Windows 便携拆包
 
 - Changed the Windows export from one embedded executable to `FungiMicroculture.exe` plus an external `FungiMicroculture.pck` resource pack. The two files remain portable and must stay in the same extracted folder.
-- Added `tools/package_windows_portable.sh` so future Windows ZIPs are built from one reproducible command.
+- Added `tools/package_windows_portable.sh` so future Windows ZIPs are built through one repeatable command and replace older archives atomically only after validation.
 - Added real Godot export and ZIP-content smoke gates. They reject an embedded-only export, a missing PCK, empty files, nested paths or unexpected archive entries.
+- Added a Windows PowerShell runtime gate that extracts the finished ZIP, launches the EXE against its adjacent PCK in headless mode, and requires a clean bounded exit. Its gate logic is self-tested with a temporary fixture; the actual game build remains a separate final Windows-machine gate.
 - Updated the package instructions and all seven repository-language introductions to describe the split layout.
 - Verified resource import, all 60 game smoke tests and the real main-scene startup after the packaging change.
 
 - Windows 导出由资源内嵌的单一 EXE 改为 `FungiMicroculture.exe` 加独立资源包 `FungiMicroculture.pck`；两者仍可便携运行，但解压后必须保留在同一文件夹。
-- 新增 `tools/package_windows_portable.sh`，今后的 Windows ZIP 可通过一个可复现命令生成。
+- 新增 `tools/package_windows_portable.sh`，今后的 Windows ZIP 可通过一条可重复执行的命令生成；新包校验通过后才会原子替换旧包。
 - 新增真实 Godot 导出与 ZIP 内容门禁；若仍为单文件、缺少 PCK、存在空文件、嵌套路径或意外文件，测试会直接失败。
+- 新增 Windows PowerShell 运行门禁：解压最终 ZIP，以无界面模式启动使用同目录 PCK 的 EXE，并要求在限定时间内正常退出。门禁逻辑已用临时测试程序自测，真实游戏构建仍须在最终 Windows 机器上单独执行。
 - 同步更新包内说明和七种仓库语言介绍。
 - 修改后重新通过资源导入、全部 60 项游戏冒烟测试及真实主场景启动。

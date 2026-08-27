@@ -143,10 +143,32 @@ publishing:
 ./tools/windows_portable_bundle_smoke.sh
 ```
 
+The Linux server cannot execute the Windows build. On a Windows machine, first
+self-test the runtime gate, then run it against the finished candidate ZIP:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\windows_portable_runtime_gate_selftest.ps1
+powershell -ExecutionPolicy Bypass -File tools\windows_portable_runtime_smoke.ps1 `
+  -ArchivePath C:\absolute\path\FungiMicroculture-Windows-x64.zip
+```
+
+The runtime gate extracts into a fresh temporary directory, verifies the exact
+three-file layout, reads every ZIP payload, launches the extracted EXE with
+`--headless --quit-after 30`, requires a clean bounded exit, and then removes
+the temporary files. Passing the fixture self-test proves the gate logic, not
+the actual game candidate; the second command is the final Windows release
+evidence.
+
 发行包将引擎程序与游戏数据分开保存。使用上面的命令指定输出 ZIP；其根目录
 只包含 `FungiMicroculture.exe`、`FungiMicroculture.pck` 与
 `README-FIRST.txt`。发布前必须执行两项产物门禁。玩家解压后应让 EXE 与
 PCK 始终位于同一文件夹。
+
+Linux 服务器不能执行 Windows 构建。请在 Windows 机器上先运行门禁自测，
+再对最终候选 ZIP 运行实际启动门禁。它会在新的临时目录解压、核对准确的
+三文件结构、读取全部 ZIP 内容、使用 `--headless --quit-after 30` 启动 EXE，
+要求其限时正常退出，最后清理临时文件。临时测试程序通过只证明门禁逻辑；
+第二条命令的真实游戏结果才是最终 Windows 发行证据。
 
 ## Secure-context note / 安全上下文说明
 

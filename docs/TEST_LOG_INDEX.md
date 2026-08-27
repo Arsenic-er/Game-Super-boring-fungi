@@ -64,12 +64,14 @@ This is the first authoritative run from the restored server and the isolated
 
 ## Windows portable-package gates / Windows 便携包门禁
 
-The Windows release workflow now has two real-artifact checks in addition to the game suite:
+The Windows release workflow now has two Linux artifact checks plus a Windows runtime gate in addition to the game suite:
 
 - `tools/windows_split_export_smoke.sh` runs the Godot Windows exporter and requires non-empty `FungiMicroculture.exe` and `FungiMicroculture.pck` outputs.
 - `tools/windows_portable_bundle_smoke.sh` runs the release packager and requires exactly `FungiMicroculture.exe`, `FungiMicroculture.pck` and `README-FIRST.txt` at the ZIP root.
+- `tools/windows_portable_runtime_smoke.ps1` extracts the finished ZIP and launches its EXE with the adjacent PCK. Its fixture-based gate self-test passed on Windows on 2026-08-28; the actual candidate result must be recorded separately when a Windows build is tested.
 
-除游戏测试套件外，Windows 发行流程现在还包含两项真实产物检查：
+除游戏测试套件外，Windows 发行流程现在还包含两项 Linux 产物检查和一项 Windows 运行门禁：
 
 - `tools/windows_split_export_smoke.sh` 实际调用 Godot Windows 导出器，并要求生成非空的 EXE 与 PCK。
 - `tools/windows_portable_bundle_smoke.sh` 实际调用发行打包脚本，并要求 ZIP 根目录准确包含 EXE、PCK 与 `README-FIRST.txt`。
+- `tools/windows_portable_runtime_smoke.ps1` 会解压最终 ZIP，并启动使用同目录 PCK 的 EXE。门禁自身已于 2026-08-28 在 Windows 上使用临时测试程序通过；实际候选包的结果须在 Windows 测试后另行记录。

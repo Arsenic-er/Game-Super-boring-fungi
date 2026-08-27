@@ -34,6 +34,6 @@ if [[ ! -s "$export_pck" ]]; then
 	exit 1
 fi
 
-exe_size="$(stat -c '%s' "$export_exe")"
-pck_size="$(stat -c '%s' "$export_pck")"
+exe_size="$(wc -c <"$export_exe")"
+pck_size="$(wc -c <"$export_pck")"
 printf 'WINDOWS_SPLIT_EXPORT_OK: exe=%s bytes pck=%s bytes\n' "$exe_size" "$pck_size"
