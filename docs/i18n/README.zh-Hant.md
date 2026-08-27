@@ -23,7 +23,7 @@ v0.49 移除兵營的兵種切換按鈕；點擊「生產」會開啟方形兵�
 前往倉庫的[最新 Release](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest)，下載 Windows ZIP，解壓縮後雙擊 `FungiMicroculture.exe`。
 
 - 平台：Windows 10/11，64 位元
-- 安裝：無需安裝，遊戲資料已內嵌於 EXE
+- 安裝：無需安裝；請讓 `FungiMicroculture.exe` 與 `FungiMicroculture.pck` 一直位於解壓縮後的同一資料夾
 - 存檔：保存在目前 Windows 使用者的應用程式資料目錄
 - 因測試版本尚未進行程式碼簽章，Windows 可能顯示 SmartScreen 警告
 
@@ -62,7 +62,7 @@ v0.49 移除兵營的兵種切換按鈕；點擊「生產」會開啟方形兵�
 
 ## 開發
 
-本專案使用 Godot `4.7` 與 GDScript。使用 Godot 開啟 `project.godot` 即可執行原始碼；自動化冒煙測試位於 `tests/`，Windows 匯出設定會將遊戲資料內嵌為單一 EXE。
+本專案使用 Godot `4.7` 與 GDScript。使用 Godot 開啟 `project.godot` 即可執行原始碼；自動化冒煙測試位於 `tests/`。Windows 預設會匯出可攜式 EXE 與獨立 PCK，`tools/package_windows_portable.sh` 負責建立並驗證發行 ZIP。
 
 ## 權利聲明
 

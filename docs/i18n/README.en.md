@@ -23,7 +23,7 @@ Version 0.49 removes the barracks unit-cycle button and opens a square unit menu
 Open the repository's [latest Release](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest), download the Windows ZIP, extract it, and double-click `FungiMicroculture.exe`.
 
 - Platform: Windows 10/11, 64-bit
-- Installation: none; game data is embedded in the executable
+- Installation: none; keep `FungiMicroculture.exe` and `FungiMicroculture.pck` together in the extracted folder
 - Save data: stored separately in the current Windows user's application-data directory
 - Windows may show a SmartScreen warning because this hobby build is not code-signed
 
@@ -62,7 +62,7 @@ The microculture is only the beginning. Future independent chapters are intended
 
 ## Development
 
-The project uses Godot `4.7` with GDScript. Open `project.godot` in Godot to run the source project. Automated smoke tests live in `tests/`; the Windows export preset embeds the game data into one executable.
+The project uses Godot `4.7` with GDScript. Open `project.godot` in Godot to run the source project. Automated smoke tests live in `tests/`. The Windows preset exports a portable EXE plus an external PCK; `tools/package_windows_portable.sh` builds and verifies the distributable ZIP.
 
 ## Rights
 

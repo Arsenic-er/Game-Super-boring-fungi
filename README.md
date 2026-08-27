@@ -31,7 +31,7 @@ The main menu, settings, pause/session screens, and repository introduction supp
 Open the repository's [latest Release](../../releases/latest), download the Windows ZIP, extract it, and double-click `FungiMicroculture.exe`.
 
 - Platform: Windows 10/11, 64-bit
-- Installation: none; the game data is embedded in the executable
+- Installation: none; keep `FungiMicroculture.exe` and `FungiMicroculture.pck` together in the extracted folder
 - Save data: stored separately in the current Windows user's application-data directory
 - Windows may show a SmartScreen warning because this hobby build is not code-signed
 
@@ -99,7 +99,7 @@ The current microculture is only the opening scale. Future independent chapters 
 
 ## Development
 
-The project uses Godot `4.7` with GDScript. Open `project.godot` in Godot to run the source project. Automated smoke tests live in `tests/`; the Windows export preset embeds the PCK into one executable.
+The project uses Godot `4.7` with GDScript. Open `project.godot` in Godot to run the source project. Automated smoke tests live in `tests/`. The Windows preset exports a portable EXE plus an external PCK; `tools/package_windows_portable.sh` builds and verifies the distributable ZIP.
 
 Project records: [conversation and decision summary (Chinese)](docs/PROJECT_HISTORY.zh-CN.md), [development log](docs/DEVELOPMENT_LOG.md), [server verification index](docs/TEST_LOG_INDEX.md), and [server testing guide](docs/SERVER_TESTING.md).
 
@@ -142,7 +142,7 @@ The source code, visual assets, game design, text, and other repository contents
 进入仓库的[最新 Release](../../releases/latest)，下载 Windows ZIP，解压后双击 `FungiMicroculture.exe` 即可运行。
 
 - 平台：Windows 10/11 64 位
-- 安装：无需安装，游戏数据已内嵌进 EXE
+- 安装：无需安装；请让 `FungiMicroculture.exe` 与 `FungiMicroculture.pck` 始终位于解压后的同一文件夹
 - 存档：单独保存在当前 Windows 用户的应用数据目录
 - 因个人项目暂未进行代码签名，Windows 可能显示 SmartScreen 提示
 
@@ -209,7 +209,7 @@ The source code, visual assets, game design, text, and other repository contents
 
 ## 开发
 
-项目使用 Godot `4.7` 与 GDScript。使用 Godot 打开 `project.godot` 即可运行源码；自动化冒烟测试位于 `tests/`，Windows 导出设置会将 PCK 内嵌为单一 EXE。
+项目使用 Godot `4.7` 与 GDScript。使用 Godot 打开 `project.godot` 即可运行源码；自动化冒烟测试位于 `tests/`。Windows 预设会导出便携 EXE 与独立 PCK，`tools/package_windows_portable.sh` 负责生成并校验发行 ZIP。
 
 项目记录：[对话与决策纪要](docs/PROJECT_HISTORY.zh-CN.md)、[开发日志](docs/DEVELOPMENT_LOG.md)、[服务器测试记录索引](docs/TEST_LOG_INDEX.md)和[服务器测试说明](docs/SERVER_TESTING.md)。
 

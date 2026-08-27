@@ -23,7 +23,7 @@ v0.49 では兵舎の兵種切替ボタンを廃止し、「生産」を押す�
 リポジトリの[最新 Release](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest)から Windows ZIP をダウンロードし、展開後に `FungiMicroculture.exe` をダブルクリックしてください。
 
 - 対応環境：64ビット版 Windows 10/11
-- インストール：不要。ゲームデータは EXE に内蔵されています
+- インストール：不要。展開後も `FungiMicroculture.exe` と `FungiMicroculture.pck` を同じフォルダーに置いてください
 - セーブデータ：現在の Windows ユーザーのアプリケーションデータ領域に保存されます
 - 趣味で制作している未署名ビルドのため、SmartScreen の警告が表示される場合があります
 
@@ -62,7 +62,7 @@ v0.49 では兵舎の兵種切替ボタンを廃止し、「生産」を押す�
 
 ## 開発
 
-本プロジェクトは Godot `4.7` と GDScript を使用しています。Godot で `project.godot` を開くとソースから実行できます。自動スモークテストは `tests/` にあり、Windows のエクスポート設定ではゲームデータを単一の EXE に内蔵します。
+本プロジェクトは Godot `4.7` と GDScript を使用しています。Godot で `project.godot` を開くとソースから実行できます。自動スモークテストは `tests/` にあります。Windows プリセットは携帯可能な EXE と外部 PCK を出力し、`tools/package_windows_portable.sh` が配布 ZIP を作成して検証します。
 
 ## 権利について
 

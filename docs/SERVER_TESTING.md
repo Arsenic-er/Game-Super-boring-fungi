@@ -91,8 +91,9 @@ Then open `http://127.0.0.1:8060/` in the browser. Browser saves use IndexedDB
 and are isolated by origin. Keep the same local port (`8060`) and browser
 profile if you want the same preview saves to remain available.
 
-The Web build is for everyday testing only. Before a final release, export the
-Windows EXE and run its Windows smoke test as the release gate.
+The Web build is for everyday testing only. Before a final release, build and
+verify the portable Windows package described below, then run its Windows smoke
+test as the release gate.
 
 ## 浏览器预览（简体中文）
 
@@ -120,8 +121,32 @@ ssh -N -L 8060:127.0.0.1:8060 ubuntu@<server-ip>
 IndexedDB 中；要继续使用同一份预览存档，请保持本地端口为 `8060`，并使用
 同一个浏览器配置文件。
 
-Web 版本只用于日常开发测试。最终发布前仍须导出 Windows EXE，并通过
-Windows 端冒烟测试后才能作为发布版本。
+Web 版本只用于日常开发测试。最终发布前仍须生成并校验下述 Windows
+便携拆包，并通过 Windows 端冒烟测试后才能作为发布版本。
+
+## Portable Windows package / Windows 便携拆包
+
+The release bundle keeps the engine executable and game data separate. Build
+it with an explicit destination:
+
+```bash
+cd /home/ubuntu/fungi/worktrees/codex-fungi-next
+./tools/package_windows_portable.sh /absolute/output/FungiMicroculture-Windows-x64.zip
+```
+
+The ZIP root contains exactly `FungiMicroculture.exe`,
+`FungiMicroculture.pck`, and `README-FIRST.txt`. Run both artifact gates before
+publishing:
+
+```bash
+./tools/windows_split_export_smoke.sh
+./tools/windows_portable_bundle_smoke.sh
+```
+
+发行包将引擎程序与游戏数据分开保存。使用上面的命令指定输出 ZIP；其根目录
+只包含 `FungiMicroculture.exe`、`FungiMicroculture.pck` 与
+`README-FIRST.txt`。发布前必须执行两项产物门禁。玩家解压后应让 EXE 与
+PCK 始终位于同一文件夹。
 
 ## Secure-context note / 安全上下文说明
 

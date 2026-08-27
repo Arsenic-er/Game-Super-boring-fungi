@@ -27,6 +27,7 @@ The full transient logs were stored outside the repository under `/home/ubuntu/f
 | 2026-08-11 10:23 | PASS | 60/60 | PASS | PASS | Core/unit LOD integration |
 | 2026-08-11 10:56 | PASS | 60/60 | PASS | PASS | Minimum-zoom hunt-zone fix; 104 s |
 | 2026-08-25 11:10 | PASS | 60/60 | PASS | PASS | Restored-server clean baseline on `codex/fungi-next`; 108 s |
+| 2026-08-27 20:51 | PASS | 60/60 | PASS | PASS | Portable split-package working tree; 107 s |
 
 ## Authoritative pre-archive verification / 归档前权威验证
 
@@ -60,3 +61,15 @@ This is the first authoritative run from the restored server and the isolated
 `codex/fungi-next` worktree.
 
 这是恢复服务器后、从隔离 `codex/fungi-next` 工作树执行的第一份权威基线。
+
+## Windows portable-package gates / Windows 便携包门禁
+
+The Windows release workflow now has two real-artifact checks in addition to the game suite:
+
+- `tools/windows_split_export_smoke.sh` runs the Godot Windows exporter and requires non-empty `FungiMicroculture.exe` and `FungiMicroculture.pck` outputs.
+- `tools/windows_portable_bundle_smoke.sh` runs the release packager and requires exactly `FungiMicroculture.exe`, `FungiMicroculture.pck` and `README-FIRST.txt` at the ZIP root.
+
+除游戏测试套件外，Windows 发行流程现在还包含两项真实产物检查：
+
+- `tools/windows_split_export_smoke.sh` 实际调用 Godot Windows 导出器，并要求生成非空的 EXE 与 PCK。
+- `tools/windows_portable_bundle_smoke.sh` 实际调用发行打包脚本，并要求 ZIP 根目录准确包含 EXE、PCK 与 `README-FIRST.txt`。

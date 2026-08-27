@@ -23,7 +23,7 @@ La v0.49 elimina el botón para alternar la unidad del cuartel y abre un menú c
 Abre la [versión más reciente](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest) del repositorio, descarga el ZIP para Windows, extráelo y ejecuta `FungiMicroculture.exe`.
 
 - Plataforma: Windows 10/11 de 64 bits
-- Instalación: no es necesaria; todos los datos del juego están integrados en el EXE
+- Instalación: no es necesaria; mantén `FungiMicroculture.exe` y `FungiMicroculture.pck` juntos en la carpeta extraída
 - Partidas guardadas: se almacenan en la carpeta de datos de aplicación del usuario actual de Windows
 - Windows puede mostrar una advertencia de SmartScreen porque esta compilación experimental no está firmada digitalmente
 
@@ -62,7 +62,7 @@ El microcultivo es solo el punto de partida. Los futuros capítulos independient
 
 ## Desarrollo
 
-El proyecto utiliza Godot `4.7` y GDScript. Abre `project.godot` con Godot para ejecutar el código fuente. Las pruebas automatizadas se encuentran en `tests/`, y la configuración de exportación para Windows integra los datos del juego en un único EXE.
+El proyecto utiliza Godot `4.7` y GDScript. Abre `project.godot` con Godot para ejecutar el código fuente. Las pruebas automatizadas se encuentran en `tests/`. La configuración de Windows exporta un EXE portátil y un PCK externo; `tools/package_windows_portable.sh` crea y verifica el ZIP distribuible.
 
 ## Derechos
 

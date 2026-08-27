@@ -23,7 +23,7 @@ v0.49 entfernt die Schaltfläche zum Wechseln des Kasernentyps; Produzieren öff
 Öffne das [neueste Release](https://github.com/Arsenic-er/Game-Super-boring-fungi/releases/latest), lade die Windows-ZIP-Datei herunter, entpacke sie und starte `FungiMicroculture.exe`.
 
 - Plattform: Windows 10/11, 64 Bit
-- Installation: nicht erforderlich; alle Spieldaten sind in die EXE eingebettet
+- Installation: nicht erforderlich; `FungiMicroculture.exe` und `FungiMicroculture.pck` müssen im entpackten Ordner zusammenbleiben
 - Spielstände: werden separat im Anwendungsdatenverzeichnis des aktuellen Windows-Benutzers gespeichert
 - Windows kann eine SmartScreen-Warnung anzeigen, da dieser Hobby-Build nicht digital signiert ist
 
@@ -62,7 +62,7 @@ Die Mikrokultur ist nur der Anfang. Künftige eigenständige Kapitel sollen übe
 
 ## Entwicklung
 
-Das Projekt verwendet Godot `4.7` und GDScript. Öffne `project.godot` in Godot, um den Quellstand auszuführen. Automatisierte Smoke-Tests liegen unter `tests/`; beim Windows-Export werden die Spieldaten in eine einzelne EXE eingebettet.
+Das Projekt verwendet Godot `4.7` und GDScript. Öffne `project.godot` in Godot, um den Quellstand auszuführen. Automatisierte Smoke-Tests liegen unter `tests/`. Das Windows-Preset exportiert eine portable EXE und eine externe PCK; `tools/package_windows_portable.sh` erstellt und prüft die verteilbare ZIP-Datei.
 
 ## Rechte
 

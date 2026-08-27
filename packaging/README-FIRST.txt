@@ -4,7 +4,8 @@ by koko
 HOW TO PLAY
 1. Extract the entire ZIP to a normal folder.
 2. Double-click FungiMicroculture.exe.
-3. No installation or additional game files are required.
+3. Keep FungiMicroculture.exe and FungiMicroculture.pck together in the
+   same folder. The PCK contains the game data and is required to start.
 
 Windows SmartScreen may warn about an unknown publisher because this hobby
 build is not code-signed. Save files are stored separately in your Windows
@@ -21,7 +22,8 @@ and evaluation only. No redistribution, reverse engineering, or reuse.
 运行方式
 1. 将整个 ZIP 解压到普通文件夹。
 2. 双击 FungiMicroculture.exe。
-3. 无需安装，也不需要额外游戏文件。
+3. 请勿分开移动或删除 FungiMicroculture.exe 与 FungiMicroculture.pck；
+   PCK 内含游戏数据，是启动游戏所必需的文件。
 
 本项目暂未进行代码签名，因此 Windows SmartScreen 可能提示“未知发布者”。
 存档会单独保存在当前 Windows 用户的应用数据目录。

@@ -110,3 +110,17 @@ The following remain local build/runtime products and are intentionally not comm
 - 使用 Godot `4.7.stable.official.5b4e0cb0f` 从干净源码重新执行资源导入、全部 60 项冒烟测试和真实主场景启动，全部通过。
 - 重新导出 Windows 与 Web 构建，并在 `/home/ubuntu/fungi/releases/recovery-20260825T1115JST-6c8886d/` 保存仓库 bundle、构建清单和 SHA-256 校验值。
 - 通过实际浏览器复核读取存档、分帧离线结算进度、右键取消延伸、开发者升级控制、细菌食性猎区入口、主基地与兵营等比例，以及远景粗像素 LOD。
+
+## 2026-08-28 — Portable split Windows package / Windows 便携拆包
+
+- Changed the Windows export from one embedded executable to `FungiMicroculture.exe` plus an external `FungiMicroculture.pck` resource pack. The two files remain portable and must stay in the same extracted folder.
+- Added `tools/package_windows_portable.sh` so future Windows ZIPs are built from one reproducible command.
+- Added real Godot export and ZIP-content smoke gates. They reject an embedded-only export, a missing PCK, empty files, nested paths or unexpected archive entries.
+- Updated the package instructions and all seven repository-language introductions to describe the split layout.
+- Verified resource import, all 60 game smoke tests and the real main-scene startup after the packaging change.
+
+- Windows 导出由资源内嵌的单一 EXE 改为 `FungiMicroculture.exe` 加独立资源包 `FungiMicroculture.pck`；两者仍可便携运行，但解压后必须保留在同一文件夹。
+- 新增 `tools/package_windows_portable.sh`，今后的 Windows ZIP 可通过一个可复现命令生成。
+- 新增真实 Godot 导出与 ZIP 内容门禁；若仍为单文件、缺少 PCK、存在空文件、嵌套路径或意外文件，测试会直接失败。
+- 同步更新包内说明和七种仓库语言介绍。
+- 修改后重新通过资源导入、全部 60 项游戏冒烟测试及真实主场景启动。
