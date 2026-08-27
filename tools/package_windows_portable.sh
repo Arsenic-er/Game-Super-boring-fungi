@@ -62,6 +62,7 @@ archive_temp="$(mktemp "$output_dir/.${output_name}.tmp.XXXXXX")"
 )
 
 "$python_bin" "$repo_root/tools/verify_windows_portable_zip.py" "$archive_temp"
+chmod 0644 "$archive_temp"
 mv -f "$archive_temp" "$output_path"
 archive_temp=""
 
