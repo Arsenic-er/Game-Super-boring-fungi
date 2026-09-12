@@ -180,3 +180,16 @@ The following remain local build/runtime products and are intentionally not comm
 - 独立审查修复了目标回退会误关自动进攻的问题，并加入“战中失核后重新寻敌”和黑幕边界回归。另保存通关规则来源，旧完成档二次存读后仍显示旧版说明。
 - Final gameplay verification passed resource import, all 68 smoke tests and main-scene startup in 129 seconds: `/home/ubuntu/fungi/test-logs/20260912T183227Z-2736783/summary.txt`. Windows and Web exports exclude developer-only tools, including the optional long-session probe.
 - 最终资源导入、68 项冒烟测试及主场景启动全部通过，用时 129 秒；导出排除仅用于开发的工具和长诊断脚本。完整第一章自然通关、24/72 小时经营曲线与 Windows 图形试玩仍未宣称完成。
+
+## 2026-09-13 — Work feedback and normal supply route / 工作反馈与普通补给路线
+
+- Added seven-language per-resource core uptake states and contextual expedition work hints in hover/selection UI. The text distinguishes growing connections, gathering, cargo awaiting delivery, patrols, manual holds and recovery. A failed local search does not imply global resource depletion.
+- Feedback only reads existing bounded feeder data and unit states. The harvest search flag is transient, populated by the existing search, cleared on zone removal/re-entry and not saved. No new map search runs from the unit HUD, and no automatic orders, resource costs or per-unit toasts were added.
+- Extended the paid normal-map opening through a persistent harvest zone and four additional paid hypha segments. Supply and expansion completed at 1385.5 simulated seconds with three healthy cores; the rival remains alive. This is reachability, not a natural victory, a human timing estimate or a 24/72-hour balance sign-off.
+- The natural second delivery exposed a floating-point total of 5.99999999999996 instead of 6. Goal comparisons and display now share a 1e-8 normalization tolerance, while 5.999 remains insufficient. Test fixtures cover this boundary and the real route reproduces it without injecting cargo.
+
+- 核心状态/悬停分别说明有机与矿物的连接情况；孢子选择框/悬停显示实际工作原因。未设采区仍可自动采集，不误报成故障；没有可用兵营的负伤待援不误报为缺营养。
+- 新增普通地图补给扩张回归：四段菌丝实际花费 46.000 有机，两趟各带回 3.000；23 分 05.5 秒满足补给和扩张，竞争菌落仍存活。保留三条小数收支与完整坐标记录，见 [路线验证](CHAPTER1_SUPPLY_EXPANSION.zh-CN.md)。
+- 由真实交付检出并修复浮点目标卡住，未改价格或降低门槛。新增反馈测试覆盖七语、连接有效性、采区搜索结果失效、无副作用及 1280/640 布局绘制路径；无界面测试不能替代 Windows 画面试玩。
+- Final server verification passed resource import, all 70 smoke tests and headless main-scene startup in 161 seconds: `/home/ubuntu/fungi/test-logs/20260912T190449Z-2752689/summary.txt`. Read-only review found no blocking issues with selection-panel spacing, transient feedback state or the numeric tolerance.
+- 最终服务器回归通过资源导入、70 项冒烟测试和主场景启动，共 161 秒。独立只读审查未发现选择框间距、临时提示字段或浮点容差的阻断问题；Windows 人工图形验收仍待完成。

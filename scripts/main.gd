@@ -3230,6 +3230,7 @@ func _begin_harvest_zone_mode() -> void:
 func _clear_unit_harvest(unit: Dictionary) -> void:
 	var was_enabled := bool(unit.get("harvest_enabled", false))
 	unit["harvest_enabled"] = false
+	unit.erase("harvest_search_empty")
 	if not was_enabled or ["returning", "retreating", "repairing", "wounded"].has(String(unit.get("state", "idle"))):
 		return
 	unit["state"] = "idle"
@@ -3380,6 +3381,8 @@ func _acquire_harvest_target(unit: Dictionary) -> void:
 		unit["target_resource_id"] = -1
 		return
 	var resource := _best_harvest_resource(unit)
+	# Presentation-only result of the existing search; never search the map in draw.
+	unit["harvest_search_empty"] = resource.is_empty()
 	if not resource.is_empty():
 		unit["target_kind"] = "resource"
 		unit["target_pos"] = resource["pos"]
@@ -3406,6 +3409,7 @@ func _enforce_harvest_zone(unit: Dictionary) -> void:
 		_clear_unit_harvest(unit)
 		return
 	if not zone.grow(12.0).has_point(unit["pos"]):
+		unit.erase("harvest_search_empty")
 		_set_next_harvest_patrol(unit)
 		return
 	var target_kind := String(unit.get("target_kind", ""))
@@ -4188,8 +4192,14 @@ func _chapter_tasks() -> Array:
 	return ChapterLocalization.tasks(settings_locale)
 
 
+func _chapter_bounded_progress(value: float, required: float) -> float:
+	# Repeated fractional deliveries can total 5.99999999999996 instead of 6.
+	# Tolerance is far below the displayed 0.001 resource precision, not a discount.
+	return required if value >= required - 0.00000001 else maxf(0.0, value)
+
+
 func _chapter_supply_ready() -> bool:
-	return lifetime_organic_absorbed >= CHAPTER_SUPPLY_ORGANIC_REQUIRED and lifetime_mineral_absorbed >= CHAPTER_SUPPLY_MINERAL_REQUIRED and lifetime_expedition_organic_returned >= CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED
+	return _chapter_bounded_progress(lifetime_organic_absorbed, CHAPTER_SUPPLY_ORGANIC_REQUIRED) >= CHAPTER_SUPPLY_ORGANIC_REQUIRED and _chapter_bounded_progress(lifetime_mineral_absorbed, CHAPTER_SUPPLY_MINERAL_REQUIRED) >= CHAPTER_SUPPLY_MINERAL_REQUIRED and _chapter_bounded_progress(lifetime_expedition_organic_returned, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED) >= CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED
 
 
 func _chapter_living_hypha_length() -> float:
@@ -4204,16 +4214,16 @@ func _chapter_living_hypha_length() -> float:
 
 
 func _chapter_expansion_ready() -> bool:
-	return _living_core_count() >= CHAPTER_LIVING_CORE_REQUIRED and _chapter_living_hypha_length() >= CHAPTER_HYPHA_WORLD_REQUIRED
+	return _living_core_count() >= CHAPTER_LIVING_CORE_REQUIRED and _chapter_bounded_progress(_chapter_living_hypha_length(), CHAPTER_HYPHA_WORLD_REQUIRED) >= CHAPTER_HYPHA_WORLD_REQUIRED
 
 
 func _chapter_task_detail(task: Dictionary) -> String:
 	match String(task.get("id", "")):
 		"secure_supply":
 			# Round progress down: 499.999 must not look like the 500 requirement is met.
-			return _ct("supply_progress_fmt") % [floorf(minf(lifetime_organic_absorbed, CHAPTER_SUPPLY_ORGANIC_REQUIRED)), CHAPTER_SUPPLY_ORGANIC_REQUIRED, floorf(minf(lifetime_mineral_absorbed, CHAPTER_SUPPLY_MINERAL_REQUIRED)), CHAPTER_SUPPLY_MINERAL_REQUIRED, floorf(minf(lifetime_expedition_organic_returned, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED) * 10.0) / 10.0, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED]
+			return _ct("supply_progress_fmt") % [floorf(_chapter_bounded_progress(lifetime_organic_absorbed, CHAPTER_SUPPLY_ORGANIC_REQUIRED)), CHAPTER_SUPPLY_ORGANIC_REQUIRED, floorf(_chapter_bounded_progress(lifetime_mineral_absorbed, CHAPTER_SUPPLY_MINERAL_REQUIRED)), CHAPTER_SUPPLY_MINERAL_REQUIRED, floorf(_chapter_bounded_progress(lifetime_expedition_organic_returned, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED) * 10.0) / 10.0, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED]
 		"expand_network":
-			return _ct("expansion_progress_fmt") % [mini(_living_core_count(), CHAPTER_LIVING_CORE_REQUIRED), CHAPTER_LIVING_CORE_REQUIRED, floorf(minf(_chapter_living_hypha_length(), CHAPTER_HYPHA_WORLD_REQUIRED) / 2.0), CHAPTER_HYPHA_WORLD_REQUIRED / 2.0]
+			return _ct("expansion_progress_fmt") % [mini(_living_core_count(), CHAPTER_LIVING_CORE_REQUIRED), CHAPTER_LIVING_CORE_REQUIRED, floorf(_chapter_bounded_progress(_chapter_living_hypha_length(), CHAPTER_HYPHA_WORLD_REQUIRED) / 2.0), CHAPTER_HYPHA_WORLD_REQUIRED / 2.0]
 	return String(task.get("detail", ""))
 
 
@@ -4801,6 +4811,40 @@ func _update_feeders(sim_delta: float) -> void:
 		_play_sound("organic_absorb", clampf(0.6 + organic_taken * 2.0, 0.6, 1.15))
 	if mineral_taken > 0.0:
 		_play_sound("mineral_absorb", clampf(0.7 + mineral_taken * 3.0, 0.7, 1.2))
+
+
+func _core_uptake_states(core_id: int) -> Array[String]:
+	var states: Array[String] = ["uptake_unlinked", "uptake_unlinked"]
+	if not _is_core_alive(core_id):
+		return states
+	# Only inspect the capped feeder list, not all map deposits or net inventory.
+	for feeder in feeders:
+		if int(feeder.get("core_id", -1)) != core_id:
+			continue
+		var resource := _resource_by_id(int(feeder.get("resource_id", -1)))
+		if resource.is_empty() or not bool(resource.get("alive", false)) or float(resource.get("amount", 0.0)) <= 0.0005:
+			continue
+		var kind := int(resource.get("kind", -1))
+		if kind < 0 or kind > 1:
+			continue
+		if float(feeder.get("growth", 0.0)) >= 1.0:
+			states[kind] = "uptake_active"
+		elif states[kind] != "uptake_active":
+			states[kind] = "uptake_growing"
+	return states
+
+
+func _core_uptake_summary(core_id: int) -> String:
+	var states := _core_uptake_states(core_id)
+	return _gt("uptake_summary_fmt") % [_gt(states[0]), _gt(states[1])]
+
+
+func _core_uptake_hint(states: Array[String]) -> String:
+	if states.has("uptake_unlinked"):
+		return _gt("uptake_expand_hint")
+	if states.has("uptake_growing"):
+		return _gt("uptake_growing_hint")
+	return ""
 
 
 func _current_ecology_event() -> Dictionary:
@@ -9533,7 +9577,7 @@ func _defense_zone_button_rect(viewport: Vector2, index: int) -> Rect2:
 func _selection_status_rect(viewport: Vector2) -> Rect2:
 	var layout_viewport := _layout_viewport_size(viewport)
 	var width := minf(560.0, layout_viewport.x - 280.0) if layout_viewport.x < 800.0 else 560.0
-	return Rect2(22, layout_viewport.y - 134, width, 82)
+	return Rect2(22, layout_viewport.y - 156, width, 104)
 
 
 func _draw_help(viewport: Vector2) -> void:
@@ -9552,9 +9596,14 @@ func _draw_help(viewport: Vector2) -> void:
 		var defending := 0
 		var harvesting := 0
 		var purging := 0
+		var work_hint := _gt("work_selection_hint")
 		for unit in expedition_units:
 			if not selected_expedition_ids.has(int(unit.get("id", -1))):
 				continue
+			if selected_expedition_ids.size() == 1:
+				var unit_hint := _expedition_work_hint(unit)
+				if not unit_hint.is_empty():
+					work_hint = unit_hint
 			var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
 			health_total += clampf(float(unit.get("biomass", maximum)) / maximum, 0.0, 1.0)
 			health_count += 1
@@ -9575,6 +9624,7 @@ func _draw_help(viewport: Vector2) -> void:
 		draw_string(fallback_font, rect.position + Vector2(12, 22), selected_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(selected_text, rect.size.x - 24.0, UI_FONT_SIZE, 8), Color("baffd0"))
 		var stats_text := _rt("selection_stats_fmt") % [average_health, defending, harvesting, purging, retreating, repairing]
 		draw_string(fallback_font, rect.position + Vector2(12, 45), stats_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(stats_text, rect.size.x - 24.0, UI_FONT_SIZE, 8), COLOR_MUTED)
+		draw_string(fallback_font, rect.position + Vector2(12, 67), work_hint, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(work_hint, rect.size.x - 24.0, UI_FONT_SIZE, 8), COLOR_ORGANIC)
 		var button_labels := [_rt("action_defense"), _rt("action_harvest"), _rt("action_purge"), _rt("action_clear")]
 		var button_borders := [Color("7dff9f"), Color("ffb94e"), Color("ff587c"), Color(COLOR_BORDER, 0.82)]
 		for button_index in range(4):
@@ -9603,6 +9653,23 @@ func _expedition_state_name(state: String) -> String:
 	return _gt("state_idle")
 
 
+func _expedition_work_hint(unit: Dictionary) -> String:
+	var state := String(unit.get("state", "idle"))
+	match state:
+		"retreating": return _gt("work_retreating")
+		"repairing": return _gt("work_repairing")
+		"wounded": return _gt("work_wounded")
+		"returning": return _gt("work_returning")
+		"gathering": return _gt("work_gathering")
+	if _unit_is_manual_hold(unit):
+		return _gt("work_hold")
+	if bool(unit.get("harvest_enabled", false)) and String(unit.get("target_kind", "")) == "harvest_patrol":
+		return _gt("work_harvest_empty") if bool(unit.get("harvest_search_empty", false)) else _gt("work_harvest_patrol")
+	if state == "idle" and _unit_can_harvest(unit) and not _unit_has_persistent_order(unit):
+		return _gt("work_idle_gatherer")
+	return ""
+
+
 func _draw_expedition_tooltip() -> bool:
 	var unit_id := _expedition_unit_at_screen(last_mouse)
 	if unit_id < 0:
@@ -9625,6 +9692,9 @@ func _draw_expedition_tooltip() -> bool:
 		_gt("hover_cargo_fmt") % [float(unit.get("cargo_organic", 0.0)), float(unit.get("cargo_mineral", 0.0))],
 		_gt("hover_home_fmt") % (_gt("hover_home_core_fmt") % (home_id + 1) if _expedition_home_is_barracks(unit) else _gt("hover_no_barracks"))
 	]
+	var work_hint := _expedition_work_hint(unit)
+	if not work_hint.is_empty():
+		lines.append(work_hint)
 	if bool(unit.get("defense_enabled", false)):
 		var zone := _defense_rect(unit)
 		lines.append(_gt("hover_defense_zone_fmt") % [zone.size.x / 2.0, zone.size.y / 2.0])
@@ -9729,14 +9799,26 @@ func _draw_core_tooltip() -> bool:
 	var percent := clampf(float(core.get("biomass", maximum)) / maximum * 100.0, 0.0, 100.0)
 	var core_name := _gt("core_type_barracks") if String(core.get("kind", "normal")) == "barracks" else _gt("core_type_spore")
 	var text_value := _gt("hover_core_fmt") % [core_name, core_id + 1, percent]
-	var size := fallback_font.get_string_size(text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE) + Vector2(28.0, 18.0)
+	var states := _core_uptake_states(core_id)
+	var lines := [text_value,
+		_gt("uptake_detail_fmt") % [_gt("resource_organic"), _gt(states[0])],
+		_gt("uptake_detail_fmt") % [_gt("resource_mineral"), _gt(states[1])]]
+	var hint := _core_uptake_hint(states)
+	if not hint.is_empty():
+		lines.append(hint)
 	var viewport := get_viewport_rect().size
+	var max_width := 0.0
+	for line in lines:
+		max_width = maxf(max_width, fallback_font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE).x)
+	var size := Vector2(minf(max_width + 28.0, maxf(160.0, viewport.x - 24.0)), 18.0 + lines.size() * 22.0)
 	var pos := last_mouse + Vector2(18, 14)
 	pos.x = clampf(pos.x, 12.0, viewport.x - size.x - 12.0)
 	pos.y = clampf(pos.y, 70.0, viewport.y - size.y - 12.0)
 	var rect := Rect2(_pixel_snap(pos), size)
 	draw_style_box(_rounded_style(Color(0.025, 0.095, 0.105, 0.98), Color("75e6a8"), 7, 1), rect)
-	draw_string(fallback_font, rect.position + Vector2(14, 22), text_value, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
+	for i in range(lines.size()):
+		var line := String(lines[i])
+		draw_string(fallback_font, rect.position + Vector2(14, 22 + i * 22), line, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(line, size.x - 28.0, UI_FONT_SIZE, 8), COLOR_TEXT if i == 0 else COLOR_MUTED)
 	return true
 
 
@@ -10132,7 +10214,8 @@ func _draw_status_panel(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(16, 57), _gt("stat_biomass_fmt") % biomass_percent, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
 	draw_string(fallback_font, rect.position + Vector2(16, 82), _gt("stat_repair_fmt") % [float(core.get("repair_reserve", 0.0)), _repair_recovery_rate()], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f"))
 	draw_string(fallback_font, rect.position + Vector2(16, 107), _gt("stat_toxin_fmt") % float(core.get("toxin_pressure", 0.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("c794e8"))
-	draw_string(fallback_font, rect.position + Vector2(16, 132), _gt("stat_lifestyle"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var uptake_text := _core_uptake_summary(selected_core)
+	draw_string(fallback_font, rect.position + Vector2(16, 132), uptake_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(uptake_text, rect.size.x - 32.0, UI_FONT_SIZE, 8), COLOR_MUTED)
 	draw_string(fallback_font, rect.position + Vector2(16, 157), _gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 	var queue_text := _gt("stat_unit_queue_fmt") % [_localized_unit_name(String(core.get("production_unit", "forager"))), (core.get("spore_jobs", []) as Array).size(), BARRACKS_QUEUE_CAPACITY] if is_barracks else _dna_queue_status_text(selected_core)
 	var queue_font_size := _fit_font_size(queue_text, rect.size.x - 32.0)
@@ -10236,7 +10319,8 @@ func _draw_status_panel_compact(rect: Rect2, core: Dictionary, is_barracks: bool
 			_gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)],
 			_dna_queue_status_text(selected_core),
 			_gt("stat_feeder_fmt") % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))],
-			_gt("stat_dna_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
+			_gt("stat_dna_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)],
+			_core_uptake_summary(selected_core)
 		]
 		for line_index in range(lines.size()):
 			var line := String(lines[line_index])
