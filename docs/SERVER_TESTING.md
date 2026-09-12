@@ -1,5 +1,43 @@
 # Server-side verification / 服务器端测试
 
+## Daily local Windows test build / 日常本机 Windows 测试版
+
+From 2026-09-13, daily user testing uses one fixed local installation, while
+source development and export remain on the server. The game is still split
+into an EXE and adjacent PCK: "one copy" means one current version, not one
+embedded executable.
+
+Build the portable ZIP with `tools/package_windows_portable.sh`, copy that
+archive to a temporary local download location, and obtain its SHA-256 from
+the server. Then run:
+
+```powershell
+.\tools\windows_update_local_test.ps1 `
+  -ArchivePath .\FungiMicroculture-Windows-x64.zip `
+  -Destination "$env:USERPROFILE\Documents\战舰\fungi-test" `
+  -ExpectedSha256 <server-sha256> -SourceCommit <git-commit> -RemoveArchive
+```
+
+The updater checks the archive hash and extracted EXE/PCK startup before
+replacing the existing version. It refuses to overwrite a running game,
+restores the previous managed files if replacement fails, and removes temporary
+backup/staging directories after success. Unrelated files and application-data
+saves are not removed. The installed `build-info.json` records the source
+commit, package hash and update time. Keep the same destination on every update.
+
+Run `tools/windows_update_local_test_selftest.ps1` to verify replacement,
+rollback on a locked file, running-game rejection, hash checking and missing-PCK
+rejection without downloading a game build.
+
+从 2026-09-13 起，源码开发和导出继续在服务器进行，日常测试版放在本机
+`%USERPROFILE%\Documents\战舰\fungi-test`，每次覆盖同一目录。仅保留一份最新版，
+仍采用 EXE 加独立 PCK 的拆分布局，不退回资源全部内嵌的单文件形式。
+
+更新前先核对压缩包 SHA-256 并测试 EXE/PCK 能否启动；游戏运行中不会强行覆盖。
+中途失败会恢复上一份文件，成功后删除临时备份和下载 ZIP，保留构建提交号与
+校验值。用户存档和非安装器管理的文件不删除。浏览器存档与 Windows 存档仍
+相互独立，本流程不做隐式迁移。
+
 ## English
 
 The Linux development server can verify the source project without exporting or

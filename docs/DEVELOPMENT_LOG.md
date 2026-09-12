@@ -142,3 +142,19 @@ The following remain local build/runtime products and are intentionally not comm
 - 密集读取样本扩大至 420 细菌、28 条吸收丝和 64 孢子，未放宽原性能门槛。
 - 修复无资源目标时遍历全图的开销，并优化已耗尽资源索引和无事可做的离线采集单位；缓存不写入存档，探索变化、资源出现和指令变化会使其失效。
 - 最终资源导入、63 项冒烟测试及主场景启动全部通过，用时 101 秒；详细数值与范围见 [离线记录](OFFLINE_PROGRESS_48H.zh-CN.md)。本轮未发布新的 Windows 包。
+
+## 2026-09-13 — One local test installation and opening progression / 单份本地测试版与开局路线
+
+- Changed daily testing to one fixed Windows installation at `%USERPROFILE%\Documents\战舰\fungi-test`. The executable and external resource pack remain separate; later updates replace the managed files in place and remove the downloaded ZIP. Browser preview is optional, not the default delivery route.
+- Added a checksum-verified updater that runs the real executable/PCK startup gate before replacement, refuses to overwrite a running game, preserves unrelated files and saves, and rolls back partial replacement failures. A build manifest records the source commit, ZIP hash and installation time.
+- The updater self-test passed two successive replacements, archive/backup cleanup, preservation checks, running-process/hash/root/missing-PCK rejection and an actual locked-file rollback scenario.
+- Added a deterministic normal-map 20-minute opening regression without developer grants or price changes. The scripted route reached the first DNA at 398.75 seconds, the bacterial diet at 800 seconds, a barracks at 815 seconds and the first forager at 845 seconds; resource accounting passed.
+- This is scripted reachability, not a human playtest or a claim of complete chapter balance. Cargo return income and normal-route 2/24/72-hour progression remain unverified; queued DNA still requires prepaid resources and does not refill itself.
+
+- 日常测试改为本机固定目录，每次只保留一份当前版本，继续采用 EXE 与 PCK 拆分布局。更新成功后删除下载 ZIP，不覆盖用户存档或无关文件；浏览器预览改为可选工具。
+- 新增带 SHA-256 校验、真实 EXE 启动检查、运行中拒绝覆盖和失败回滚的更新工具；构建记录包含源码提交号、压缩包校验值和安装时间。
+- 更新器已通过连续两次覆盖、旧包清理、保留用户文件、错误输入拒绝，以及锁定文件造成中途失败后的真实回滚自测。
+- 新增普通地图前 20 分钟脚本回归，不补资源、不改价格；首份 DNA 约 6 分 39 秒、食性 13 分 20 秒、兵营 13 分 35 秒、首个游猎孢子 14 分 05 秒，收支守恒通过。
+- 不将脚本路线当作真人平均体验；返巢收益、普通路线 2/24/72 小时进展及整章平衡仍待验证。具体路线和限制见 [开局验证](CHAPTER1_OPENING_PROGRESS.zh-CN.md)。
+- Final server verification passed resource import, all 64 smoke tests and headless main-scene startup in 125 seconds. Summary: `/home/ubuntu/fungi/test-logs/20260912T173403Z-2708159/summary.txt`. The Windows installer separately runs the actual downloaded executable before replacing the current local version.
+- 最终服务器回归通过资源导入、全部 64 项冒烟测试与无界面主场景启动，用时 125 秒。本地安装器还会在覆盖前单独启动实际下载的 Windows EXE；该启动检查不等同于人工画面验收。
