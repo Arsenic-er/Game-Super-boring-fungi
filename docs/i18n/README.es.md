@@ -35,6 +35,7 @@ Abre la [versión más reciente](https://github.com/Arsenic-er/Game-Super-boring
 - Gestiona la biomasa con tres decimales de núcleos y esporas, el daño por toxinas, la recuperación gradual, la retirada para reparaciones y la muerte o reconexión de hifas aisladas.
 - Construye núcleos de cuartel y produce esporas especializadas en recolección, transporte, minerales, exploración, combate antibacteriano, combate antifúngico y despliegue de zonas.
 - Asigna zonas cuadradas persistentes de defensa, recolección o purga bacteriana; las unidades compatibles reanudan su misión después de descargar, repararse, ser reemplazadas o avanzar sin conexión.
+- El progreso sin conexión abarca hasta 48 horas y consume recursos reales y limitados del mapa. Solo avanzan las colas de ADN existentes; no comienzan nuevos eventos ecológicos. La actividad bacteriana, el combate, la exposición a toxinas y el deterioro de hifas aisladas conservan su ventana de simulación de las primeras dos horas de ausencia.
 - Las órdenes seguras de v0.40 permiten atacar o recolectar únicamente a las funciones compatibles. Las unidades incompatibles de un grupo mixto avanzan hasta la zona y mantienen la posición; el recibo de la orden muestra cuántas ejecutan, vigilan o no están disponibles.
 - Afronta proliferaciones bacterianas, zonas tóxicas, lluvias de esporas rivales, anomalías de recursos, exploración bajo niebla, progreso incremental y un paisaje sonoro original de laboratorio pixelado con canales ajustables.
 

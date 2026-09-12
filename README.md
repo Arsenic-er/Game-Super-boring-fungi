@@ -66,7 +66,7 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - After the first rival is cleared, recurring Rival Sporefall cycles add long idle cooldowns, visible landing warnings, progressively stronger young colonies, and repeatable recovery rewards.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
 - Role-safe expedition orders prevent incompatible units from attacking or gathering the wrong target; mixed selections fall back to a nearby hold position, and `C` restores healthy units to role-appropriate automation.
-- Up to two hours of resource-faithful offline progress; expedition combat is capped at ten minutes and toxin exposure at one minute, with offline replenishment and a detailed return report.
+- Up to 48 hours of resource-faithful offline gathering and queued production; bacteria, combat, toxin exposure and orphaned-hypha decay retain a two-hour simulation window. No new ecology events begin offline. Finite deposits and prepaid DNA queues still apply, with automatic replenishment and a seven-language return report.
 - Pixel-art splash screen, main menu, save loading, fullscreen/window settings, and an optional green pixel cursor.
 - A six-page, seven-language gameplay guide in the Esc pause menu, with topic-specific coarse-pixel illustrations and mouse or keyboard page navigation.
 - An original procedural “pixel laboratory nebula” soundscape with interaction, growth, nutrient, DNA, RTS, combat, warning, and looping ambient cues; five independently adjustable audio channels remain rate-limited during accelerated play.
@@ -176,7 +176,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 竞争菌丝威胁提示只读取已探索区域；基础游猎孢子保留极慢的手动对真菌攻击能力，真菌专属穿壁孢子仍具有显著效率优势。
 - 完成培养会话管理闭环：真正冻结模拟的暂停菜单、立即保存与设置、保存返回主菜单、独立的继续/新培养入口、覆盖确认，以及失败后的重新培养和返回操作。
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。
-- 最多两小时、严格消耗地图真实资源的离线结算；体外单位战斗最多结算十分钟、毒素伤害最多一分钟，期间会执行自动补员，返回后显示详细报告。
+- 真实采集与已排队生产最多离线结算 48 小时；细菌、战斗、毒素与断联菌丝衰败保留 2 小时模拟窗口。离线不新触发生态事件，仍受有限矿藏和预付费 DNA 队列约束，支持自动补员与七语言返回报告。
 - 像素风开屏、主菜单、读取存档、全屏/窗口设置和可关闭的绿色像素鼠标。
 - Esc 暂停菜单内置六页七语玩法指引，每个主题配一张独立粗像素插图，并支持鼠标按钮与键盘翻页。
 - 新增原创程序化“像素实验室星云”声音系统，覆盖界面交互、菌丝生长、营养吸收、DNA、RTS指令、战斗、警报和循环背景音；总音量、界面、菌落、战斗与背景五路可独立调节，加速时仍会限频。

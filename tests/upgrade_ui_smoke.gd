@@ -250,8 +250,8 @@ func _run() -> void:
 	game.ecology_events.clear()
 	game.ecology_banner_time = 0.0
 	game.offline_report = {
-		"actual_seconds": 10800.0,
-		"settled_seconds": 7200.0,
+		"actual_seconds": 259200.0,
+		"settled_seconds": 172800.0,
 		"capped": true,
 		"absorbed_organic": 12.345,
 		"absorbed_mineral": 0.678,

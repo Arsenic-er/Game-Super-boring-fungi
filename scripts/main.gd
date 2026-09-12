@@ -12,6 +12,7 @@ const WorldEventLocalization = preload("res://scripts/world_event_localization.g
 const RivalCombatLocalization = preload("res://scripts/rival_combat_localization.gd")
 const SaveStore = preload("res://scripts/save_store.gd")
 const DeveloperLocalization = preload("res://scripts/developer_localization.gd")
+const OfflineLocalization = preload("res://scripts/offline_localization.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -24,13 +25,15 @@ const DNA_JOB_SECONDS := 300.0
 const DNA_SPEED_BONUS_PER_NODE_LEVEL := 0.10
 const CORE_ORGANIC_COST := 70.0
 const CORE_MINERAL_COST := 6.0
-const OFFLINE_CAP_SECONDS := 7200.0
+const OFFLINE_CAP_SECONDS := 48.0 * 3600.0
 const OFFLINE_MIN_SECONDS := 30.0
 const OFFLINE_STEP_SECONDS := 60.0
-const OFFLINE_BACTERIA_CAP_SECONDS := OFFLINE_CAP_SECONDS
-const OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS := OFFLINE_CAP_SECONDS
-const OFFLINE_HAZARD_CAP_SECONDS := OFFLINE_CAP_SECONDS
-const OFFLINE_ORPHAN_CAP_SECONDS := OFFLINE_CAP_SECONDS
+# Extending idle income must not multiply the existing unattended risk window.
+const OFFLINE_ECOLOGY_CAP_SECONDS := 2.0 * 3600.0
+const OFFLINE_BACTERIA_CAP_SECONDS := OFFLINE_ECOLOGY_CAP_SECONDS
+const OFFLINE_EXPEDITION_COMBAT_CAP_SECONDS := OFFLINE_ECOLOGY_CAP_SECONDS
+const OFFLINE_HAZARD_CAP_SECONDS := OFFLINE_ECOLOGY_CAP_SECONDS
+const OFFLINE_ORPHAN_CAP_SECONDS := OFFLINE_ECOLOGY_CAP_SECONDS
 const OFFLINE_FRAME_BUDGET_USEC := 6000
 const OFFLINE_MAX_STEPS_PER_FRAME := 12
 const OFFLINE_MOBILE_TAIL_STEP_SECONDS := 120.0
@@ -2460,7 +2463,16 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 	_rebuild_purge_density_grid()
 	_rebuild_purge_claim_cache()
 	var surviving: Array = []
+	# Once both resources and offline hazards are exhausted, unsuccessful idle
+	# searches cannot change until exploration changes. Active orders still tick.
+	var static_offline_tail := offline_simulating and not offline_expedition_combat_active and not offline_expedition_toxin_active and resource_grid.is_empty() and not _offline_needs_fine_tail_step()
 	for unit in expedition_units:
+		if static_offline_tail and String(unit.get("state", "")) == "idle" and not bool(unit.get("manual", false)) and int(unit.get("offline_idle_explored_count", -1)) == explored_cells.size():
+			unit["search_cooldown"] = 0.0
+			unit["damage_flash"] = 0.0
+			unit["burst_flash"] = 0.0
+			surviving.append(unit)
+			continue
 		var maximum := maxf(1.0, float(unit.get("max_biomass", _expedition_max_biomass(String(unit.get("unit_type", "forager"))))))
 		unit["max_biomass"] = maximum
 		unit["biomass"] = clampf(float(unit.get("biomass", maximum)), 0.0, maximum)
@@ -2477,6 +2489,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		if float(unit.get("biomass", 0.0)) <= 0.0005:
 			continue
 		var state := String(unit.get("state", "idle"))
+		var searched_for_target := false
 		if _should_expedition_retreat(unit) and state != "retreating" and state != "repairing" and state != "wounded":
 			_set_expedition_retreat(unit, "low_biomass")
 			state = "retreating"
@@ -2587,6 +2600,7 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 				else:
 					_acquire_expedition_target(unit)
 				unit["search_cooldown"] = _scout_search_cooldown() if String(unit.get("unit_type", "forager")) == "scout" else 2.0
+				searched_for_target = true
 		if float(unit.get("biomass", 0.0)) <= 0.0005:
 			continue
 		var final_state := String(unit.get("state", "idle"))
@@ -2596,6 +2610,10 @@ func _update_expedition_units(sim_delta: float, show_discovery_feedback: bool = 
 		if float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) >= _expedition_cargo_capacity(unit) - 0.0005 and final_state != "retreating" and final_state != "repairing" and final_state != "wounded":
 			unit["state"] = "returning"
 			unit["target_kind"] = "home"
+		if static_offline_tail and searched_for_target and String(unit.get("state", "")) == "idle" and ["forager", "carrier", "chelator"].has(String(unit.get("unit_type", ""))) and float(unit.get("cargo_organic", 0.0)) + float(unit.get("cargo_mineral", 0.0)) <= 0.0 and not bool(unit.get("manual", false)) and not bool(unit.get("defense_enabled", false)) and not bool(unit.get("harvest_enabled", false)) and not bool(unit.get("purge_enabled", false)):
+			unit["offline_idle_explored_count"] = explored_cells.size()
+		else:
+			unit.erase("offline_idle_explored_count")
 		surviving.append(unit)
 	expedition_units = surviving
 	_prune_expedition_selection()
@@ -3921,6 +3939,8 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 
 func _nearest_resource_kind(pos: Vector2, radius: float, kind: int) -> Dictionary:
 	var best: Dictionary = {}
+	if resource_grid.is_empty():
+		return best
 	var best_distance := radius * radius
 	var center := _resource_cell(pos)
 	var cell_radius := maxi(1, int(ceil(radius / RESOURCE_GRID_CELL_SIZE)))
@@ -5191,7 +5211,24 @@ func _rebuild_resource_grid() -> void:
 		(resource_grid[cell] as Array).append(int(resource["id"]))
 
 
+func _prune_depleted_resource_grid() -> void:
+	# Offline resources only deplete; do not search exhausted deposits repeatedly.
+	# Restore the normal index when settlement ends, including developer fixtures.
+	for cell in resource_grid.keys():
+		var live_ids: Array = []
+		for resource_id in resource_grid[cell]:
+			var resource := _resource_by_id(int(resource_id))
+			if not resource.is_empty() and bool(resource.get("alive", false)) and float(resource.get("amount", 0.0)) > 0.0:
+				live_ids.append(resource_id)
+		if live_ids.is_empty():
+			resource_grid.erase(cell)
+		else:
+			resource_grid[cell] = live_ids
+
+
 func _resource_by_id(resource_id: int) -> Dictionary:
+	if resource_id < 0:
+		return {}
 	if resource_id >= 0 and resource_id < resources.size() and int(resources[resource_id]["id"]) == resource_id:
 		return resources[resource_id]
 	for resource in resources:
@@ -6687,6 +6724,11 @@ func _founder_text(key: String) -> String:
 
 func _dt(key: String) -> String:
 	return DeveloperLocalization.text(key, settings_locale)
+
+
+func _ot(key: String) -> String:
+	return OfflineLocalization.text(key, settings_locale)
+
 
 func _normalize_combat_reason_id(reason: String) -> String:
 	var value := reason.strip_edges()
@@ -10581,15 +10623,21 @@ func _offline_report_button_rect(viewport: Vector2) -> Rect2:
 	return Rect2(_pixel_snap(Vector2(panel.get_center().x - 92.0, panel.end.y - 62.0)), Vector2(184.0, 38.0))
 
 
+func _draw_offline_report_text(text_value: String, pos: Vector2, width: float, color: Color, preferred_size: int = UI_FONT_SIZE) -> void:
+	draw_string(fallback_font, pos, text_value, HORIZONTAL_ALIGNMENT_LEFT, width, _fit_font_size(text_value, width, preferred_size), color)
+
+
 func _draw_offline_report(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.005, 0.015, 0.025, 0.82))
 	var panel := _offline_report_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.095, 0.99), Color("55d9a5"), 14, 2), panel)
-	draw_string(fallback_font, panel.position + Vector2(28, 38), "休眠培养报告", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color("bfffe1"))
+	var content_width := panel.size.x - 56.0
+	_draw_offline_report_text(_ot("title"), panel.position + Vector2(28, 38), content_width, Color("bfffe1"), 18)
 	var actual_seconds := float(offline_report.get("actual_seconds", 0.0))
 	var settled_seconds := float(offline_report.get("settled_seconds", 0.0))
-	var cap_note := "　已触发 2 小时上限" if bool(offline_report.get("capped", false)) else ""
-	draw_string(fallback_font, panel.position + Vector2(28, 68), "离开 %s　·　结算 %s%s" % [_format_duration(actual_seconds), _format_duration(settled_seconds), cap_note], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	var cap_hours := int(OFFLINE_CAP_SECONDS / 3600.0)
+	var cap_note := _ot("cap_note_fmt") % cap_hours if bool(offline_report.get("capped", false)) else ""
+	_draw_offline_report_text(_ot("absence_fmt") % [_format_duration(actual_seconds), _format_duration(settled_seconds), cap_note], panel.position + Vector2(28, 68), content_width, COLOR_MUTED)
 	draw_line(panel.position + Vector2(28, 82), Vector2(panel.end.x - 28, panel.position.y + 82), Color(COLOR_BORDER, 0.72), 1.0)
 
 	var left_x := panel.position.x + 30.0
@@ -10597,39 +10645,40 @@ func _draw_offline_report(viewport: Vector2) -> void:
 	var first_y := panel.position.y + 116.0
 	var row_gap := 28.0
 	var left_lines := [
-		["真实采集", Color("84f2bd")],
-		["细菌丝有机　+%.3f" % float(offline_report.get("absorbed_organic", 0.0)), COLOR_ORGANIC],
-		["细菌丝矿物　+%.3f" % float(offline_report.get("absorbed_mineral", 0.0)), COLOR_MINERAL],
-		["远征有机　　+%.3f" % float(offline_report.get("returned_organic", 0.0)), COLOR_ORGANIC],
-		["远征矿物　　+%.3f" % float(offline_report.get("returned_mineral", 0.0)), COLOR_MINERAL],
-		["余额变化　有机 %+.3f　矿物 %+.3f" % [float(offline_report.get("organic_delta", 0.0)), float(offline_report.get("mineral_delta", 0.0))], COLOR_TEXT]
+		[_ot("collection"), Color("84f2bd")],
+		[_ot("feeder_organic_fmt") % float(offline_report.get("absorbed_organic", 0.0)), COLOR_ORGANIC],
+		[_ot("feeder_mineral_fmt") % float(offline_report.get("absorbed_mineral", 0.0)), COLOR_MINERAL],
+		[_ot("expedition_organic_fmt") % float(offline_report.get("returned_organic", 0.0)), COLOR_ORGANIC],
+		[_ot("expedition_mineral_fmt") % float(offline_report.get("returned_mineral", 0.0)), COLOR_MINERAL],
+		[_ot("balance_fmt") % [float(offline_report.get("organic_delta", 0.0)), float(offline_report.get("mineral_delta", 0.0))], COLOR_TEXT]
 	]
 	var right_lines := [
-		["成长与探索", Color("84f2bd")],
-		["DNA 完成　+%d" % int(offline_report.get("dna_completed", 0)), Color("75e6c0")],
-		["体外单位　建造 +%d　修复 +%d　损失 %d" % [int(offline_report.get("units_built", 0)), int(offline_report.get("units_repaired", 0)), int(offline_report.get("units_lost", 0))], Color("76f5ca")],
-		["探索格　　+%d　（%+.2f%%）" % [int(offline_report.get("explored_cells", 0)), float(offline_report.get("explored_percent", 0.0))], Color("5edcf5")],
-		["异常区　　+%d" % int(offline_report.get("hotspots", 0)), Color("8ce9ff")],
-		["细菌出生 %d　消灭 %d" % [int(offline_report.get("bacteria_births", 0)), int(offline_report.get("bacteria_consumed", 0))], COLOR_BACTERIA]
+		[_ot("growth"), Color("84f2bd")],
+		[_ot("dna_fmt") % int(offline_report.get("dna_completed", 0)), Color("75e6c0")],
+		[_ot("units_fmt") % [int(offline_report.get("units_built", 0)), int(offline_report.get("units_repaired", 0)), int(offline_report.get("units_lost", 0))], Color("76f5ca")],
+		[_ot("exploration_fmt") % [int(offline_report.get("explored_cells", 0)), float(offline_report.get("explored_percent", 0.0))], Color("5edcf5")],
+		[_ot("hotspots_fmt") % int(offline_report.get("hotspots", 0)), Color("8ce9ff")],
+		[_ot("bacteria_fmt") % [int(offline_report.get("bacteria_births", 0)), int(offline_report.get("bacteria_consumed", 0))], COLOR_BACTERIA]
 	]
 	for i in range(left_lines.size()):
-		draw_string(fallback_font, Vector2(left_x, first_y + i * row_gap), String(left_lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, left_lines[i][1])
+		_draw_offline_report_text(String(left_lines[i][0]), Vector2(left_x, first_y + i * row_gap), right_x - left_x - 20.0, left_lines[i][1])
 	for i in range(right_lines.size()):
-		draw_string(fallback_font, Vector2(right_x, first_y + i * row_gap), String(right_lines[i][0]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, right_lines[i][1])
+		_draw_offline_report_text(String(right_lines[i][0]), Vector2(right_x, first_y + i * row_gap), panel.end.x - right_x - 28.0, right_lines[i][1])
 
 	var biomass_delta := float(offline_report.get("biomass_delta", 0.0))
 	var living_before := int(offline_report.get("living_cores_before", 0))
 	var living_after := int(offline_report.get("living_cores_after", 0))
-	draw_string(fallback_font, panel.position + Vector2(30, 304), "核心生物量变化　%+.3f　·　存活核心 %d → %d" % [biomass_delta, living_before, living_after], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ffbd9f") if biomass_delta < 0.0 else COLOR_TEXT)
-	draw_string(fallback_font, panel.position + Vector2(30, 338), "结算仅消耗真实资源；生态事件与敌对真菌侵染在离线期间冻结。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
+	_draw_offline_report_text(_ot("biomass_fmt") % [biomass_delta, living_before, living_after], panel.position + Vector2(30, 304), content_width, Color("ffbd9f") if biomass_delta < 0.0 else COLOR_TEXT)
+	_draw_offline_report_text(_ot("rules_fmt") % [cap_hours, int(OFFLINE_ECOLOGY_CAP_SECONDS / 3600.0)], panel.position + Vector2(30, 338), content_width, COLOR_MUTED)
 	if bool(offline_report.get("capped", false)):
-		draw_string(fallback_font, panel.position + Vector2(30, 366), "超过两小时的休眠时间不会产生额外收益或伤害。", HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("f4ca83"))
+		_draw_offline_report_text(_ot("capped_fmt") % cap_hours, panel.position + Vector2(30, 366), content_width, Color("f4ca83"))
 	var button := _offline_report_button_rect(viewport)
 	var hovered := button.has_point(last_mouse)
 	draw_style_box(_rounded_style(Color(0.10, 0.34, 0.27, 0.98) if hovered else Color(0.035, 0.16, 0.16, 0.98), Color("68efad") if hovered else COLOR_BORDER, 8, 2), button)
-	var label := "返回培养皿"
-	var label_width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-	draw_string(fallback_font, Vector2(button.get_center().x - label_width * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLOR_TEXT)
+	var label := _ot("close")
+	var label_size := _fit_font_size(label, button.size.x - 20.0, 14)
+	var label_width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
+	draw_string(fallback_font, Vector2(button.get_center().x - label_width * 0.5, button.position.y + 25.0), label, HORIZONTAL_ALIGNMENT_LEFT, button.size.x - 20.0, label_size, COLOR_TEXT)
 
 
 func _close_offline_report() -> void:
@@ -11756,6 +11805,8 @@ func _total_core_biomass() -> float:
 
 
 func _reset_offline_settlement_state() -> void:
+	for unit in expedition_units:
+		unit.erase("offline_idle_explored_count")
 	offline_settlement_active = false
 	offline_settlement_progress = 1.0
 	offline_settlement = {}
@@ -11768,9 +11819,11 @@ func _begin_offline_progress(seconds: float, actual_seconds: float = -1.0, check
 	_reset_offline_settlement_state()
 	offline_report_open = false
 	offline_report.clear()
+	# Enforce the cap here as well as at load time, including synchronous callers.
+	var observed_seconds := seconds if actual_seconds < 0.0 else maxf(seconds, actual_seconds)
+	seconds = clampf(seconds, 0.0, OFFLINE_CAP_SECONDS)
 	if seconds < OFFLINE_MIN_SECONDS or game_over:
 		return false
-	var observed_seconds := seconds if actual_seconds < 0.0 else maxf(seconds, actual_seconds)
 	var before := {
 		"organic": organic,
 		"mineral": mineral,
@@ -11806,6 +11859,7 @@ func _begin_offline_progress(seconds: float, actual_seconds: float = -1.0, check
 	offline_settlement_active = true
 	offline_settlement_progress = 0.0
 	offline_simulating = true
+	_prune_depleted_resource_grid()
 	return true
 
 
@@ -11927,6 +11981,8 @@ func _advance_offline_progress_step() -> void:
 		var orphan_step := minf(step, orphan_remaining)
 		_update_orphaned_segments(orphan_step)
 		offline_settlement["orphan_remaining"] = orphan_remaining - orphan_step
+	if combat_remaining > 0.0005 and float(offline_settlement["combat_remaining"]) <= 0.0005:
+		_prune_depleted_resource_grid()
 	remaining = maxf(0.0, remaining - step)
 	offline_settlement["remaining"] = remaining
 	var total := maxf(0.0005, float(offline_settlement.get("total", remaining)))
@@ -11955,9 +12011,12 @@ func _finish_offline_progress() -> void:
 	var total := float(settlement.get("total", 0.0))
 	var remaining := float(settlement.get("remaining", 0.0))
 	var checkpoint_on_finish := bool(settlement.get("checkpoint_on_finish", false))
+	for unit in expedition_units:
+		unit.erase("offline_idle_explored_count")
 	offline_simulating = false
 	offline_expedition_combat_active = false
 	offline_expedition_toxin_active = false
+	_rebuild_resource_grid()
 	_sync_hotspot_discoveries(false)
 	last_discovery_scan_cell_count = explored_cells.size()
 	offline_report = {

@@ -126,3 +126,19 @@ The following remain local build/runtime products and are intentionally not comm
 - 新增 Windows PowerShell 运行门禁：解压最终 ZIP，以无界面模式启动使用同目录 PCK 的 EXE，并要求在限定时间内正常退出。门禁逻辑已用临时测试程序自测，真实游戏构建仍须在最终 Windows 机器上单独执行。
 - 同步更新包内说明和七种仓库语言介绍。
 - 修改后重新通过资源导入、全部 60 项游戏冒烟测试及真实主场景启动。
+
+## 2026-09-13 — 48-hour offline progress / 48 小时离线结算
+
+- Applied the user's confirmed 48-hour gathering/queued-production cap at the settlement entry point. Existing two-hour bacteria, combat, hazard, recovery and orphan-decay windows remain unchanged.
+- Localized the return report in all seven supported languages, fitted long strings to their columns, and corrected stale offline rules in repository introductions.
+- Added controlled 20-minute / 2-hour / 24-hour / 48-hour / 72-hour tests for finite resources, prepaid DNA, exact-cap behavior and direct-call clamping. These fixtures do not claim to represent a normal new player's progression.
+- Expanded the asynchronous save-load fixture to 420 bacteria, 28 feeders and 64 expedition units without relaxing its 750 ms load-return and 30 s settlement gates.
+- Fixed missing resource ID `-1` unnecessarily scanning the world, pruned exhausted offline search indexes, and added transient empty-world idle caching with exploration, resource and command invalidation.
+- Final server verification passed resource import, all 63 smoke tests and main-scene startup in 101 seconds. Summary: `/home/ubuntu/fungi/test-logs/20260912T160609Z-2700278/summary.txt`.
+
+- 按用户确认，将离线采集及排队生产封顶改为 48 小时，在内部入口也执行截断；细菌、战斗、毒素、恢复和断联衰败保留既有 2 小时窗口。
+- 离线报告补齐七种语言，长译文适配列宽，并纠正仓库介绍中的旧离线规则。
+- 新增长时间受控产速、有限资源、预付 DNA、上限边界测试；这些样本不等同于正常玩家完整成长路线，未宣称整章平衡已经完成。
+- 密集读取样本扩大至 420 细菌、28 条吸收丝和 64 孢子，未放宽原性能门槛。
+- 修复无资源目标时遍历全图的开销，并优化已耗尽资源索引和无事可做的离线采集单位；缓存不写入存档，探索变化、资源出现和指令变化会使其失效。
+- 最终资源导入、63 项冒烟测试及主场景启动全部通过，用时 101 秒；详细数值与范围见 [离线记录](OFFLINE_PROGRESS_48H.zh-CN.md)。本轮未发布新的 Windows 包。

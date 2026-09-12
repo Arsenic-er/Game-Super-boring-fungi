@@ -4,7 +4,8 @@ extends SceneTree
 const TEST_SAVE_PATH := "user://v047_offline_async_load_smoke.json"
 const BACTERIA_COUNT := 420
 const FEEDER_COUNT := 28
-const ABSENCE_SECONDS := 8400.0
+const UNIT_COUNT := 64
+const ABSENCE_SECONDS := 72.0 * 3600.0
 const LOAD_RETURN_BUDGET_MS := 750
 const SETTLEMENT_BUDGET_MS := 30000
 const MAX_PUMP_FRAMES := 2400
@@ -32,11 +33,11 @@ func _run() -> void:
 		game._complete_founder_spore_germination()
 	game.main_menu_active = false
 	game.game_started = true
-	if not _check(is_equal_approx(float(game.OFFLINE_CAP_SECONDS), 7200.0), "offline settlement cap should remain two hours"):
+	if not _check(is_equal_approx(float(game.OFFLINE_CAP_SECONDS), 172800.0), "offline settlement cap should be 48 hours"):
 		return
 
 	# Build a deliberately dense but valid save through the real factories and
-	# serializer: 420 bacteria, 28 mature feeder hyphae and one active scout.
+	# serializer: 420 bacteria, 28 mature feeders and 64 expedition units.
 	game.bacteria.clear()
 	for index in range(BACTERIA_COUNT):
 		var column := index % 28
@@ -70,26 +71,28 @@ func _run() -> void:
 	var barracks_id: int = game.cores.size()
 	game.cores.append(game._make_core(Vector2(180.0, 0.0), "barracks"))
 	game._spawn_expedition_spore(barracks_id, "scout")
+	for index in range(UNIT_COUNT - 1):
+		game._spawn_expedition_spore(barracks_id, "forager")
 	var scout: Dictionary = game.expedition_units[0]
 	scout["state"] = "moving"
 	scout["target_kind"] = "ground"
 	scout["target_pos"] = Vector2(1200.0, -460.0)
 	scout["manual"] = true
 	scout["command_until"] = game.sim_time + ABSENCE_SECONDS
-	if not _check(game.bacteria.size() == BACTERIA_COUNT and game.feeders.size() == FEEDER_COUNT and game.expedition_units.size() == 1 and String(scout.get("state", "")) == "moving", "fixture should contain 420 bacteria, 28 feeders and one active expedition unit"):
+	if not _check(game.bacteria.size() == BACTERIA_COUNT and game.feeders.size() == FEEDER_COUNT and game.expedition_units.size() == UNIT_COUNT and String(scout.get("state", "")) == "moving", "fixture should contain 420 bacteria, 28 feeders and 64 expedition units"):
 		return
 
 	game._save_game()
 	if not _check(FileAccess.file_exists(TEST_SAVE_PATH), "real serializer should create the fixture save"):
 		return
 	var save_data := _read_json()
-	if not _check(save_data is Dictionary and (save_data.get("bacteria", []) as Array).size() == BACTERIA_COUNT and (save_data.get("feeders", []) as Array).size() == FEEDER_COUNT and (save_data.get("expedition_units", []) as Array).size() == 1, "serialized fixture should retain all dense entities"):
+	if not _check(save_data is Dictionary and (save_data.get("bacteria", []) as Array).size() == BACTERIA_COUNT and (save_data.get("feeders", []) as Array).size() == FEEDER_COUNT and (save_data.get("expedition_units", []) as Array).size() == UNIT_COUNT, "serialized fixture should retain all dense entities"):
 		return
 	var stale_saved_at := Time.get_unix_time_from_system() - ABSENCE_SECONDS
 	save_data["saved_at"] = stale_saved_at
 	if not _check(_write_json(save_data), "fixture timestamp should be rewritable"):
 		return
-	if not _check(Time.get_unix_time_from_system() - float(_read_json().get("saved_at", 0.0)) > float(game.OFFLINE_CAP_SECONDS), "fixture should be older than the two-hour cap"):
+	if not _check(Time.get_unix_time_from_system() - float(_read_json().get("saved_at", 0.0)) > float(game.OFFLINE_CAP_SECONDS), "fixture should be older than the 48-hour cap"):
 		return
 
 	# Contract: true requests asynchronous offline settlement. Hydration may parse
@@ -100,11 +103,11 @@ func _run() -> void:
 	var load_return_ms := Time.get_ticks_msec() - load_started_ms
 	if not _check(loaded, "_load_game(true) should accept and hydrate the dense save"):
 		return
-	if not _check(load_return_ms <= LOAD_RETURN_BUDGET_MS, "_load_game(true) should return quickly instead of settling two hours synchronously"):
+	if not _check(load_return_ms <= LOAD_RETURN_BUDGET_MS, "_load_game(true) should return quickly instead of settling 48 hours synchronously"):
 		return
 	if not _check(bool(game.get("offline_settlement_active")), "asynchronous settlement should be active immediately after load returns"):
 		return
-	if not _check(game.bacteria.size() == BACTERIA_COUNT and game.feeders.size() == FEEDER_COUNT and game.expedition_units.size() == 1, "entities should be hydrated before the asynchronous pump begins"):
+	if not _check(game.bacteria.size() == BACTERIA_COUNT and game.feeders.size() == FEEDER_COUNT and game.expedition_units.size() == UNIT_COUNT, "entities should be hydrated before the asynchronous pump begins"):
 		return
 	var previous_progress: float = float(game.get("offline_settlement_progress"))
 	if not _check(previous_progress >= 0.0 and previous_progress < 1.0, "initial asynchronous progress should be a normalized incomplete fraction"):
@@ -126,17 +129,17 @@ func _run() -> void:
 		return
 	if not _check(progress_monotonic, "offline settlement progress should never move backwards"):
 		return
-	if not _check(not bool(game.get("offline_settlement_active")), "offline settlement should complete within the CI frame budget"):
+	if not _check(not bool(game.get("offline_settlement_active")), "offline settlement should complete within the CI frame budget (frames=%d elapsed_ms=%d progress=%.3f)" % [pump_frames, Time.get_ticks_msec() - total_started_ms, float(game.get("offline_settlement_progress"))]):
 		return
 	var total_elapsed_ms := Time.get_ticks_msec() - total_started_ms
-	if not _check(total_elapsed_ms <= SETTLEMENT_BUDGET_MS and pump_frames < MAX_PUMP_FRAMES, "dense two-hour settlement should finish within the CI wall-time budget"):
+	if not _check(total_elapsed_ms <= SETTLEMENT_BUDGET_MS and pump_frames < MAX_PUMP_FRAMES, "dense 48-hour settlement should finish within the original CI wall-time budget"):
 		return
 	if not _check(float(game.get("offline_settlement_progress")) >= 0.999999, "completed settlement should publish progress 1.0"):
 		return
 
 	if not _check(game.offline_report_open and not game.offline_report.is_empty(), "completion should open a populated offline report"):
 		return
-	if not _check(bool(game.offline_report.get("capped", false)) and is_equal_approx(float(game.offline_report.get("settled_seconds", 0.0)), float(game.OFFLINE_CAP_SECONDS)) and float(game.offline_report.get("actual_seconds", 0.0)) > float(game.OFFLINE_CAP_SECONDS), "report should record a capped absence longer than two hours"):
+	if not _check(bool(game.offline_report.get("capped", false)) and is_equal_approx(float(game.offline_report.get("settled_seconds", 0.0)), float(game.OFFLINE_CAP_SECONDS)) and float(game.offline_report.get("actual_seconds", 0.0)) > float(game.OFFLINE_CAP_SECONDS), "report should record a capped absence longer than 48 hours"):
 		return
 	var settled_save := _read_json()
 	if not _check(float(settled_save.get("saved_at", 0.0)) > stale_saved_at + float(game.OFFLINE_CAP_SECONDS) and is_equal_approx(float(settled_save.get("organic", -1.0)), float(game.organic)) and is_equal_approx(float(settled_save.get("mineral", -1.0)), float(game.mineral)) and int(settled_save.get("dna", -1)) == int(game.dna), "completion should checkpoint the settled balances and a fresh timestamp"):
@@ -169,7 +172,7 @@ func _run() -> void:
 		return
 
 	_remove_save()
-	print("V047_OFFLINE_ASYNC_LOAD_OK assertions=%d load_ms=%d total_ms=%d pump_frames=%d bacteria=%d feeders=%d" % [assertion_count, load_return_ms, total_elapsed_ms, pump_frames, BACTERIA_COUNT, FEEDER_COUNT])
+	print("V047_OFFLINE_ASYNC_LOAD_OK assertions=%d load_ms=%d total_ms=%d pump_frames=%d bacteria=%d feeders=%d units=%d" % [assertion_count, load_return_ms, total_elapsed_ms, pump_frames, BACTERIA_COUNT, FEEDER_COUNT, UNIT_COUNT])
 	game.queue_free()
 	quit(0)
 

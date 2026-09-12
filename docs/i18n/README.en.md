@@ -35,6 +35,7 @@ Open the repository's [latest Release](https://github.com/Arsenic-er/Game-Super-
 - Manage three-decimal biomass, toxin damage, gradual recovery, repair retreats, and the decay or reconnection of isolated hyphae.
 - Build barracks cores and produce specialized spores for gathering, transport, mineral collection, scouting, bacteria combat, fungi combat, and area deployment.
 - Assign persistent square defense, harvesting, or bacteria-purge zones; compatible units resume their missions after unloading, repair, replenishment, and capped offline progress.
+- Offline progress settles up to 48 hours against finite, real map resources. Only existing DNA queues advance; no new ecology events start offline. Bacteria, combat, toxin exposure, and isolated-hypha decay retain their existing two-hour simulation window.
 - Version 0.40 permits only compatible roles to gather or attack a target. Incompatible units in a mixed group move near the destination and hold position, while the command receipt reports exact, fallback, and unavailable counts.
 - Face bacterial blooms, toxin zones, recurring rival sporefall, resource anomalies, fog-limited exploration, long idle progress, and an original multi-channel pixel-laboratory soundscape.
 

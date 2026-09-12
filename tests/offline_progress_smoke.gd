@@ -24,7 +24,7 @@ func _run() -> void:
 	if FileAccess.file_exists(game.save_path):
 		DirAccess.remove_absolute(test_save_path)
 
-	if not _check(is_equal_approx(game.OFFLINE_CAP_SECONDS, 7200.0), "Offline progress must be capped at two hours"):
+	if not _check(is_equal_approx(game.OFFLINE_CAP_SECONDS, 172800.0), "Offline progress must be capped at 48 hours"):
 		return
 	game.bacteria.clear()
 	for resource in game.resources:
@@ -88,11 +88,11 @@ func _run() -> void:
 	game.cores[0]["jobs"] = []
 	game.cores[barracks_id]["spore_jobs"] = []
 	var cap_started := Time.get_ticks_msec()
-	game._apply_offline_progress(game.OFFLINE_CAP_SECONDS, 172800.0)
+	game._apply_offline_progress(259200.0)
 	var cap_elapsed_ms := Time.get_ticks_msec() - cap_started
-	if not _check(bool(game.offline_report["capped"]) and is_equal_approx(float(game.offline_report["settled_seconds"]), 7200.0), "A 48-hour absence must settle exactly two hours and mark the report as capped"):
+	if not _check(bool(game.offline_report["capped"]) and is_equal_approx(float(game.offline_report["settled_seconds"]), 172800.0), "A direct 72-hour settlement must stop at 48 hours and mark the report as capped"):
 		return
-	if not _check(cap_elapsed_ms < 5000, "The worst-case two-hour settlement should finish within five seconds in headless tests"):
+	if not _check(cap_elapsed_ms < 5000, "An empty 48-hour settlement should finish within five seconds in headless tests"):
 		return
 	game._close_offline_report()
 
