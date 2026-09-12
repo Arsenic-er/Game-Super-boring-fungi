@@ -31,9 +31,16 @@ if (-not $workDir.StartsWith($tempBase, [System.StringComparison]::OrdinalIgnore
 }
 
 $process = $null
+$originalAppData = $env:APPDATA
+$originalLocalAppData = $env:LOCALAPPDATA
 New-Item -ItemType Directory -Path $workDir | Out-Null
 
 try {
+    # Godot user:// follows APPDATA, not the extracted working directory.
+    # A packaging test must not load or initialize the player's settings/saves.
+    $env:APPDATA = Join-Path $workDir 'test-appdata'
+    $env:LOCALAPPDATA = Join-Path $workDir 'test-localappdata'
+    New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
     $archive = [System.IO.Compression.ZipFile]::OpenRead($resolvedArchive)
     try {
         $entries = @($archive.Entries)
@@ -119,6 +126,8 @@ try {
     )
 }
 finally {
+    $env:APPDATA = $originalAppData
+    $env:LOCALAPPDATA = $originalLocalAppData
     if ($null -ne $process -and -not $process.HasExited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
     }

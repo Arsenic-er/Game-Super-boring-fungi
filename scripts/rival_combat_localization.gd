@@ -18,6 +18,8 @@ const REASON_IDS: Array[String] = [
 ]
 
 const KEYS: Array[String] = [
+	"filter_short_all", "filter_short_forager", "filter_short_carrier", "filter_short_chelator", "filter_short_scout",
+	"filter_short_lytic", "filter_short_suppressor", "filter_short_disperser", "filter_short_piercer", "filter_short_coil", "filter_short_antifungal",
 	"hud_help", "filter_all", "selection_fmt", "selection_stats_fmt",
 	"action_defense", "action_harvest", "action_purge", "action_clear",
 	"guard_name", "guard_state_patrol", "guard_state_chasing", "guard_state_attacking",
@@ -44,6 +46,7 @@ const KEYS: Array[String] = [
 
 const VALUES := {
 	"zh_CN": [
+		"全", "游", "载", "矿", "侦", "裂", "抑", "散", "穿", "缠", "抗",
 		"左键点击/拖框选兵　右键指令　Z 防区　X 采区　V 猎区　C 清令　R 返巢　滚轮缩放　F5 保存　Esc 暂停",
 		"全部", "%s筛选　已选 %d / %d", "平均生物量 %.1f%%　防 %d　采 %d　猎 %d　返 %d　修 %d",
 		"设防 Z", "采区 X", "猎区 V", "清令 C",
@@ -65,6 +68,7 @@ const VALUES := {
 		"请先选择可以出击的体外孢子", "当前选择中没有可执行真菌防御的单位", "按住右键拖出正方形防区；Esc 取消", "已为 %d 个单位设置持久防区", "防区超出菌落行动范围，或单位暂时无法执行"
 	],
 	"zh_TW": [
+		"全", "遊", "載", "礦", "偵", "裂", "抑", "散", "穿", "纏", "抗",
 		"左鍵點擊/拖框選兵　右鍵指令　Z 防區　X 採區　V 獵區　C 清令　R 返巢　滾輪縮放　F5 儲存　Esc 暫停",
 		"全部", "%s篩選　已選 %d / %d", "平均生物量 %.1f%%　防 %d　採 %d　獵 %d　返 %d　修 %d",
 		"設防 Z", "採區 X", "獵區 V", "清令 C",
@@ -86,6 +90,7 @@ const VALUES := {
 		"請先選擇可以出擊的體外孢子", "目前選擇中沒有可執行真菌防禦的單位", "按住右鍵拖出正方形防區；Esc 取消", "已為 %d 個單位設定持久防區", "防區超出菌落行動範圍，或單位暫時無法執行"
 	],
 	"en": [
+		"Al", "Fo", "Ca", "Ch", "Sc", "Ly", "Su", "Di", "Pi", "Hy", "Af",
 		"Left-click/drag select · Right-click command · Z defend · X harvest · V purge · C clear · R return · Wheel zoom · F5 save · Esc pause",
 		"All", "%s filter · Selected %d / %d", "Avg biomass %.1f%% · Def %d · Harv %d · Purge %d · Return %d · Repair %d",
 		"Defend Z", "Harvest X", "Purge V", "Clear C",
@@ -107,6 +112,7 @@ const VALUES := {
 		"Select mobile spores that can defend against fungi first", "No selected unit can defend against fungi", "Hold right mouse and drag a square defense zone; Esc cancels", "Assigned a persistent defense zone to %d units", "The defense zone is out of colony range, or units cannot act yet"
 	],
 	"ja": [
+		"全", "採", "運", "鉱", "偵", "溶", "抑", "散", "穿", "巻", "抗",
 		"左クリック/ドラッグで選択　右クリックで指令　Z 防衛　X 採集　V 掃討　C 解除　R 帰還　ホイール拡縮　F5 保存　Esc 一時停止",
 		"すべて", "%sフィルター　選択 %d / %d", "平均バイオマス %.1f%%　防 %d　採 %d　掃 %d　帰 %d　修 %d",
 		"防衛 Z", "採集 X", "掃討 V", "解除 C",
@@ -128,6 +134,7 @@ const VALUES := {
 		"出撃可能な体外胞子を選択してください", "選択中に真菌防衛できるユニットがありません", "右ボタンを押しながら正方形の防衛区を描画。Esc で取消", "%d 体に持続防衛区を設定", "防衛区がコロニーの行動範囲外、または現在実行不能です"
 	],
 	"es": [
+		"To", "Re", "Po", "Qu", "Ex", "Li", "Su", "Di", "Pe", "Hi", "Af",
 		"Clic/arrastre izq.: seleccionar · Clic der.: ordenar · Z defender · X recolectar · V purgar · C limpiar · R volver · Rueda zoom · F5 guardar · Esc pausa",
 		"Todas", "Filtro %s · Seleccionadas %d / %d", "Biomasa media %.1f%% · Def %d · Rec %d · Pur %d · Reg %d · Rep %d",
 		"Defender Z", "Recolectar X", "Purgar V", "Limpiar C",
@@ -149,6 +156,7 @@ const VALUES := {
 		"Selecciona primero esporas móviles capaces de defender contra hongos", "Ninguna unidad seleccionada puede defender contra hongos", "Mantén el botón derecho y arrastra una zona cuadrada de defensa; Esc cancela", "Zona persistente de defensa asignada a %d unidades", "La zona de defensa está fuera del alcance o las unidades aún no pueden actuar"
 	],
 	"de": [
+		"Al", "Ja", "Tr", "Ch", "Sp", "Ly", "He", "Lv", "Bo", "Fj", "Ap",
 		"Linksklick/Ziehen: wählen · Rechtsklick: Befehl · Z Schutz · X Ernte · V Säubern · C löschen · R zurück · Rad Zoom · F5 speichern · Esc Pause",
 		"Alle", "%s-Filter · Gewählt %d / %d", "Ø Biomasse %.1f%% · Sch %d · Ern %d · Jag %d · Zur %d · Rep %d",
 		"Schutz Z", "Ernte X", "Säubern V", "Löschen C",
@@ -170,6 +178,7 @@ const VALUES := {
 		"Zuerst einsatzfähige mobile Sporen wählen", "Keine gewählte Einheit kann gegen Pilze verteidigen", "Rechte Maustaste halten und quadratische Schutzzone ziehen; Esc bricht ab", "Dauerhafte Schutzzone für %d Einheiten gesetzt", "Schutzzone außerhalb der Reichweite oder Einheiten derzeit nicht einsatzfähig"
 	],
 	"ru": [
+		"Вс", "Фу", "Но", "Хе", "Ра", "Ли", "По", "Рс", "Бу", "Ни", "Пг",
 		"ЛКМ/рамка: выбор · ПКМ: приказ · Z оборона · X сбор · V зачистка · C сброс · R возврат · Колесо масштаб · F5 сохранить · Esc пауза",
 		"Все", "Фильтр «%s» · Выбрано %d / %d", "Ср. биомасса %.1f%% · Обор %d · Сбор %d · Охот %d · Возв %d · Рем %d",
 		"Оборона Z", "Сбор X", "Зачистка V", "Сброс C",

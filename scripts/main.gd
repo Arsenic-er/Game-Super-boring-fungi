@@ -680,6 +680,13 @@ func _load_guide_textures() -> void:
 			guide_textures.append(null)
 
 
+func _exit_tree() -> void:
+	# Release the native cursor before the rendering server is torn down.
+	if DisplayServer.get_name() != "headless":
+		Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
+	cursor_texture = null
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		# Deferred settlement has not checkpointed yet. Keep the original save
@@ -1135,7 +1142,7 @@ func _update_fungal_incursion(sim_delta: float) -> void:
 		if enemy_index < 0 or not bool(enemy_fungi[enemy_index].get("alive", false)):
 			fungal_incursion = {"phase": "cooldown", "remaining": rng.randf_range(FUNGAL_INCURSION_DELAY_MIN, FUNGAL_INCURSION_DELAY_MAX), "pos": Vector2.INF, "wave": lifetime_fungal_incursions_defeated, "enemy_id": -1}
 		return
-	if not _has_living_barracks() or not _current_ecology_event().is_empty():
+	if not _has_living_barracks() or _ecology_blocks_fungal_incursion():
 		return
 	fungal_incursion["remaining"] = maxf(0.0, float(fungal_incursion.get("remaining", 0.0)) - sim_delta)
 	if float(fungal_incursion["remaining"]) > 0.0005:
@@ -4699,6 +4706,70 @@ func _order_selected_expedition_return() -> void:
 		toast(_rt("toast_returning_fmt") % ordered, 2.5, "info")
 
 
+func _add_feeder_query_cells(bounds: Rect2, cells: Dictionary) -> void:
+	# Malformed saves can contain enormous/non-finite geometry. Never allocate
+	# a grid proportional to that rectangle: use the existing finite index and
+	# let the unchanged exact geometry test reject false positives instead.
+	bounds = bounds.abs()
+	var span := bounds.size / RESOURCE_GRID_CELL_SIZE + Vector2.ONE * 2.0
+	if not bounds.position.is_finite() or not bounds.end.is_finite() or span.x * span.y > maxi(256, resource_grid.size() * 4):
+		for cell in resource_grid:
+			cells[cell] = true
+		return
+	# Keep float-to-Vector2i conversion clear of the integer limits, including
+	# tiny rectangles positioned far outside the normal world.
+	if maxf(bounds.position.abs().x, bounds.position.abs().y) / RESOURCE_GRID_CELL_SIZE > 1000000000.0 or maxf(bounds.end.abs().x, bounds.end.abs().y) / RESOURCE_GRID_CELL_SIZE > 1000000000.0:
+		for cell in resource_grid:
+			cells[cell] = true
+		return
+	var first := _resource_cell(bounds.position)
+	var last := _resource_cell(bounds.end)
+	for cell_y in range(first.y, last.y + 1):
+		for cell_x in range(first.x, last.x + 1):
+			cells[Vector2i(cell_x, cell_y)] = true
+
+
+func _feeder_candidate_resource_ids() -> Array:
+	# Broad phase only. Exact closest-source/range checks below remain unchanged.
+	var cells := {}
+	for core_id in range(cores.size()):
+		if _is_core_alive(core_id):
+			_add_feeder_query_cells(Rect2(cores[core_id]["pos"], Vector2.ZERO).grow(_feeder_range_for_core(core_id)), cells)
+	for segment in segments:
+		var core_id := int(segment.get("core_id", -1))
+		if not _is_core_alive(core_id) or bool(segment.get("orphaned", false)) or float(segment.get("growth", 0.0)) < 1.0:
+			continue
+		# Curved trunks can leave their endpoint rectangle. Include every rendered
+		# polyline vertex, the same geometry used by _nearest_colony_source.
+		var points := _curved_points_grown(segment["a"], segment["b"], float(segment.get("curve", 0.0)), float(segment.get("growth", 1.0)))
+		var bounds := Rect2(segment["a"], Vector2.ZERO)
+		for point in points:
+			bounds = bounds.expand(point)
+		_add_feeder_query_cells(bounds.grow(_feeder_range_for_core(core_id)), cells)
+	var candidates := {}
+	for cell in cells:
+		for resource_id in resource_grid.get(cell, []):
+			candidates[int(resource_id)] = true
+	var ids: Array = candidates.keys()
+	# World generation assigns IDs in resource-array order; retain that tie order.
+	# Imported/custom fixtures may use sparse or non-monotonic IDs. Preserve the
+	# old array order there too, without paying for a full-map walk in normal play.
+	var canonical_ids := true
+	for resource_id in ids:
+		var index := int(resource_id)
+		if index < 0 or index >= resources.size() or int(resources[index].get("id", -1)) != index:
+			canonical_ids = false
+			break
+	if not canonical_ids:
+		ids.clear()
+		for resource in resources:
+			if candidates.has(int(resource.get("id", -1))):
+				ids.append(int(resource["id"]))
+		return ids
+	ids.sort()
+	return ids
+
+
 func _discover_feeders() -> void:
 	if feeders.size() >= _active_feeder_capacity():
 		return
@@ -4707,8 +4778,9 @@ func _discover_feeders() -> void:
 		connected[int(feeder["resource_id"])] = true
 	var organic_candidates: Array = []
 	var mineral_candidates: Array = []
-	for resource in resources:
-		if not bool(resource["alive"]) or float(resource["amount"]) <= 0.0005:
+	for candidate_id in _feeder_candidate_resource_ids():
+		var resource := _resource_by_id(int(candidate_id))
+		if resource.is_empty() or not bool(resource["alive"]) or float(resource["amount"]) <= 0.0005:
 			continue
 		var resource_id := int(resource["id"])
 		if connected.has(resource_id):
@@ -4851,6 +4923,19 @@ func _current_ecology_event() -> Dictionary:
 	if ecology_events.is_empty():
 		return {}
 	return ecology_events[0]
+
+
+func _ecology_blocks_fungal_incursion() -> bool:
+	var event := _current_ecology_event()
+	if event.is_empty():
+		return false
+	# A bloom waiting for population capacity is not an active hazard. It may
+	# retry indefinitely, so it must not monopolize the post-chapter scheduler.
+	# This is derived from existing state, including older saves; no new timer
+	# or offline event is introduced. Real warnings and active events still pause.
+	if String(event.get("phase", "warning")) == "warning" and String(event.get("type", "bloom")) == "bloom":
+		return MAX_BACTERIA - bacteria.size() >= ECOLOGY_BLOOM_SPAWN_COUNT
+	return true
 
 
 func _ecology_events_enabled() -> bool:
@@ -8172,7 +8257,6 @@ func _draw_hud(viewport: Vector2) -> void:
 
 
 func _draw_unit_filter_bar() -> void:
-	var short_names := {"all": "全", "forager": "游", "carrier": "载", "chelator": "矿", "scout": "侦", "lytic": "裂", "suppressor": "抑", "disperser": "散", "piercer": "穿", "coil": "缠", "antifungal": "封"}
 	for item in _unit_filter_rects():
 		var filter_id := String(item["id"])
 		var rect: Rect2 = item["rect"]
@@ -8189,7 +8273,9 @@ func _draw_unit_filter_bar() -> void:
 			border = COLOR_MUTED.darkened(0.45)
 		draw_style_box(_rounded_style(background, Color(border, 0.92 if active else 0.50), 7, 2 if active else 1), rect)
 		var text_color := COLOR_TEXT if available or count > 0 else COLOR_MUTED.darkened(0.35)
-		draw_string(fallback_font, rect.position + Vector2(7, 21), String(short_names[filter_id]), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, text_color)
+		var short_name := _rt("filter_short_" + filter_id)
+		var short_font := _fit_font_size(short_name, rect.size.x - 6.0, UI_FONT_SIZE, 8)
+		draw_string(fallback_font, rect.position + Vector2(3, 21), short_name, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 6.0, short_font, text_color)
 		draw_string(fallback_font, rect.position + Vector2(5, 39), "%02d" % count, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(text_color, 0.82))
 
 
@@ -8534,7 +8620,7 @@ func _draw_fungal_incursion_hud(_viewport: Vector2) -> void:
 		return
 	var phase := String(fungal_incursion.get("phase", "locked"))
 	var wave := maxi(1, int(fungal_incursion.get("wave", lifetime_fungal_incursions_defeated + 1)))
-	var paused := not _current_ecology_event().is_empty() or not _has_living_barracks()
+	var paused := _ecology_blocks_fungal_incursion() or not _has_living_barracks()
 	var accent := Color("ff8b68") if phase == "warning" else (Color("ff5f6d") if phase == "active" else Color("c98f78"))
 	var rect := _fungal_incursion_hud_rect()
 	draw_style_box(_rounded_style(Color(0.105, 0.040, 0.055, 0.97), Color(accent, 0.90), 9, 2), rect)
@@ -8658,27 +8744,68 @@ func _enemy_threat_hud_rect() -> Rect2:
 	return Rect2(guide.position + Vector2(0.0, guide.size.y + (4.0 if compact else 8.0)), Vector2(guide.size.x, 34.0 if compact else 62.0))
 
 
+func _core_attention_id() -> int:
+	var result := -1
+	var lowest_fraction := INF
+	for core_id in range(cores.size()):
+		if not _is_core_alive(core_id):
+			continue
+		var core: Dictionary = cores[core_id]
+		var fraction := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS)))
+		if fraction > 0.5 and float(core.get("toxin_pressure", 0.0)) <= 0.000001:
+			continue
+		if fraction < lowest_fraction:
+			lowest_fraction = fraction
+			result = core_id
+	return result
+
+
 func _draw_enemy_threat_hud(_viewport: Vector2) -> void:
-	if enemy_threat_level <= 0 or not enemy_threat_pos.is_finite():
+	var attention_core := _core_attention_id()
+	if attention_core < 0 and (enemy_threat_level <= 0 or not enemy_threat_pos.is_finite()):
 		return
 	var rect := _enemy_threat_hud_rect()
 	var accent := Color("f4ca83") if enemy_threat_level == 1 else (Color("ff956b") if enemy_threat_level == 2 else Color("ff5f6d"))
 	var title := _et("threat_notice")
+	var detail := _et("threat_locate")
 	if enemy_threat_level == 2:
 		title = _et("threat_imminent")
 	elif enemy_threat_level == 3:
 		title = _et("threat_contact")
+	# Reuse the existing warning slot, so narrow displays do not gain another card.
+	# A living core already in danger takes priority over the approaching front.
+	if attention_core >= 0:
+		var core: Dictionary = cores[attention_core]
+		var percent := float(core.get("biomass", CORE_MAX_BIOMASS)) / maxf(0.001, float(core.get("max_biomass", CORE_MAX_BIOMASS))) * 100.0
+		title = _et("core_pressure_title_fmt" if float(core.get("toxin_pressure", 0.0)) > 0.000001 else "core_low_title_fmt") % [attention_core + 1, percent]
+		detail = _et("core_attention_locate")
+		accent = Color("ff5f6d") if percent <= 30.0 else Color("ff956b")
 	draw_style_box(_rounded_style(Color(0.12, 0.045, 0.055, 0.97), Color(accent, 0.92), 9, 2), rect)
 	if rect.size.y < 50.0:
-		var compact_text := title + " · " + _et("threat_locate")
+		var compact_text := title + " · " + detail
 		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_text, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20.0, _fit_font_size(compact_text, rect.size.x - 20.0, UI_FONT_SIZE, 7), accent)
 		return
 	draw_string(fallback_font, rect.position + Vector2(13, 24), title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(title, rect.size.x - 26.0), accent)
-	draw_string(fallback_font, rect.position + Vector2(13, 48), _et("threat_locate"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_et("threat_locate"), rect.size.x - 26.0), COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(13, 48), detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(detail, rect.size.x - 26.0), COLOR_TEXT)
 
 
 func _handle_enemy_threat_click(pos: Vector2) -> bool:
-	if enemy_threat_level <= 0 or not enemy_threat_pos.is_finite() or not _enemy_threat_hud_rect().has_point(pos):
+	if not _enemy_threat_hud_rect().has_point(pos):
+		return false
+	var attention_core := _core_attention_id()
+	if attention_core >= 0:
+		camera_center = cores[attention_core]["pos"]
+		_clamp_camera()
+		selected_core = attention_core
+		selected_tip_valid = false
+		selected_expedition_ids.clear()
+		mode = "normal"
+		menu_anim = 0.0
+		show_status = true
+		_play_sound("select_core")
+		toast(_et("core_attention_located"), 4.0, "info")
+		return true
+	if enemy_threat_level <= 0 or not enemy_threat_pos.is_finite():
 		return false
 	if not _is_world_explored(enemy_threat_pos):
 		return true

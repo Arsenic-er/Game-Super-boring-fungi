@@ -12,8 +12,11 @@ func _run() -> void:
 	var expected_locales: Array[String] = ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]
 	if not _check(RivalCombatLocalization.LOCALES == expected_locales, "locale order"):
 		return
-	if not _check(RivalCombatLocalization.KEYS.size() == 76, "key count"):
+	if not _check(RivalCombatLocalization.KEYS.size() == 87, "key count"):
 		return
+	for filter_id in ["all", "forager", "carrier", "chelator", "scout", "lytic", "suppressor", "disperser", "piercer", "coil", "antifungal"]:
+		if not _check(RivalCombatLocalization.KEYS.has("filter_short_" + filter_id), "filter label key %s" % filter_id):
+			return
 	var unique_keys := {}
 	for key in RivalCombatLocalization.KEYS:
 		unique_keys[key] = true
@@ -48,7 +51,7 @@ func _run() -> void:
 		return
 	if not _check(RivalCombatLocalization.text("missing_key", "ru") == "missing_key", "unknown key fallback"):
 		return
-	print("RIVAL_COMBAT_LOCALIZATION_OK locales=7 keys=76 reasons=13 stable_ids=true")
+	print("RIVAL_COMBAT_LOCALIZATION_OK locales=7 keys=87 filters=11 reasons=13 stable_ids=true")
 	quit(0)
 
 

@@ -135,6 +135,8 @@ func _run() -> void:
 		"alive": true,
 		"phase": 0.0
 	})
+	# Direct fixture replacement must rebuild the same spatial index used by normal resource creation/loading.
+	game._rebuild_resource_grid()
 	var before_absorb: float = game.organic
 	var before_mineral: float = game.mineral
 	game._discover_feeders()

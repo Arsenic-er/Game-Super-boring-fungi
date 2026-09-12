@@ -88,6 +88,11 @@ func _after_opening() -> bool:
 		"followup_runtime_ms": Time.get_ticks_msec() - followup_started_ms
 	}))
 	print("CHAPTER1_SUPPLY_EXPANSION_OK normal_mode=true intact_world=true paid_extensions=4 natural_deliveries=", followup_deposits.size())
+	return _after_supply_expansion()
+
+
+func _after_supply_expansion() -> bool:
+	# Optional victory routes continue from these exact paid economic milestones.
 	return true
 
 
