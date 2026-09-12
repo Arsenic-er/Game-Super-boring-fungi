@@ -58,12 +58,12 @@ Open the repository's [latest Release](../../releases/latest), download the Wind
 - Fungi-diet progression now unlocks piercer spores for attacking rival cores, plus a dedicated rival-colony objective and reward.
 - Fungi-diet progression also unlocks coil hunters: order them onto individual enemy hyphae to sever supply lines, make dependent branches fade over 90 seconds, and earn the new severing objective while the rival regrows from its surviving network.
 - Fungi-diet progression now adds reusable antifungal pods: unfold a 75 μm lockdown field to reduce rival nutrient absorption and regrowth to 35%, double the decay of severed hyphae, and complete a dedicated containment objective without dealing direct damage.
-- A nine-step, non-blocking Chapter 1 guidance chain now connects core awakening, germination, absorption, DNA, colony growth, diet evolution, barracks, exploration, and rival clearance, ending in a persistent culture report.
+- An eleven-step, non-blocking Chapter 1 guidance chain connects growth and expeditions to economic supply, network expansion, exploration, and defeating the first rival. Current completion targets are 500 organic nutrients and 25 minerals absorbed through hyphae, 6 organic nutrients delivered home by spores, 3 living cores (barracks count), and 1 mm of mature, connected hyphae. Supply and expansion must still qualify at completion. The report can be reopened, and cultivation can continue; the next chapter remains unavailable.
 - Fog-safe rival-hypha warnings appear only for explored threats; basic foragers retain a very slow manual anti-fungus fallback while fungi-specialist piercers remain dramatically stronger.
 - A complete culture-session flow: true simulation pause, save-now and settings controls, save-and-return, separate continue/new-culture entries, overwrite confirmation, and recoverable game-over actions.
 - Barracks production queues, per-barracks rally points, resource-aware automatic replenishment, and unit-type selection filters.
 - Expedition spores now have role-specific fractional biomass, counterattack and toxin damage, automatic low-biomass retreat, slow free barracks repair, death, and replenishment. Live bacteria release a small defensive toxin while being consumed; their tooltip now explains this biomass loss.
-- After the first rival is cleared, recurring Rival Sporefall cycles add long idle cooldowns, visible landing warnings, progressively stronger young colonies, and repeatable recovery rewards.
+- After Chapter 1 is completed, recurring Rival Sporefall cycles add long idle cooldowns, visible landing warnings, progressively stronger young colonies, and repeatable recovery rewards.
 - RTS-style unit selection with a rectangular drag box, right-click orders, green command lines, accelerated testing speeds, and autosave.
 - Role-safe expedition orders prevent incompatible units from attacking or gathering the wrong target; mixed selections fall back to a nearby hold position, and `C` restores healthy units to role-appropriate automation.
 - Up to 48 hours of resource-faithful offline gathering and queued production; bacteria, combat, toxin exposure and orphaned-hypha decay retain a two-hour simulation window. No new ecology events begin offline. Finite deposits and prepaid DNA queues still apply, with automatic replenishment and a seven-language return report.
@@ -158,7 +158,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 局部细菌暴发新增非击杀解法：让除最多3个以外的事件细菌连续12秒处于部署区内，即可完成静菌封锁并领取专属长期目标奖励。
 - 可视化兵营生产队列、每座兵营独立集结点、遵守营养消耗的自动补员，以及按兵种快速筛选部队。
 - 体外孢子现在具有按兵种区分的三位小数生物量、反击与毒素伤害、低生物量自动撤退、兵营缓慢免费修复、失活和自动补员闭环。活细菌在被摄食时会释放少量防御毒素，细菌悬停说明会明确提示这项生物量损失。
-- 清除初始竞争菌落后会开启可重复的“竞争孢子雨”：经过长时间冷却和可定位的落点预警后生成逐轮增强的幼体菌落，击退后获得重复奖励。
+- 第一章完成后会开启可重复的“竞争孢子雨”：经过长时间冷却和可定位的落点预警后生成逐轮增强的幼体菌落，击退后获得重复奖励。
 - 大地图与小地图使用永久探索黑幕；高速嗅营孢子会自动寻找未探索区域并揭示资源热点。
 - 异常资源区会触发永久发现记录与提示；新增远征补给、细菌压制目标，以及独立的嗅营感知和运动升级。
 - 带预警的细菌生态事件：通过捕食和体外部队压制局部暴发，或利用抗生素、解毒代谢和修复储备熬过临时毒素区。
@@ -172,7 +172,7 @@ The source code, visual assets, game design, text, and other repository contents
 - 真菌食性现在可以解锁穿壁孢子，用于攻击竞争菌落核心，并配有独立长期目标与奖励。
 - 真菌食性还可解锁“缠丝猎手”：把它右键指派到一段敌方菌丝后可切断供给线，使依赖该段的远端分支在90秒内逐渐暗淡、失活；竞争菌仍会从幸存网络重新生长，并新增“断丝战术”目标。
 - 真菌食性新增可重复部署的“抗真菌囊体”：展开半径75 μm的封锁区，把竞争真菌的营养吸收和再扩张压至35%，令已切断菌丝以两倍速度衰败；封锁区不直接造成伤害，并配有独立长期目标。
-- 新增九步、非强制式第一章引导，将唤醒核心、萌发、吸收、DNA、扩建、食性、兵营、探索和清除竞争菌串成完整流程，结束后生成可持久保存的培养报告。
+- 第十一项任务完成后结束第一章引导：需兼顾经营补给、网络扩张与击败首个竞争菌落。当前目标为菌丝累计吸收 500 有机营养、25 矿物，孢子累计运回 6 有机营养，同时保有 3 个存活核心（含兵营）及 1 mm 成熟且未断联的菌丝；结算时补给与扩张仍须达标。报告可重新查看，当前培养可以继续，下一章尚未开放。
 - 竞争菌丝威胁提示只读取已探索区域；基础游猎孢子保留极慢的手动对真菌攻击能力，真菌专属穿壁孢子仍具有显著效率优势。
 - 完成培养会话管理闭环：真正冻结模拟的暂停菜单、立即保存与设置、保存返回主菜单、独立的继续/新培养入口、覆盖确认，以及失败后的重新培养和返回操作。
 - 类 RTS 的矩形拖框选兵、右键指令和绿色命令线；另有测试加速与自动存档。

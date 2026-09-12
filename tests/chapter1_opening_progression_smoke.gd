@@ -144,9 +144,16 @@ func _run() -> void:
 		"paid": spent, "claimed_rewards": rewards, "goals_claimed": game.goals_claimed.keys(), "milestones_seconds": milestones
 	}
 	print("CHAPTER1_OPENING_SNAPSHOT ", JSON.stringify(snapshot))
+	if not _after_opening():
+		return
 	print("CHAPTER1_OPENING_PROGRESSION_OK normal_mode=true scripted_seconds=1200 prepaid_dna=4 runtime_ms=", Time.get_ticks_msec() - started_ms)
 	game.queue_free()
 	quit(0)
+
+
+func _after_opening() -> bool:
+	# Optional long-session probes reuse this exact paid opening without copying it.
+	return true
 
 
 func _tick() -> void:

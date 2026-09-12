@@ -25,6 +25,12 @@ const DNA_JOB_SECONDS := 300.0
 const DNA_SPEED_BONUS_PER_NODE_LEVEL := 0.10
 const CORE_ORGANIC_COST := 70.0
 const CORE_MINERAL_COST := 6.0
+const CHAPTER_RULES_VERSION := 2
+const CHAPTER_SUPPLY_ORGANIC_REQUIRED := 500.0
+const CHAPTER_SUPPLY_MINERAL_REQUIRED := 25.0
+const CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED := 6.0
+const CHAPTER_LIVING_CORE_REQUIRED := 3
+const CHAPTER_HYPHA_WORLD_REQUIRED := 2000.0
 const OFFLINE_CAP_SECONDS := 48.0 * 3600.0
 const OFFLINE_MIN_SECONDS := 30.0
 const OFFLINE_STEP_SECONDS := 60.0
@@ -554,6 +560,7 @@ var chapter_complete := false
 var chapter_report_open := false
 var chapter_report_seen := false
 var chapter_completed_at := 0.0
+var chapter_completed_rules_version := CHAPTER_RULES_VERSION
 var guidance_collapsed := false
 var lifetime_expedition_units_built := 0
 var enemy_threat_level := 0
@@ -1901,10 +1908,7 @@ func _update_dna_jobs(sim_delta: float) -> void:
 				if head_left > 0.0005:
 					break
 				jobs.pop_front()
-				dna += 1
-				lifetime_dna_produced += 1
-				_play_sound("dna_ready")
-				toast("DNA +1　孢子核心完成了一次代谢记录", 3.0)
+				_complete_dna_job(core_id)
 			if not jobs.is_empty():
 				active_core_ids.append(core_id)
 		if active_core_ids.is_empty():
@@ -1922,15 +1926,31 @@ func _update_dna_jobs(sim_delta: float) -> void:
 			var job_left := float(job.get("remaining", DNA_JOB_SECONDS)) if job is Dictionary else float(job)
 			if job_left <= work + 0.0005:
 				jobs.pop_front()
-				dna += 1
-				lifetime_dna_produced += 1
-				_play_sound("dna_ready")
-				toast("DNA +1　孢子核心完成了一次代谢记录", 3.0)
+				_complete_dna_job(core_id)
 			elif job is Dictionary:
 				job["remaining"] = job_left - work
 			else:
 				jobs[0] = job_left - work
 		remaining_sim -= slice
+
+
+func _complete_dna_job(core_id: int) -> void:
+	dna += 1
+	lifetime_dna_produced += 1
+	if offline_simulating:
+		return
+	_play_sound("dna_ready")
+	if (cores[core_id].get("jobs", []) as Array).is_empty():
+		toast(_gt("toast_dna_queue_finished_fmt") % (core_id + 1), 5.0, "info")
+	else:
+		toast(_gt("toast_dna_ready"), 3.0, "info")
+
+
+func _dna_queue_status_text(core_id: int) -> String:
+	if not _is_core_alive(core_id):
+		return ""
+	var queued := (cores[core_id].get("jobs", []) as Array).size()
+	return _gt("stat_dna_idle") if queued == 0 else _gt("stat_dna_queue_fmt") % queued
 
 
 func _total_queued_expedition_units() -> int:
@@ -3908,7 +3928,9 @@ func _acquire_expedition_target(unit: Dictionary) -> void:
 				best_pos = guard_pos
 				best_distance = guard_distance
 				unit["target_enemy_guard_id"] = int(enemy_guard_spores[guard_index].get("id", -1))
-	if _unit_can_attack_enemy_fungus(unit) and (unit_type == "piercer" or (unit_type == "forager" and chapter_task_index >= 8)):
+	# Visible targets and unit capability govern combat, not a tutorial index
+	# that can move back when the colony loses a core or its supply network.
+	if _unit_can_attack_enemy_fungus(unit) and unit_type in ["piercer", "forager"]:
 		var enemy_index := _nearest_enemy_fungus_index(pos, EXPEDITION_SEARCH_RADIUS, true)
 		if enemy_index >= 0:
 			var enemy_pos: Vector2 = enemy_fungi[enemy_index]["pos"]
@@ -4166,6 +4188,35 @@ func _chapter_tasks() -> Array:
 	return ChapterLocalization.tasks(settings_locale)
 
 
+func _chapter_supply_ready() -> bool:
+	return lifetime_organic_absorbed >= CHAPTER_SUPPLY_ORGANIC_REQUIRED and lifetime_mineral_absorbed >= CHAPTER_SUPPLY_MINERAL_REQUIRED and lifetime_expedition_organic_returned >= CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED
+
+
+func _chapter_living_hypha_length() -> float:
+	var total := 0.0
+	for segment in segments:
+		if not _is_core_alive(int(segment.get("core_id", -1))) or bool(segment.get("orphaned", false)):
+			continue
+		if float(segment.get("growth", 0.0)) < 1.0 or float(segment.get("viability", 1.0)) <= 0.0:
+			continue
+		total += (segment["b"] as Vector2).distance_to(segment["a"])
+	return total
+
+
+func _chapter_expansion_ready() -> bool:
+	return _living_core_count() >= CHAPTER_LIVING_CORE_REQUIRED and _chapter_living_hypha_length() >= CHAPTER_HYPHA_WORLD_REQUIRED
+
+
+func _chapter_task_detail(task: Dictionary) -> String:
+	match String(task.get("id", "")):
+		"secure_supply":
+			# Round progress down: 499.999 must not look like the 500 requirement is met.
+			return _ct("supply_progress_fmt") % [floorf(minf(lifetime_organic_absorbed, CHAPTER_SUPPLY_ORGANIC_REQUIRED)), CHAPTER_SUPPLY_ORGANIC_REQUIRED, floorf(minf(lifetime_mineral_absorbed, CHAPTER_SUPPLY_MINERAL_REQUIRED)), CHAPTER_SUPPLY_MINERAL_REQUIRED, floorf(minf(lifetime_expedition_organic_returned, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED) * 10.0) / 10.0, CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED]
+		"expand_network":
+			return _ct("expansion_progress_fmt") % [mini(_living_core_count(), CHAPTER_LIVING_CORE_REQUIRED), CHAPTER_LIVING_CORE_REQUIRED, floorf(minf(_chapter_living_hypha_length(), CHAPTER_HYPHA_WORLD_REQUIRED) / 2.0), CHAPTER_HYPHA_WORLD_REQUIRED / 2.0]
+	return String(task.get("detail", ""))
+
+
 func _chapter_task_complete(index: int) -> bool:
 	match index:
 		0: return core_selected_once
@@ -4181,13 +4232,35 @@ func _chapter_task_complete(index: int) -> bool:
 					has_barracks = true
 					break
 			return has_barracks and lifetime_expedition_units_built >= 1
-		7:
+		7: return _chapter_supply_ready()
+		8: return _chapter_expansion_ready()
+		9:
 			for enemy in enemy_fungi:
 				if bool(enemy.get("discovered", false)):
 					return true
-			return false
-		8: return lifetime_enemy_fungi_defeated >= 1
+			return lifetime_enemy_fungi_defeated >= 1
+		10: return lifetime_enemy_fungi_defeated >= 1 and _chapter_supply_ready() and _chapter_expansion_ready()
 	return false
+
+
+func _constrain_chapter_progress_to_live_goals() -> void:
+	if chapter_complete or developer_mode_enabled:
+		return
+	if chapter_task_index > 7 and not _chapter_supply_ready():
+		chapter_task_index = 7
+	elif chapter_task_index > 8 and not _chapter_expansion_ready():
+		chapter_task_index = 8
+	elif chapter_task_index >= _chapter_tasks().size() and lifetime_enemy_fungi_defeated < 1:
+		chapter_task_index = ChapterLocalization.TASK_IDS.find("clear_rival")
+
+
+func _legacy_chapter_completed(allow_migrated_diet: bool) -> bool:
+	for index in range(7):
+		if index == 5 and allow_migrated_diet:
+			continue
+		if not _chapter_task_complete(index):
+			return false
+	return lifetime_enemy_fungi_defeated >= 1
 
 
 func _infer_chapter_task_index() -> int:
@@ -4204,6 +4277,7 @@ func _update_chapter_flow(show_feedback: bool = true) -> void:
 			chapter_report_open = true
 			_play_sound("goal", 1.2)
 		return
+	_constrain_chapter_progress_to_live_goals()
 	var tasks := _chapter_tasks()
 	var advanced := false
 	while chapter_task_index < tasks.size() and _chapter_task_complete(chapter_task_index):
@@ -4211,6 +4285,7 @@ func _update_chapter_flow(show_feedback: bool = true) -> void:
 		advanced = true
 	if chapter_task_index >= tasks.size():
 		chapter_complete = true
+		chapter_completed_rules_version = CHAPTER_RULES_VERSION
 		chapter_completed_at = sim_time
 		chapter_report_open = not offline_report_open and game_started
 		_play_sound("goal", 1.2)
@@ -7115,6 +7190,7 @@ func _start_new_culture() -> void:
 	chapter_report_open = false
 	chapter_report_seen = false
 	chapter_completed_at = 0.0
+	chapter_completed_rules_version = CHAPTER_RULES_VERSION
 	guidance_collapsed = false
 	lifetime_expedition_units_built = 0
 	enemy_threat_level = 0
@@ -8486,7 +8562,7 @@ func _draw_chapter_guidance(_viewport: Vector2) -> void:
 	var accent := Color("76f5ca") if not chapter_complete else Color("f4ca83")
 	var hovered := rect.has_point(last_mouse)
 	draw_style_box(_rounded_style(Color(0.025, 0.085, 0.105, 0.97) if hovered else Color(0.018, 0.060, 0.085, 0.96), Color(accent, 0.78), 9, 2), rect)
-	var arrow := "＋" if guidance_collapsed else "－"
+	var arrow := "?" if chapter_complete else ("＋" if guidance_collapsed else "－")
 	if rect.size.y < 40.0:
 		var compact_title := _ct("complete") if chapter_complete else (_ct("task_heading_fmt") % [chapter_task_index + 1, _chapter_tasks().size(), String((_chapter_tasks()[clampi(chapter_task_index, 0, _chapter_tasks().size() - 1)] as Dictionary)["title"])])
 		draw_string(fallback_font, rect.position + Vector2(10, 22), compact_title, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 42.0, _fit_font_size(compact_title, rect.size.x - 42.0, UI_FONT_SIZE, 7), accent)
@@ -8496,7 +8572,7 @@ func _draw_chapter_guidance(_viewport: Vector2) -> void:
 		draw_string(fallback_font, rect.position + Vector2(13, 25), _ct("complete"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 50.0, _fit_font_size(_ct("complete"), rect.size.x - 50.0), accent)
 		draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 25), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
 		if not guidance_collapsed:
-			draw_string(fallback_font, rect.position + Vector2(13, 49), _ct("free_culture"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("free_culture"), rect.size.x - 26.0), COLOR_MUTED)
+			draw_string(fallback_font, rect.position + Vector2(13, 49), _ct("review_report"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("review_report"), rect.size.x - 26.0), COLOR_MUTED)
 		return
 	var tasks := _chapter_tasks()
 	var task: Dictionary = tasks[clampi(chapter_task_index, 0, tasks.size() - 1)]
@@ -8504,7 +8580,8 @@ func _draw_chapter_guidance(_viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(rect.size.x - 28, 24), arrow, HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, accent)
 	if guidance_collapsed:
 		return
-	draw_string(fallback_font, rect.position + Vector2(13, 52), String(task["detail"]), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(String(task["detail"]), rect.size.x - 26.0), COLOR_TEXT)
+	var task_detail := _chapter_task_detail(task)
+	draw_string(fallback_font, rect.position + Vector2(13, 52), task_detail, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(task_detail, rect.size.x - 26.0), COLOR_TEXT)
 	draw_string(fallback_font, rect.position + Vector2(13, 78), _ct("unlimited"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("unlimited"), rect.size.x - 26.0), COLOR_MUTED)
 	draw_string(fallback_font, rect.position + Vector2(13, 101), _ct("show_hint"), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 26.0, _fit_font_size(_ct("show_hint"), rect.size.x - 26.0, 10), Color(accent, 0.82))
 
@@ -8513,14 +8590,16 @@ func _handle_chapter_guidance_click(pos: Vector2) -> bool:
 	var rect := _chapter_guidance_rect()
 	if not rect.has_point(pos):
 		return false
-	if rect.size.y < 40.0:
-		if chapter_complete:
-			toast(_ct("free_culture"), 5.0, "info")
-		else:
-			var compact_tasks := _chapter_tasks()
-			toast(String(compact_tasks[clampi(chapter_task_index, 0, compact_tasks.size() - 1)]["hint"]), 7.0, "info")
+	if chapter_complete:
+		chapter_report_open = true
+		_play_sound("panel_open")
+		queue_redraw()
 		return true
-	if pos.y <= rect.position.y + 38.0 or guidance_collapsed or chapter_complete:
+	if rect.size.y < 40.0:
+		var compact_tasks := _chapter_tasks()
+		toast(String(compact_tasks[clampi(chapter_task_index, 0, compact_tasks.size() - 1)]["hint"]), 7.0, "info")
+		return true
+	if pos.y <= rect.position.y + 38.0 or guidance_collapsed:
 		guidance_collapsed = not guidance_collapsed
 	else:
 		var tasks := _chapter_tasks()
@@ -10055,7 +10134,7 @@ func _draw_status_panel(viewport: Vector2) -> void:
 	draw_string(fallback_font, rect.position + Vector2(16, 107), _gt("stat_toxin_fmt") % float(core.get("toxin_pressure", 0.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("c794e8"))
 	draw_string(fallback_font, rect.position + Vector2(16, 132), _gt("stat_lifestyle"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
 	draw_string(fallback_font, rect.position + Vector2(16, 157), _gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)], HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	var queue_text := _gt("stat_unit_queue_fmt") % [_localized_unit_name(String(core.get("production_unit", "forager"))), (core.get("spore_jobs", []) as Array).size(), BARRACKS_QUEUE_CAPACITY] if is_barracks else _gt("stat_dna_queue_fmt") % (core["jobs"] as Array).size()
+	var queue_text := _gt("stat_unit_queue_fmt") % [_localized_unit_name(String(core.get("production_unit", "forager"))), (core.get("spore_jobs", []) as Array).size(), BARRACKS_QUEUE_CAPACITY] if is_barracks else _dna_queue_status_text(selected_core)
 	var queue_font_size := _fit_font_size(queue_text, rect.size.x - 32.0)
 	draw_string(fallback_font, rect.position + Vector2(16, 182), queue_text, HORIZONTAL_ALIGNMENT_LEFT, -1, queue_font_size, COLOR_MUTED)
 	draw_string(fallback_font, rect.position + Vector2(16, 207), _gt("stat_water"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_WATER)
@@ -10155,7 +10234,7 @@ func _draw_status_panel_compact(rect: Rect2, core: Dictionary, is_barracks: bool
 			_gt("stat_repair_fmt") % [float(core.get("repair_reserve", 0.0)), _repair_recovery_rate()],
 			_gt("stat_toxin_fmt") % float(core.get("toxin_pressure", 0.0)),
 			_gt("stat_hypha_fmt") % [int(_core_hypha_length(selected_core) / 2.0), int(_hypha_capacity_for_core(selected_core) / 2.0)],
-			_gt("stat_dna_queue_fmt") % (core["jobs"] as Array).size(),
+			_dna_queue_status_text(selected_core),
 			_gt("stat_feeder_fmt") % [_feeder_range_for_core(selected_core) / 2.0, int(core.get("feeder_range_level", 0))],
 			_gt("stat_dna_speed_fmt") % [int(_dna_speed_bonus(selected_core) * 100.0), _dna_job_duration(selected_core)]
 		]
@@ -10721,13 +10800,17 @@ func _chapter_report_layout(viewport: Vector2) -> Dictionary:
 	}
 
 
+func _chapter_report_subtitle() -> String:
+	return _ct("report_legacy_subtitle") if chapter_completed_rules_version < CHAPTER_RULES_VERSION else _ct("report_subtitle")
+
+
 func _draw_chapter_report(viewport: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, viewport), Color(0.003, 0.012, 0.020, 0.86))
 	var layout := _chapter_report_layout(viewport)
 	var panel: Rect2 = layout["panel"]
 	draw_style_box(_rounded_style(Color(0.018, 0.075, 0.085, 0.995), Color("76f5ca"), 14, 2), panel)
 	var report_title := _ct("report_title")
-	var report_subtitle := _ct("report_subtitle")
+	var report_subtitle := _chapter_report_subtitle()
 	draw_string(fallback_font, panel.position + Vector2(30, float(layout["title_y"])), report_title, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(report_title, panel.size.x - 60.0, 19, 10), Color("c6ffe4"))
 	draw_string(fallback_font, panel.position + Vector2(30, float(layout["subtitle_y"])), report_subtitle, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(report_subtitle, panel.size.x - 60.0, UI_FONT_SIZE, 7), COLOR_TEXT)
 	var divider_y := float(layout["divider_y"])
@@ -10758,9 +10841,9 @@ func _draw_chapter_report(viewport: Vector2) -> void:
 		var line_text := String(right_lines[i])
 		draw_string(fallback_font, Vector2(right_x, first_y + i * gap), line_text, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(line_text, column_width, UI_FONT_SIZE, 7), COLOR_TEXT)
 	var unclaimed_notice := _ct("report_unclaimed_notice")
-	var inheritance_notice := _ct("report_inheritance_notice")
+	var continuation_notice := _ct("report_continuation_notice")
 	draw_string(fallback_font, panel.position + Vector2(34, float(layout["notice_one_y"])), unclaimed_notice, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(unclaimed_notice, panel.size.x - 68.0, UI_FONT_SIZE, 6), COLOR_MUTED)
-	draw_string(fallback_font, panel.position + Vector2(34, float(layout["notice_two_y"])), inheritance_notice, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(inheritance_notice, panel.size.x - 68.0, UI_FONT_SIZE, 6), Color("8ce9ff"))
+	draw_string(fallback_font, panel.position + Vector2(34, float(layout["notice_two_y"])), continuation_notice, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_font_size(continuation_notice, panel.size.x - 68.0, UI_FONT_SIZE, 6), Color("8ce9ff"))
 	var labels := [_ui("continue_culture"), _ui("back_main"), _ct("report_next_locked")]
 	for i in range(3):
 		var button := _chapter_report_button_rect(viewport, i)
@@ -11090,11 +11173,13 @@ func _save_game() -> bool:
 		"lifetime_disperser_best_hit": lifetime_disperser_best_hit,
 		"lifetime_fungal_incursions_defeated": lifetime_fungal_incursions_defeated,
 		"fungal_incursion": incursion_data,
+		"chapter_rules_version": CHAPTER_RULES_VERSION,
 		"chapter_task_index": chapter_task_index,
 		"core_selected_once": core_selected_once,
 		"chapter_complete": chapter_complete,
 		"chapter_report_seen": chapter_report_seen,
 		"chapter_completed_at": chapter_completed_at,
+		"chapter_completed_rules_version": chapter_completed_rules_version,
 		"guidance_collapsed": guidance_collapsed,
 		"lifetime_expedition_units_built": lifetime_expedition_units_built,
 		"lifetime_expedition_units_lost": lifetime_expedition_units_lost,
@@ -11226,6 +11311,7 @@ func _load_game(defer_offline: bool = false) -> bool:
 	chapter_report_open = false
 	chapter_report_seen = bool(parsed.get("chapter_report_seen", false))
 	chapter_completed_at = maxf(0.0, float(parsed.get("chapter_completed_at", 0.0)))
+	chapter_completed_rules_version = clampi(int(parsed.get("chapter_completed_rules_version", parsed.get("chapter_rules_version", 1))), 1, CHAPTER_RULES_VERSION)
 	guidance_collapsed = bool(parsed.get("guidance_collapsed", false))
 	lifetime_expedition_units_built = maxi(0, int(parsed.get("lifetime_expedition_units_built", 0)))
 	lifetime_expedition_units_lost = maxi(0, int(parsed.get("lifetime_expedition_units_lost", 0)))
@@ -11748,6 +11834,17 @@ func _load_game(defer_offline: bool = false) -> bool:
 		lifetime_expedition_units_built = 1
 	if not core_selected_once and (not segments.is_empty() or lifetime_organic_absorbed > 0.0 or lifetime_dna_produced > 0 or _living_core_count() > 1 or not diet_order.is_empty()):
 		core_selected_once = true
+	# Keep earned completions, but old in-progress indices must not skip new goals.
+	if int(parsed.get("chapter_rules_version", 1)) < CHAPTER_RULES_VERSION:
+		if not parsed.has("chapter_complete") and _legacy_chapter_completed(migrated_unavailable_primary_diet):
+			chapter_complete = true
+		if not chapter_complete:
+			if developer_mode_enabled and chapter_task_index >= 7:
+				chapter_task_index += 2
+			else:
+				chapter_task_index = mini(chapter_task_index, 7)
+	if chapter_complete:
+		chapter_task_index = _chapter_tasks().size()
 	chapter_task_index = maxi(chapter_task_index, _infer_chapter_task_index())
 	if migrated_unavailable_primary_diet and not parsed.has("chapter_task_index"):
 		chapter_task_index = maxi(chapter_task_index, 6)
@@ -11755,7 +11852,10 @@ func _load_game(defer_offline: bool = false) -> bool:
 		while chapter_task_index < migration_tasks.size() and _chapter_task_complete(chapter_task_index):
 			chapter_task_index += 1
 	chapter_task_index = clampi(chapter_task_index, 0, _chapter_tasks().size())
+	_constrain_chapter_progress_to_live_goals()
 	if chapter_task_index >= _chapter_tasks().size():
+		if not chapter_complete:
+			chapter_completed_rules_version = CHAPTER_RULES_VERSION
 		chapter_complete = true
 		if chapter_completed_at <= 0.0:
 			chapter_completed_at = sim_time
@@ -12627,6 +12727,7 @@ func _developer_apply_action(action_id: String) -> void:
 		"complete_chapter":
 			chapter_task_index = _chapter_tasks().size()
 			chapter_complete = true
+			chapter_completed_rules_version = CHAPTER_RULES_VERSION
 			chapter_report_seen = true
 			chapter_report_open = false
 			chapter_completed_at = sim_time

@@ -158,3 +158,25 @@ The following remain local build/runtime products and are intentionally not comm
 - 不将脚本路线当作真人平均体验；返巢收益、普通路线 2/24/72 小时进展及整章平衡仍待验证。具体路线和限制见 [开局验证](CHAPTER1_OPENING_PROGRESS.zh-CN.md)。
 - Final server verification passed resource import, all 64 smoke tests and headless main-scene startup in 125 seconds. Summary: `/home/ubuntu/fungi/test-logs/20260912T173403Z-2708159/summary.txt`. The Windows installer separately runs the actual downloaded executable before replacing the current local version.
 - 最终服务器回归通过资源导入、全部 64 项冒烟测试与无界面主场景启动，用时 125 秒。本地安装器还会在覆盖前单独启动实际下载的 Windows EXE；该启动检查不等同于人工画面验收。
+
+## 2026-09-13 — Chapter 1 closing loop and composite victory / 第一章收尾与复合通关
+
+- Audited the actual existing chapter chain, long-term rewards, failure flow and teaching text before adding features. The old nine-step ending/report already existed; the missing evidence was normal long-term reachability, not the absence of a report.
+- Added a finite-resource expedition-cycle regression: paid production, natural travel/gathering, three unloads (3.000 / 3.000 / 2.250), automatic departure, manual-order priority, exhausted-zone behavior and per-step conservation. It is explicitly a prebuilt-barracks mechanism fixture, not a normal opening-time estimate.
+- Added an optional two-hour diagnostic that reuses the paid normal opening and then issues no new player orders. Its completed run retained two living cores, but lost the barracks; DNA had no queued jobs and local feeder uptake stopped increasing after about one hour. This is not a natural victory or a 24/72-hour balance sign-off.
+- Added seven-language last-DNA-job feedback, persistent idle wording in core status, and an option to reopen the chapter report from the completed chapter card. Offline production no longer emits individual completion toasts.
+- Corrected seven-language Esc guidance for founder movement/germination and prepaid DNA. Report copy now states the actual achievement and warns that continued cultivation can face further rival sporefalls.
+- The user confirmed a combined economic/expansion/combat ending. Added supply and expansion tasks, making an eleven-step chain: 500 organic and 25 mineral absorbed by hyphae, 6 organic returned by expeditions, three living cores, 1 mm of mature non-orphaned hyphae belonging to living cores, and one defeated rival colony.
+- Added live-condition checks so an in-progress save cannot bypass economic goals with a stale task index. Saved rule version 2 preserves earned legacy completions, rechecks unfinished old saves, and retains developer-mode manual stage controls. New target values are a first testable baseline, not an artificial three-day wait or proven final balance.
+
+- 先审计已有目标、报告、奖励和失败流程，避免把“尚未自然通关验收”误说成“报告机制没做”。
+- 真实有限资源的三趟采集返巢回归通过，包含不足满载的尾批、手动优先和耗尽后不重复入账。
+- 两小时无人继续操作的诊断完成：没有全灭，但兵营死亡，DNA 队列为空，菌丝吸收停滞。它不能替代主动经营到通关、24/72 小时节奏或真实玩家体验验证。
+- 补齐七语 DNA 队列结束提示、核心停产状态、重看章节报告和准确的通关后威胁说明；Esc 指引不再误导开局与资源扣费方式。
+- 用户正式确认复合通关，章节引导由 9 步扩展至 11 步。实际吸收、返巢交付、存活核心、有效菌丝和竞争菌落击败共同构成第一版条件。
+- 存档增加规则版本；旧已完成不撤销，旧未完成重核新条件，开发者跳转保留。具体门槛、诊断结果和未完事项见 [收尾审计](CHAPTER1_FINISH_AUDIT.zh-CN.md)。
+- Independent review caught a coupling between the now-reversible chapter index and forager auto-attacks. Combat target selection now depends on unit capability, visibility and range; losing a core no longer silently revokes automatic attacks. Regression coverage includes that retreat and fog-of-war boundary.
+- Persisted the rules under which a save earned completion, so resaving an old completed run does not imply it met the new economy thresholds; the report uses a separate seven-language legacy notice.
+- 独立审查修复了目标回退会误关自动进攻的问题，并加入“战中失核后重新寻敌”和黑幕边界回归。另保存通关规则来源，旧完成档二次存读后仍显示旧版说明。
+- Final gameplay verification passed resource import, all 68 smoke tests and main-scene startup in 129 seconds: `/home/ubuntu/fungi/test-logs/20260912T183227Z-2736783/summary.txt`. Windows and Web exports exclude developer-only tools, including the optional long-session probe.
+- 最终资源导入、68 项冒烟测试及主场景启动全部通过，用时 129 秒；导出排除仅用于开发的工具和长诊断脚本。完整第一章自然通关、24/72 小时经营曲线与 Windows 图形试玩仍未宣称完成。

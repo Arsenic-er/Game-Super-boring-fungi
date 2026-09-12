@@ -1,6 +1,9 @@
 extends SceneTree
 
 
+const SaveStore = preload("res://scripts/save_store.gd")
+
+
 func _initialize() -> void:
 	call_deferred("_run")
 
@@ -12,6 +15,11 @@ func _run() -> void:
 	var game: Node = packed.instantiate()
 	root.add_child(game)
 	await process_frame
+	game.set_process(false)
+	# This rule test does not need active playback in its short headless lifetime.
+	if game.pixel_audio != null:
+		game.pixel_audio.configure(0.0, 0.0, 0.0, 0.0, 0.0)
+		game.pixel_audio.ambient_player.stop()
 	game.splash_active = false
 	game._start_new_culture()
 	if game._founder_spore_active():
@@ -20,8 +28,9 @@ func _run() -> void:
 	game.game_started = false
 	game.autosave_enabled = false
 	game.save_path = "user://chapter_flow_smoke.json"
+	SaveStore.remove_slot(game.save_path)
 
-	if not _check(game._chapter_tasks().size() == 9 and game.chapter_task_index == 0, "new culture should start a nine-step chapter chain"):
+	if not _check(game._chapter_tasks().size() == 11 and game.chapter_task_index == 0, "new culture should start an eleven-step chapter chain"):
 		return
 	game.core_selected_once = true
 	game._update_chapter_flow(false)
@@ -44,11 +53,21 @@ func _run() -> void:
 	game._update_chapter_flow(false)
 	if not _check(game.chapter_task_index == 7 and game.lifetime_expedition_units_built == 1, "barracks plus one produced unit should complete the expedition task"):
 		return
+	game.lifetime_organic_absorbed = game.CHAPTER_SUPPLY_ORGANIC_REQUIRED
+	game.lifetime_mineral_absorbed = game.CHAPTER_SUPPLY_MINERAL_REQUIRED
+	game.lifetime_expedition_organic_returned = game.CHAPTER_SUPPLY_RETURNED_ORGANIC_REQUIRED
+	game._update_chapter_flow(false)
+	if not _check(game.chapter_task_index == 8, "meeting the cumulative supply requirements should unlock the live expansion task"):
+		return
+	game.segments.append({"a": Vector2(80.0, 0.0), "b": Vector2(game.CHAPTER_HYPHA_WORLD_REQUIRED, 0.0), "growth": 1.0, "core_id": 0, "curve": 0.0, "orphaned": false, "viability": 1.0})
+	game._update_chapter_flow(false)
+	if not _check(game.chapter_task_index == 9, "three living cores and the mature network unlock rival discovery"):
+		return
 
 	var enemy: Dictionary = game.enemy_fungi[0]
 	enemy["discovered"] = true
 	game._update_chapter_flow(false)
-	if not _check(game.chapter_task_index == 8, "discovering the rival should advance to the final task"):
+	if not _check(game.chapter_task_index == 10, "discovering the rival should advance to the final task"):
 		return
 
 	# The basic forager provides a deliberately slow manual fallback even without fungi diet.
@@ -81,7 +100,7 @@ func _run() -> void:
 	game._damage_enemy_fungus(int(enemy["id"]), 1.0)
 	game.game_started = true
 	game._update_chapter_flow(false)
-	if not _check(game.chapter_complete and game.chapter_report_open and game.chapter_task_index == 9, "defeating the rival should open the chapter report"):
+	if not _check(game.chapter_complete and game.chapter_report_open and game.chapter_task_index == 11, "defeating the rival after meeting economic and expansion goals should open the chapter report"):
 		return
 	var viewport := Vector2(1280.0, 720.0)
 	if not _check(not game._chapter_report_button_rect(viewport, 0).intersects(game._chapter_report_button_rect(viewport, 1)) and not game._chapter_report_button_rect(viewport, 1).intersects(game._chapter_report_button_rect(viewport, 2)), "chapter report buttons should not overlap"):
@@ -94,19 +113,20 @@ func _run() -> void:
 	var file := FileAccess.open(game.save_path, FileAccess.READ)
 	var legacy: Dictionary = JSON.parse_string(file.get_as_text())
 	file = null
-	for key in ["chapter_task_index", "core_selected_once", "chapter_complete", "chapter_report_seen", "chapter_completed_at", "guidance_collapsed", "lifetime_expedition_units_built", "next_expedition_id", "sim_time"]:
+	for key in ["chapter_rules_version", "chapter_completed_rules_version", "chapter_task_index", "core_selected_once", "chapter_complete", "chapter_report_seen", "chapter_completed_at", "guidance_collapsed", "lifetime_expedition_units_built", "next_expedition_id", "sim_time"]:
 		legacy.erase(key)
 	file = FileAccess.open(game.save_path, FileAccess.WRITE)
 	file.store_string(JSON.stringify(legacy))
 	file = null
 	game.chapter_task_index = 0
 	game.chapter_complete = false
-	if not _check(game._load_game() and game.chapter_complete and game.chapter_task_index == 9 and game.core_selected_once, "legacy saves should infer completed chapter progress without regressions"):
+	if not _check(game._load_game() and game.chapter_complete and game.chapter_task_index == 11 and game.core_selected_once, "legacy saves should infer completed chapter progress without regressions"):
 		return
 
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(game.save_path))
-	print("CHAPTER_FLOW_OK tasks=9 fallback_attack=true fog_safe_warning=true report=true legacy=true")
+	SaveStore.remove_slot(game.save_path)
+	print("CHAPTER_FLOW_OK tasks=11 supply=true expansion=true fallback_attack=true fog_safe_warning=true report=true legacy=true")
 	game.queue_free()
+	await process_frame
 	quit(0)
 
 

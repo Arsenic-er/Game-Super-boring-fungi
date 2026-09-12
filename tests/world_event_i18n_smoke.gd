@@ -18,7 +18,7 @@ func _run() -> void:
 	for locale_id in WorldEventLocalization.LOCALES:
 		game.settings_locale = locale_id
 		var tasks: Array = game._chapter_tasks()
-		if not _check(tasks.size() == 9 and String(tasks[0]["id"]) == "wake_spore" and String(tasks[8]["id"]) == "clear_rival", "%s chapter stable IDs" % locale_id):
+		if not _check(tasks.size() == 11 and String(tasks[0]["id"]) == "wake_spore" and String(tasks[7]["id"]) == "secure_supply" and String(tasks[8]["id"]) == "expand_network" and String(tasks.back()["id"]) == "clear_rival", "%s chapter stable IDs" % locale_id):
 			return
 		if not _check(String(tasks[0]["title"]) == String(ChapterLocalization.tasks(locale_id)[0]["title"]), "%s chapter copy lookup" % locale_id):
 			return
@@ -70,7 +70,7 @@ func _run() -> void:
 	if not _check(String(game.fungal_incursion["phase"]) == "cooldown" and game.dna == 1, "reward keeps stable phase and values"):
 		return
 
-	print("WORLD_EVENT_I18N_OK locales=7 chapter=9 ecology=2 sporefall=3 duration=localized stable_ids=true")
+	print("WORLD_EVENT_I18N_OK locales=7 chapter=11 ecology=2 sporefall=3 duration=localized stable_ids=true")
 	game.free()
 	quit(0)
 
