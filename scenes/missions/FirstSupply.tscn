@@ -1,0 +1,60 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/worlds/first_supply.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/worlds/resource_cluster.gd" id="2_cluster"]
+
+[node name="FirstSupply" type="Node2D"]
+script = ExtResource("1_world")
+scene_id = "first_supply"
+revision = 1
+organic_required = 360.0
+mineral_required = 18.0
+hypha_world_required = 600.0
+starting_organic = 220.0
+starting_mineral = 24.0
+starting_dna = 0
+
+[node name="SpawnPoint" type="Marker2D" parent="."]
+position = Vector2(0, 0)
+
+[node name="ResourceClusters" type="Node2D" parent="."]
+
+[node name="NearOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(270, -40)
+script = ExtResource("2_cluster")
+count = 45
+spread = 58.0
+kind = 0
+amount_min = 14.0
+amount_max = 20.0
+anomalous = true
+
+[node name="NearMinerals" type="Node2D" parent="ResourceClusters"]
+position = Vector2(-210, 195)
+script = ExtResource("2_cluster")
+count = 24
+spread = 42.0
+kind = 1
+amount_min = 5.0
+amount_max = 8.0
+anomalous = true
+
+[node name="EastOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(540, 185)
+script = ExtResource("2_cluster")
+count = 42
+spread = 66.0
+kind = 0
+amount_min = 16.0
+amount_max = 24.0
+anomalous = true
+
+[node name="WestOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(-520, -240)
+script = ExtResource("2_cluster")
+count = 32
+spread = 64.0
+kind = 0
+amount_min = 14.0
+amount_max = 22.0
+anomalous = false

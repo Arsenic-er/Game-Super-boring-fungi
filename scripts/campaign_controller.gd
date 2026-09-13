@@ -113,43 +113,36 @@ func start_mission() -> bool:
 	if busy or other_modal_active() or g._campaign_active() or g.game_over or g._founder_spore_active() or g._living_core_count() <= 0:
 		return false
 	busy = true
+	var incoming_world: Node2D = g._prepare_world_scene(State.MISSION_ID)
+	if incoming_world == null:
+		busy = false
+		notice = text("save_failed")
+		return false
+	var previous_world: Node2D = g.active_world
 	g._ensure_campaign_main_core()
 	var home: Dictionary = g._capture_world_state()
 	var previous: Dictionary = g.campaign.duplicate(true)
 	var next: Dictionary = previous.duplicate(true)
 	if not State.begin(next, home, Time.get_unix_time_from_system()):
+		incoming_world.free()
 		busy = false
 		return false
 	# Never call _begin_new_culture: it writes a new save before the envelope exists.
-	g._start_new_culture()
+	if not g._start_new_culture(State.MISSION_ID, true, incoming_world):
+		busy = false
+		return false
 	g.campaign = next
-	g.founder_spore = {}
-	g.cores.append(g._make_core(Vector2.ZERO))
-	g.core_selected_once = true
-	g.resources.clear()
-	g.resource_grid.clear()
-	g.resource_hotspots.clear()
-	g.bacteria.clear()
-	g.explored_cells.clear()
-	g.discovered_hotspots.clear()
-	g.last_discovery_scan_cell_count = -1
-	g.rng.seed = 0xCA471
-	g._scatter_cluster(Vector2(270, -40), 45, 58.0, 0, 14.0, 20.0, true)
-	g._scatter_cluster(Vector2(-210, 195), 24, 42.0, 1, 5.0, 8.0, true)
-	g._scatter_cluster(Vector2(540, 185), 42, 66.0, 0, 16.0, 24.0, true)
-	g._scatter_cluster(Vector2(-520, -240), 32, 64.0, 0, 14.0, 22.0, false)
-	g.enemy_fungi_initialized = true
-	g._update_exploration(false)
-	g._sync_hotspot_discoveries(false)
 	g.game_started = true
 	g.main_menu_active = false
 	if not g._save_game():
 		g.campaign = previous
-		g._restore_world_state(home)
+		g._activate_world_scene(previous_world)
 		notice = text("save_failed")
 		open = true
 		busy = false
 		return false
+	if is_instance_valid(previous_world):
+		previous_world.free()
 	busy = false
 	open = false
 	g._play_sound("core_build")
@@ -167,10 +160,15 @@ func return_home(outcome: String) -> bool:
 		return false
 	if outcome not in ["victory", "failure", "retreat"]:
 		return false
+	var incoming_home: Node2D = g._prepare_world_scene("home_nest")
+	if incoming_home == null:
+		notice = text("save_failed")
+		return false
 	busy = true
 	var previous: Dictionary = g.campaign.duplicate(true)
 	var result: Dictionary = State.settle(g.campaign, outcome)
 	if not bool(result.get("ok", false)):
+		incoming_home.free()
 		g.campaign = previous
 		busy = false
 		return false
@@ -178,11 +176,12 @@ func return_home(outcome: String) -> bool:
 	# Commit reward and restored home atomically, retaining the departure timestamp.
 	# A crash now reloads this one envelope and settles the unprocessed home interval.
 	if not g._commit_world_and_campaign(home):
+		incoming_home.free()
 		g.campaign = previous
 		notice = text("save_failed")
 		busy = false
 		return false
-	g._restore_world_state(home)
+	g._restore_world_state(home, incoming_home)
 	g.sim_speed = 0.0 if g.game_over else 1.0
 	g._ensure_campaign_main_core()
 	g._settle_home_elapsed(home, true)
@@ -272,7 +271,20 @@ func draw_hud() -> void:
 
 
 func progress_text() -> String:
-	return text("progress", {"organic": "%.3f" % minf(g.lifetime_organic_absorbed, 360.0), "organic_goal": "360", "mineral": "%.3f" % minf(g.lifetime_mineral_absorbed, 18.0), "mineral_goal": "18", "length": "%.0f" % floorf(minf(g._chapter_living_hypha_length(), 600.0) / 2.0), "length_goal": "300"})
+	var targets: Dictionary = g._campaign_goal_targets()
+	var organic_goal := float(targets.get("organic", 0.0))
+	var mineral_goal := float(targets.get("mineral", 0.0))
+	var length_goal := float(targets.get("length_world", 0.0))
+	return text("progress", {"organic": "%.3f" % minf(g.lifetime_organic_absorbed, organic_goal), "organic_goal": _goal_number(organic_goal), "mineral": "%.3f" % minf(g.lifetime_mineral_absorbed, mineral_goal), "mineral_goal": _goal_number(mineral_goal), "length": "%.0f" % floorf(minf(g._chapter_living_hypha_length(), length_goal) / 2.0), "length_goal": _goal_number(length_goal / 2.0)})
+
+
+func _goal_number(value: float) -> String:
+	return str(int(value)) if value == floorf(value) else "%.3f" % value
+
+
+func mission_values() -> Dictionary:
+	var targets: Dictionary = g._campaign_goal_targets()
+	return {"organic": _goal_number(float(targets.get("organic", 0.0))), "mineral": _goal_number(float(targets.get("mineral", 0.0))), "length": _goal_number(float(targets.get("length_world", 0.0)) / 2.0)}
 
 
 func draw_progress(rect: Rect2) -> void:
@@ -291,7 +303,7 @@ func paragraphs() -> Array[String]:
 		result.append(notice)
 	if g._campaign_active():
 		result.append(text("mission_active"))
-		result.append(text("mission_desc", {"organic": "360", "mineral": "18", "length": "300"}))
+		result.append(text("mission_desc", mission_values()))
 		result.append(progress_text())
 		if g.game_over:
 			result.append(text("failure"))
@@ -311,7 +323,7 @@ func paragraphs() -> Array[String]:
 		else:
 			result.append(text("settle_first") if g._founder_spore_active() else text("need_materials"))
 		result.append(text("mission_title"))
-		result.append(text("mission_desc", {"organic": "360", "mineral": "18", "length": "300"}))
+		result.append(text("mission_desc", mission_values()))
 	result.append(text("rules"))
 	result.append(text("home_note"))
 	return result

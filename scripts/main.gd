@@ -16,6 +16,8 @@ const OfflineLocalization = preload("res://scripts/offline_localization.gd")
 const CampaignState = preload("res://scripts/campaign_state.gd")
 const CampaignController = preload("res://scripts/campaign_controller.gd")
 const WorldSnapshotValidator = preload("res://scripts/world_snapshot_validator.gd")
+const CultureWorldRuntime = preload("res://scripts/worlds/culture_world_runtime.gd")
+const WorldSceneCatalog = preload("res://scripts/worlds/world_scene_catalog.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -403,48 +405,222 @@ const COLOR_MUTED := Color("8ba9ad")
 const COLOR_PANEL := Color(0.025, 0.075, 0.12, 0.9)
 const COLOR_BORDER := Color(0.32, 0.67, 0.63, 0.48)
 
-var rng := RandomNumberGenerator.new()
-var resources: Array = []
-var resource_grid: Dictionary = {}
-var resource_hotspots: Array = []
-var water_motes: Array = []
-var substrate_marks: Array = []
-var cores: Array = []
-var segments: Array = []
-var feeders: Array = []
-var bacteria: Array = []
-var expedition_units: Array = []
-var next_expedition_id := 1
-var purge_density_grid: Dictionary = {}
-var purge_claim_cache: Dictionary = {}
-var enemy_fungi: Array = []
-var enemy_hyphae: Array = []
-var enemy_guard_spores: Array = []
-var next_enemy_fungus_id := 1
-var next_enemy_hypha_id := 1
-var next_enemy_guard_id := 1
-var enemy_fungi_initialized := false
-var fungal_incursion := {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1}
-var explored_cells: Dictionary = {}
-var discovered_hotspots: Dictionary = {}
-var last_discovery_scan_cell_count := -1
+const INITIAL_WORLD_STATE := {
+	"resources": [],
+	"resource_grid": {},
+	"resource_hotspots": [],
+	"water_motes": [],
+	"substrate_marks": [],
+	"cores": [],
+	"segments": [],
+	"feeders": [],
+	"bacteria": [],
+	"expedition_units": [],
+	"next_expedition_id": 1,
+	"purge_density_grid": {},
+	"purge_claim_cache": {},
+	"enemy_fungi": [],
+	"enemy_hyphae": [],
+	"enemy_guard_spores": [],
+	"next_enemy_fungus_id": 1,
+	"next_enemy_hypha_id": 1,
+	"next_enemy_guard_id": 1,
+	"enemy_fungi_initialized": false,
+	"fungal_incursion": {"phase": "locked", "remaining": 0.0, "pos": Vector2.INF, "wave": 0, "enemy_id": -1},
+	"explored_cells": {},
+	"discovered_hotspots": {},
+	"last_discovery_scan_cell_count": -1,
+	"organic": 220.0,
+	"mineral": 24.0,
+	"dna": 0,
+	"camera_center": Vector2.ZERO,
+	"camera_zoom": 0.65,
+	"sim_speed": 1.0,
+	"sim_time": 0.0,
+	"absorb_clock": 0.0,
+	"bacteria_update_clock": 0.0,
+	"expedition_update_clock": 0.0,
+	"barracks_auto_clock": 0.0,
+	"enemy_fungus_update_clock": 0.0,
+	"enemy_guard_update_clock": 0.0,
+	"save_clock": 0.0,
+	"game_over": false,
+	"founder_spore": {},
+	"diet_order": [],
+	"diet_investments": {"animal": 0, "plant": 0, "bacteria": 0, "fungi": 0},
+	"diet_levels": {"animal": 0, "plant": 0, "bacteria": 0, "fungi": 0},
+	"bacteria_components": {"trap": 0, "enzymes": 0, "antibiotic": 0},
+	"structure_levels": {"branching": 0, "elongation": 0, "feeders": 0, "growth": 0},
+	"survival_levels": {"wall": 0, "detox": 0, "repair": 0, "storage": 0},
+	"lifetime_organic_absorbed": 0.0,
+	"lifetime_mineral_absorbed": 0.0,
+	"lifetime_dna_produced": 0,
+	"lifetime_bacteria_births": 0,
+	"lifetime_bacteria_consumed": 0,
+	"lifetime_expedition_organic_returned": 0.0,
+	"lifetime_expedition_mineral_returned": 0.0,
+	"lifetime_expedition_bacteria_killed": 0,
+	"lifetime_expedition_units_lost": 0,
+	"lifetime_expedition_units_repaired": 0,
+	"lifetime_enemy_hyphae_severed": 0,
+	"lifetime_suppressed_blooms_contained": 0,
+	"lifetime_antifungal_assisted_kills": 0,
+	"lifetime_disperser_bacteria_killed": 0,
+	"lifetime_disperser_best_hit": 0,
+	"goals_claimed": {},
+	"barracks_directive_ever_set": false,
+	"tracked_goal_id": "first_hypha",
+	"tracked_goal_completion_notified": false,
+	"barracks_unit_unlocks": {"forager": true, "carrier": false, "chelator": false, "scout": false},
+	"diet_unit_unlocks": {"lytic": false, "suppressor": false, "disperser": false, "piercer": false, "coil": false, "antifungal": false},
+	"scout_upgrade_levels": {"vision": 0, "speed": 0},
+	"ecology_events": [],
+	"next_ecology_event_id": 1,
+	"ecology_event_countdown": ECOLOGY_FIRST_EVENT_MAX,
+	"lifetime_ecology_events_seen": 0,
+	"lifetime_ecology_events_contained": 0,
+	"lifetime_enemy_fungi_defeated": 0,
+	"lifetime_enemy_guards_defeated": 0,
+	"lifetime_fungal_incursions_defeated": 0,
+	"chapter_task_index": 0,
+	"core_selected_once": false,
+	"chapter_complete": false,
+	"chapter_report_seen": false,
+	"chapter_completed_at": 0.0,
+	"chapter_completed_rules_version": CHAPTER_RULES_VERSION,
+	"guidance_collapsed": false,
+	"lifetime_expedition_units_built": 0,
+	"enemy_threat_level": 0,
+	"enemy_threat_pos": Vector2.INF,
+}
 
-var organic := 220.0
-var mineral := 24.0
-var dna := 0
-var camera_center := Vector2.ZERO
-var camera_zoom := 0.65
-var sim_speed := 1.0
-var sim_time := 0.0
-var absorb_clock := 0.0
-var bacteria_update_clock := 0.0
-var expedition_update_clock := 0.0
-var barracks_auto_clock := 0.0
-var enemy_fungus_update_clock := 0.0
-var enemy_guard_update_clock := 0.0
-var save_clock := 0.0
-var game_over := false
-var founder_spore: Dictionary = {}
+var world_runtime: RefCounted = CultureWorldRuntime.new(INITIAL_WORLD_STATE)
+var world_host: Node2D
+var active_world: Node2D
+var rng: RandomNumberGenerator:
+	get: return world_runtime.rng
+	set(value): world_runtime.rng = value
+var resources: Array:
+	get: return world_runtime.data["resources"]
+	set(value): world_runtime.data["resources"] = value
+var resource_grid: Dictionary:
+	get: return world_runtime.data["resource_grid"]
+	set(value): world_runtime.data["resource_grid"] = value
+var resource_hotspots: Array:
+	get: return world_runtime.data["resource_hotspots"]
+	set(value): world_runtime.data["resource_hotspots"] = value
+var water_motes: Array:
+	get: return world_runtime.data["water_motes"]
+	set(value): world_runtime.data["water_motes"] = value
+var substrate_marks: Array:
+	get: return world_runtime.data["substrate_marks"]
+	set(value): world_runtime.data["substrate_marks"] = value
+var cores: Array:
+	get: return world_runtime.data["cores"]
+	set(value): world_runtime.data["cores"] = value
+var segments: Array:
+	get: return world_runtime.data["segments"]
+	set(value): world_runtime.data["segments"] = value
+var feeders: Array:
+	get: return world_runtime.data["feeders"]
+	set(value): world_runtime.data["feeders"] = value
+var bacteria: Array:
+	get: return world_runtime.data["bacteria"]
+	set(value): world_runtime.data["bacteria"] = value
+var expedition_units: Array:
+	get: return world_runtime.data["expedition_units"]
+	set(value): world_runtime.data["expedition_units"] = value
+var next_expedition_id: int:
+	get: return world_runtime.data["next_expedition_id"]
+	set(value): world_runtime.data["next_expedition_id"] = value
+var purge_density_grid: Dictionary:
+	get: return world_runtime.data["purge_density_grid"]
+	set(value): world_runtime.data["purge_density_grid"] = value
+var purge_claim_cache: Dictionary:
+	get: return world_runtime.data["purge_claim_cache"]
+	set(value): world_runtime.data["purge_claim_cache"] = value
+var enemy_fungi: Array:
+	get: return world_runtime.data["enemy_fungi"]
+	set(value): world_runtime.data["enemy_fungi"] = value
+var enemy_hyphae: Array:
+	get: return world_runtime.data["enemy_hyphae"]
+	set(value): world_runtime.data["enemy_hyphae"] = value
+var enemy_guard_spores: Array:
+	get: return world_runtime.data["enemy_guard_spores"]
+	set(value): world_runtime.data["enemy_guard_spores"] = value
+var next_enemy_fungus_id: int:
+	get: return world_runtime.data["next_enemy_fungus_id"]
+	set(value): world_runtime.data["next_enemy_fungus_id"] = value
+var next_enemy_hypha_id: int:
+	get: return world_runtime.data["next_enemy_hypha_id"]
+	set(value): world_runtime.data["next_enemy_hypha_id"] = value
+var next_enemy_guard_id: int:
+	get: return world_runtime.data["next_enemy_guard_id"]
+	set(value): world_runtime.data["next_enemy_guard_id"] = value
+var enemy_fungi_initialized: bool:
+	get: return world_runtime.data["enemy_fungi_initialized"]
+	set(value): world_runtime.data["enemy_fungi_initialized"] = value
+var fungal_incursion: Dictionary:
+	get: return world_runtime.data["fungal_incursion"]
+	set(value): world_runtime.data["fungal_incursion"] = value
+var explored_cells: Dictionary:
+	get: return world_runtime.data["explored_cells"]
+	set(value): world_runtime.data["explored_cells"] = value
+var discovered_hotspots: Dictionary:
+	get: return world_runtime.data["discovered_hotspots"]
+	set(value): world_runtime.data["discovered_hotspots"] = value
+var last_discovery_scan_cell_count: int:
+	get: return world_runtime.data["last_discovery_scan_cell_count"]
+	set(value): world_runtime.data["last_discovery_scan_cell_count"] = value
+
+var organic: float:
+	get: return world_runtime.data["organic"]
+	set(value): world_runtime.data["organic"] = value
+var mineral: float:
+	get: return world_runtime.data["mineral"]
+	set(value): world_runtime.data["mineral"] = value
+var dna: int:
+	get: return world_runtime.data["dna"]
+	set(value): world_runtime.data["dna"] = value
+var camera_center: Vector2:
+	get: return world_runtime.data["camera_center"]
+	set(value): world_runtime.data["camera_center"] = value
+var camera_zoom: float:
+	get: return world_runtime.data["camera_zoom"]
+	set(value): world_runtime.data["camera_zoom"] = value
+var sim_speed: float:
+	get: return world_runtime.data["sim_speed"]
+	set(value): world_runtime.data["sim_speed"] = value
+var sim_time: float:
+	get: return world_runtime.data["sim_time"]
+	set(value): world_runtime.data["sim_time"] = value
+var absorb_clock: float:
+	get: return world_runtime.data["absorb_clock"]
+	set(value): world_runtime.data["absorb_clock"] = value
+var bacteria_update_clock: float:
+	get: return world_runtime.data["bacteria_update_clock"]
+	set(value): world_runtime.data["bacteria_update_clock"] = value
+var expedition_update_clock: float:
+	get: return world_runtime.data["expedition_update_clock"]
+	set(value): world_runtime.data["expedition_update_clock"] = value
+var barracks_auto_clock: float:
+	get: return world_runtime.data["barracks_auto_clock"]
+	set(value): world_runtime.data["barracks_auto_clock"] = value
+var enemy_fungus_update_clock: float:
+	get: return world_runtime.data["enemy_fungus_update_clock"]
+	set(value): world_runtime.data["enemy_fungus_update_clock"] = value
+var enemy_guard_update_clock: float:
+	get: return world_runtime.data["enemy_guard_update_clock"]
+	set(value): world_runtime.data["enemy_guard_update_clock"] = value
+var save_clock: float:
+	get: return world_runtime.data["save_clock"]
+	set(value): world_runtime.data["save_clock"] = value
+var game_over: bool:
+	get: return world_runtime.data["game_over"]
+	set(value): world_runtime.data["game_over"] = value
+var founder_spore: Dictionary:
+	get: return world_runtime.data["founder_spore"]
+	set(value): world_runtime.data["founder_spore"] = value
 
 var selected_core := -1
 var selected_tip := Vector2.ZERO
@@ -481,8 +657,12 @@ var last_mouse := Vector2.ZERO
 var layout_viewport_override := Vector2.ZERO
 var autosave_enabled := true
 var save_path := SAVE_PATH
-var diet_order: Array = []
-var diet_investments := {"animal": 0, "plant": 0, "bacteria": 0, "fungi": 0}
+var diet_order: Array:
+	get: return world_runtime.data["diet_order"]
+	set(value): world_runtime.data["diet_order"] = value
+var diet_investments: Dictionary:
+	get: return world_runtime.data["diet_investments"]
+	set(value): world_runtime.data["diet_investments"] = value
 var diet_reset_pending_id := ""
 var diet_reset_pending_until_msec := 0
 var developer_mode_enabled := false
@@ -490,32 +670,84 @@ var developer_previous_save_path := ""
 var developer_page := 0
 var developer_placement_action := ""
 var developer_current_unit_index := 0
-var diet_levels := {"animal": 0, "plant": 0, "bacteria": 0, "fungi": 0}
-var bacteria_components := {"trap": 0, "enzymes": 0, "antibiotic": 0}
-var structure_levels := {"branching": 0, "elongation": 0, "feeders": 0, "growth": 0}
-var survival_levels := {"wall": 0, "detox": 0, "repair": 0, "storage": 0}
-var lifetime_organic_absorbed := 0.0
-var lifetime_mineral_absorbed := 0.0
-var lifetime_dna_produced := 0
-var lifetime_bacteria_births := 0
-var lifetime_bacteria_consumed := 0
-var lifetime_expedition_organic_returned := 0.0
-var lifetime_expedition_mineral_returned := 0.0
-var lifetime_expedition_bacteria_killed := 0
-var lifetime_expedition_units_lost := 0
-var lifetime_expedition_units_repaired := 0
-var lifetime_enemy_hyphae_severed := 0
-var lifetime_suppressed_blooms_contained := 0
-var lifetime_antifungal_assisted_kills := 0
-var lifetime_disperser_bacteria_killed := 0
-var lifetime_disperser_best_hit := 0
-var goals_claimed := {}
-var barracks_directive_ever_set := false
-var tracked_goal_id := "first_hypha"
-var tracked_goal_completion_notified := false
-var barracks_unit_unlocks := {"forager": true, "carrier": false, "chelator": false, "scout": false}
-var diet_unit_unlocks := {"lytic": false, "suppressor": false, "disperser": false, "piercer": false, "coil": false, "antifungal": false}
-var scout_upgrade_levels := {"vision": 0, "speed": 0}
+var diet_levels: Dictionary:
+	get: return world_runtime.data["diet_levels"]
+	set(value): world_runtime.data["diet_levels"] = value
+var bacteria_components: Dictionary:
+	get: return world_runtime.data["bacteria_components"]
+	set(value): world_runtime.data["bacteria_components"] = value
+var structure_levels: Dictionary:
+	get: return world_runtime.data["structure_levels"]
+	set(value): world_runtime.data["structure_levels"] = value
+var survival_levels: Dictionary:
+	get: return world_runtime.data["survival_levels"]
+	set(value): world_runtime.data["survival_levels"] = value
+var lifetime_organic_absorbed: float:
+	get: return world_runtime.data["lifetime_organic_absorbed"]
+	set(value): world_runtime.data["lifetime_organic_absorbed"] = value
+var lifetime_mineral_absorbed: float:
+	get: return world_runtime.data["lifetime_mineral_absorbed"]
+	set(value): world_runtime.data["lifetime_mineral_absorbed"] = value
+var lifetime_dna_produced: int:
+	get: return world_runtime.data["lifetime_dna_produced"]
+	set(value): world_runtime.data["lifetime_dna_produced"] = value
+var lifetime_bacteria_births: int:
+	get: return world_runtime.data["lifetime_bacteria_births"]
+	set(value): world_runtime.data["lifetime_bacteria_births"] = value
+var lifetime_bacteria_consumed: int:
+	get: return world_runtime.data["lifetime_bacteria_consumed"]
+	set(value): world_runtime.data["lifetime_bacteria_consumed"] = value
+var lifetime_expedition_organic_returned: float:
+	get: return world_runtime.data["lifetime_expedition_organic_returned"]
+	set(value): world_runtime.data["lifetime_expedition_organic_returned"] = value
+var lifetime_expedition_mineral_returned: float:
+	get: return world_runtime.data["lifetime_expedition_mineral_returned"]
+	set(value): world_runtime.data["lifetime_expedition_mineral_returned"] = value
+var lifetime_expedition_bacteria_killed: int:
+	get: return world_runtime.data["lifetime_expedition_bacteria_killed"]
+	set(value): world_runtime.data["lifetime_expedition_bacteria_killed"] = value
+var lifetime_expedition_units_lost: int:
+	get: return world_runtime.data["lifetime_expedition_units_lost"]
+	set(value): world_runtime.data["lifetime_expedition_units_lost"] = value
+var lifetime_expedition_units_repaired: int:
+	get: return world_runtime.data["lifetime_expedition_units_repaired"]
+	set(value): world_runtime.data["lifetime_expedition_units_repaired"] = value
+var lifetime_enemy_hyphae_severed: int:
+	get: return world_runtime.data["lifetime_enemy_hyphae_severed"]
+	set(value): world_runtime.data["lifetime_enemy_hyphae_severed"] = value
+var lifetime_suppressed_blooms_contained: int:
+	get: return world_runtime.data["lifetime_suppressed_blooms_contained"]
+	set(value): world_runtime.data["lifetime_suppressed_blooms_contained"] = value
+var lifetime_antifungal_assisted_kills: int:
+	get: return world_runtime.data["lifetime_antifungal_assisted_kills"]
+	set(value): world_runtime.data["lifetime_antifungal_assisted_kills"] = value
+var lifetime_disperser_bacteria_killed: int:
+	get: return world_runtime.data["lifetime_disperser_bacteria_killed"]
+	set(value): world_runtime.data["lifetime_disperser_bacteria_killed"] = value
+var lifetime_disperser_best_hit: int:
+	get: return world_runtime.data["lifetime_disperser_best_hit"]
+	set(value): world_runtime.data["lifetime_disperser_best_hit"] = value
+var goals_claimed: Dictionary:
+	get: return world_runtime.data["goals_claimed"]
+	set(value): world_runtime.data["goals_claimed"] = value
+var barracks_directive_ever_set: bool:
+	get: return world_runtime.data["barracks_directive_ever_set"]
+	set(value): world_runtime.data["barracks_directive_ever_set"] = value
+var tracked_goal_id: String:
+	get: return world_runtime.data["tracked_goal_id"]
+	set(value): world_runtime.data["tracked_goal_id"] = value
+var tracked_goal_completion_notified: bool:
+	get: return world_runtime.data["tracked_goal_completion_notified"]
+	set(value): world_runtime.data["tracked_goal_completion_notified"] = value
+var barracks_unit_unlocks: Dictionary:
+	get: return world_runtime.data["barracks_unit_unlocks"]
+	set(value): world_runtime.data["barracks_unit_unlocks"] = value
+var diet_unit_unlocks: Dictionary:
+	get: return world_runtime.data["diet_unit_unlocks"]
+	set(value): world_runtime.data["diet_unit_unlocks"] = value
+var scout_upgrade_levels: Dictionary:
+	get: return world_runtime.data["scout_upgrade_levels"]
+	set(value): world_runtime.data["scout_upgrade_levels"] = value
 var splash_active := true
 var splash_time := 0.0
 var main_menu_active := true
@@ -546,28 +778,64 @@ var offline_settlement: Dictionary = {}
 var offline_simulating := false
 var offline_expedition_combat_active := false
 var offline_expedition_toxin_active := false
-var ecology_events: Array = []
-var next_ecology_event_id := 1
-var ecology_event_countdown := ECOLOGY_FIRST_EVENT_MAX
-var lifetime_ecology_events_seen := 0
-var lifetime_ecology_events_contained := 0
-var lifetime_enemy_fungi_defeated := 0
-var lifetime_enemy_guards_defeated := 0
-var lifetime_fungal_incursions_defeated := 0
+var ecology_events: Array:
+	get: return world_runtime.data["ecology_events"]
+	set(value): world_runtime.data["ecology_events"] = value
+var next_ecology_event_id: int:
+	get: return world_runtime.data["next_ecology_event_id"]
+	set(value): world_runtime.data["next_ecology_event_id"] = value
+var ecology_event_countdown: float:
+	get: return world_runtime.data["ecology_event_countdown"]
+	set(value): world_runtime.data["ecology_event_countdown"] = value
+var lifetime_ecology_events_seen: int:
+	get: return world_runtime.data["lifetime_ecology_events_seen"]
+	set(value): world_runtime.data["lifetime_ecology_events_seen"] = value
+var lifetime_ecology_events_contained: int:
+	get: return world_runtime.data["lifetime_ecology_events_contained"]
+	set(value): world_runtime.data["lifetime_ecology_events_contained"] = value
+var lifetime_enemy_fungi_defeated: int:
+	get: return world_runtime.data["lifetime_enemy_fungi_defeated"]
+	set(value): world_runtime.data["lifetime_enemy_fungi_defeated"] = value
+var lifetime_enemy_guards_defeated: int:
+	get: return world_runtime.data["lifetime_enemy_guards_defeated"]
+	set(value): world_runtime.data["lifetime_enemy_guards_defeated"] = value
+var lifetime_fungal_incursions_defeated: int:
+	get: return world_runtime.data["lifetime_fungal_incursions_defeated"]
+	set(value): world_runtime.data["lifetime_fungal_incursions_defeated"] = value
 var ecology_banner_title := ""
 var ecology_banner_detail := ""
 var ecology_banner_time := 0.0
-var chapter_task_index := 0
-var core_selected_once := false
-var chapter_complete := false
+var chapter_task_index: int:
+	get: return world_runtime.data["chapter_task_index"]
+	set(value): world_runtime.data["chapter_task_index"] = value
+var core_selected_once: bool:
+	get: return world_runtime.data["core_selected_once"]
+	set(value): world_runtime.data["core_selected_once"] = value
+var chapter_complete: bool:
+	get: return world_runtime.data["chapter_complete"]
+	set(value): world_runtime.data["chapter_complete"] = value
 var chapter_report_open := false
-var chapter_report_seen := false
-var chapter_completed_at := 0.0
-var chapter_completed_rules_version := CHAPTER_RULES_VERSION
-var guidance_collapsed := false
-var lifetime_expedition_units_built := 0
-var enemy_threat_level := 0
-var enemy_threat_pos := Vector2.INF
+var chapter_report_seen: bool:
+	get: return world_runtime.data["chapter_report_seen"]
+	set(value): world_runtime.data["chapter_report_seen"] = value
+var chapter_completed_at: float:
+	get: return world_runtime.data["chapter_completed_at"]
+	set(value): world_runtime.data["chapter_completed_at"] = value
+var chapter_completed_rules_version: int:
+	get: return world_runtime.data["chapter_completed_rules_version"]
+	set(value): world_runtime.data["chapter_completed_rules_version"] = value
+var guidance_collapsed: bool:
+	get: return world_runtime.data["guidance_collapsed"]
+	set(value): world_runtime.data["guidance_collapsed"] = value
+var lifetime_expedition_units_built: int:
+	get: return world_runtime.data["lifetime_expedition_units_built"]
+	set(value): world_runtime.data["lifetime_expedition_units_built"] = value
+var enemy_threat_level: int:
+	get: return world_runtime.data["enemy_threat_level"]
+	set(value): world_runtime.data["enemy_threat_level"] = value
+var enemy_threat_pos: Vector2:
+	get: return world_runtime.data["enemy_threat_pos"]
+	set(value): world_runtime.data["enemy_threat_pos"] = value
 
 var fallback_font: Font
 var splash_logo: Texture2D
@@ -589,6 +857,7 @@ var campaign_ui: RefCounted
 
 func _ready() -> void:
 	campaign_ui = CampaignController.new(self)
+	_activate_world_scene(_prepare_world_scene("home_nest"))
 	var settings_file_existed := FileAccess.file_exists(SETTINGS_PATH)
 	fallback_font = ThemeDB.fallback_font
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -705,51 +974,54 @@ func _notification(what: int) -> void:
 		get_tree().quit()
 
 
+func _world_scene_id() -> String:
+	return String(active_world.scene_id) if is_instance_valid(active_world) else "home_nest"
+
+
+func _prepare_world_scene(scene_id: String) -> Node2D:
+	var scene := WorldSceneCatalog.prepare(scene_id)
+	if scene != null:
+		scene.runtime.ensure_defaults(INITIAL_WORLD_STATE)
+	return scene
+
+
+func _activate_world_scene(scene: Node2D, retain_previous: bool = false) -> bool:
+	if not is_instance_valid(scene) or (scene.get_parent() != null and scene != active_world):
+		return false
+	if scene == active_world:
+		return true
+	if not is_instance_valid(world_host):
+		world_host = Node2D.new()
+		world_host.name = "WorldHost"
+		# Shared Main is the only simulation driver; inactive scenes cannot tick.
+		world_host.process_mode = Node.PROCESS_MODE_DISABLED
+		add_child(world_host)
+	var previous := active_world
+	if is_instance_valid(previous):
+		world_host.remove_child(previous)
+	world_host.add_child(scene)
+	active_world = scene
+	world_runtime = scene.runtime
+	if is_instance_valid(previous) and not retain_previous:
+		previous.free()
+	return true
+
+
 func _generate_world() -> void:
-	resources.clear()
-	resource_grid.clear()
-	bacteria.clear()
-	resource_hotspots.clear()
+	if not is_instance_valid(active_world):
+		_activate_world_scene(_prepare_world_scene("home_nest"))
+	active_world.generate_map(self)
+
+
+func _generate_substrate() -> void:
 	water_motes.clear()
 	substrate_marks.clear()
-	# 少量背景资源用于探索；主要资源来自空间聚集，不再均匀铺满地图。
-	for i in range(320):
-		_add_resource(_random_world_point(80.0), 0, rng.randf_range(7.0, 16.0))
-	for i in range(64):
-		_add_resource(_random_world_point(80.0), 1, rng.randf_range(2.0, 5.0))
-	# 普通有机营养斑块。
-	for i in range(48):
-		var center := _random_world_point(380.0)
-		_scatter_cluster(center, rng.randi_range(24, 46), rng.randf_range(65.0, 145.0), 0, 8.0, 21.0, false)
-	# 普通矿物团簇更少、更紧密。
-	for i in range(26):
-		var center := _random_world_point(380.0)
-		_scatter_cluster(center, rng.randi_range(8, 16), rng.randf_range(38.0, 82.0), 1, 2.0, 6.0, false)
-	# 少数异常富集区：在主视野和小地图上都应明显形成热点。
-	var anomaly_specs := [
-		[Vector2(360, -90), 0, 88, 118.0],
-		[Vector2(-300, 320), 1, 30, 72.0],
-		[Vector2(-4200, 3100), 0, 104, 165.0],
-		[Vector2(6400, -5100), 0, 92, 142.0],
-		[Vector2(10500, 7600), 0, 116, 178.0],
-		[Vector2(-11800, -6800), 0, 96, 150.0],
-		[Vector2(5200, 4800), 1, 38, 88.0],
-		[Vector2(-7600, 9200), 1, 34, 82.0],
-		[Vector2(11200, -9800), 1, 42, 96.0]
-	]
-	for spec in anomaly_specs:
-		_scatter_cluster(spec[0], int(spec[2]), float(spec[3]), int(spec[1]), 12.0 if int(spec[1]) == 0 else 3.0, 30.0 if int(spec[1]) == 0 else 8.0, true)
-	# 追加在既有资源之后，保持 v0.21 存档中的资源编号稳定。
-	_scatter_cluster(Vector2(2200.0, -1050.0), 36, 96.0, 0, 8.0, 18.0, false)
-	_seed_bacteria()
 	for i in range(1450):
 		water_motes.append(_random_world_point(30.0))
 	for i in range(1250):
-		substrate_marks.append({
-			"pos": _random_world_point(30.0),
-			"size": rng.randi_range(1, 3),
-			"alpha": rng.randf_range(0.04, 0.12)
-		})
+		substrate_marks.append({"pos": _random_world_point(30.0), "size": rng.randi_range(1, 3), "alpha": rng.randf_range(0.04, 0.12)})
+
+
 
 
 func _random_world_point(margin: float) -> Vector2:
@@ -4302,7 +4574,7 @@ func _infer_chapter_task_index() -> int:
 
 
 func _update_chapter_flow(show_feedback: bool = true) -> void:
-	if _campaign_active():
+	if is_instance_valid(active_world) and not active_world.allows_legacy_chapter():
 		return
 	if chapter_complete:
 		if not chapter_report_seen and not offline_report_open and game_started:
@@ -5080,7 +5352,7 @@ func _finish_ecology_event(event: Dictionary, contained: bool) -> void:
 
 func _update_ecology_events(sim_delta: float) -> void:
 	# The first expedition is a supply tutorial; later missions own their hazards.
-	if _campaign_active():
+	if is_instance_valid(active_world) and not active_world.allows_ecology_events():
 		return
 	if sim_delta <= 0.0:
 		return
@@ -7213,13 +7485,13 @@ func _start_game_from_menu() -> void:
 	if game_started:
 		main_menu_active = false
 		return
-	rng.seed = 0xF00D47
-	_generate_world()
 	var loaded := false
 	if main_menu_has_save:
 		loaded = _load_game(true)
 	if not loaded:
-		_start_new_culture()
+		if not _start_new_culture():
+			toast(campaign_ui.text("save_failed"), 5.0, "error")
+			return
 	game_started = true
 	if not loaded:
 		_save_game()
@@ -7231,7 +7503,9 @@ func _start_game_from_menu() -> void:
 
 func _begin_new_culture() -> void:
 	_play_sound("core_build", 1.15)
-	_start_new_culture()
+	if not _start_new_culture():
+		toast(campaign_ui.text("save_failed"), 5.0, "error")
+		return
 	game_started = true
 	main_menu_active = false
 	main_menu_page = "main"
@@ -7242,8 +7516,14 @@ func _begin_new_culture() -> void:
 	queue_redraw()
 
 
-func _start_new_culture() -> void:
+func _start_new_culture(scene_id: String = "home_nest", retain_previous: bool = false, prepared_world: Node2D = null) -> bool:
 	# 这是新局的唯一初始化入口，测试和未来的“重新开始”也复用它。
+	var next_world := prepared_world if prepared_world != null else _prepare_world_scene(scene_id)
+	if next_world == null or next_world.scene_id != scene_id:
+		return false
+	if not _activate_world_scene(next_world, retain_previous):
+		next_world.free()
+		return false
 	campaign = CampaignState.fresh()
 	if campaign_ui != null:
 		campaign_ui.reset_panel()
@@ -7362,12 +7642,10 @@ func _start_new_culture() -> void:
 	discovery_banner_time = 0.0
 	offline_report_open = false
 	offline_report.clear()
-	founder_spore = _make_founder_spore(Vector2.ZERO)
-	if developer_mode_enabled:
-		_complete_founder_spore_germination()
-	else:
-		_update_exploration()
-	toast(_founder_text("start_toast"), 6.0)
+	active_world.initialize_colony(self)
+	if active_world.allows_legacy_chapter():
+		toast(_founder_text("start_toast"), 6.0)
+	return true
 
 
 func _load_settings() -> void:
@@ -11167,16 +11445,20 @@ func _parse_save_payload(payload: String) -> Dictionary:
 	var parsed = json.data
 	if not _valid_saved_world(parsed):
 		return {}
+	var expected_scene := "home_nest"
 	if parsed.has("campaign"):
 		var raw = parsed["campaign"]
 		if not raw is Dictionary or not _finite_save_number(raw.get("version", null)) or float(raw.get("version", 0)) != CampaignState.VERSION or not raw.get("active_mission", null) is Dictionary or not raw.get("home_world", null) is Dictionary:
 			return {}
 		var cleaned := CampaignState.sanitize(raw)
 		if not raw["active_mission"].is_empty():
-			if cleaned["active_mission"].is_empty() or raw["home_world"].has("campaign") or not _valid_saved_world(raw["home_world"]):
+			if cleaned["active_mission"].is_empty() or raw["home_world"].has("campaign") or not _valid_saved_world(raw["home_world"]) or not WorldSceneCatalog.matches(raw["home_world"], "home_nest"):
 				return {}
+			expected_scene = String(cleaned["active_mission"]["id"])
 		elif not raw["home_world"].is_empty():
 			return {}
+	if not WorldSceneCatalog.matches(parsed, expected_scene):
+		return {}
 	return parsed
 
 
@@ -11184,6 +11466,8 @@ func _valid_saved_world(parsed: Variant) -> bool:
 	if not parsed is Dictionary or not _finite_save_number(parsed.get("version", null)) or float(parsed.get("version", 0)) != 1.0 or bool(parsed.get("developer_session", false)) != developer_mode_enabled:
 		return false
 	if not WorldSnapshotValidator.validate(parsed):
+		return false
+	if not WorldSceneCatalog.valid_metadata(parsed):
 		return false
 	for numeric_field in ["saved_at", "organic", "mineral", "dna"]:
 		if not _finite_save_number(parsed.get(numeric_field, null)):
@@ -11518,6 +11802,8 @@ func _capture_world_state() -> Dictionary:
 	data["rng_seed"] = str(rng.seed)
 	data["rng_state"] = str(rng.state)
 	data["simulation_clocks"] = {"absorb_clock": absorb_clock, "bacteria_update_clock": bacteria_update_clock, "expedition_update_clock": expedition_update_clock, "barracks_auto_clock": barracks_auto_clock, "enemy_fungus_update_clock": enemy_fungus_update_clock, "enemy_guard_update_clock": enemy_guard_update_clock}
+	data["world_scene_id"] = _world_scene_id()
+	data["world_scene_revision"] = WorldSceneCatalog.REVISION
 	return data.duplicate(true)
 
 
@@ -11541,11 +11827,18 @@ func _load_game(defer_offline: bool = false) -> bool:
 	if inspected.is_empty():
 		return false
 	var parsed: Dictionary = inspected["data"]
+	var incoming_campaign := CampaignState.sanitize(parsed.get("campaign", {}))
+	var expected_scene := "home_nest" if incoming_campaign["active_mission"].is_empty() else String(incoming_campaign["active_mission"]["id"])
+	var incoming_world := _prepare_world_scene(WorldSceneCatalog.resolve_id(parsed, expected_scene))
+	if incoming_world == null:
+		return false
 	if String(inspected.get("path", save_path)) != save_path:
 		if not SaveStore.commit(save_path, String(inspected.get("payload", "")), Callable(self, "_parse_save_payload")):
 			push_warning("Recovered save could not repair its primary file: " + save_path)
-	campaign = CampaignState.sanitize(parsed.get("campaign", {}))
-	if not _restore_world_state(parsed):
+	campaign = incoming_campaign
+	if not _restore_world_state(parsed, incoming_world):
+		if is_instance_valid(incoming_world) and incoming_world != active_world:
+			incoming_world.free()
 		return false
 	if _campaign_active():
 		# Only the active mission resumes. Its archived home keeps its own timestamp.
@@ -11555,7 +11848,19 @@ func _load_game(defer_offline: bool = false) -> bool:
 	return true
 
 
-func _restore_world_state(parsed: Dictionary) -> bool:
+func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> bool:
+	# Resolve and validate the actual scene before mutating the current world.
+	var fallback_id := String(campaign["active_mission"]["id"]) if _campaign_active() else "home_nest"
+	var scene_id := WorldSceneCatalog.resolve_id(parsed, fallback_id)
+	if scene_id.is_empty() or not _valid_saved_world(parsed):
+		return false
+	var next_world := prepared_world if prepared_world != null else _prepare_world_scene(scene_id)
+	if next_world == null or next_world.scene_id != scene_id:
+		return false
+	if not _activate_world_scene(next_world):
+		if next_world != active_world:
+			next_world.free()
+		return false
 	_reset_offline_settlement_state()
 	offline_report_open = false
 	offline_report.clear()
@@ -12301,7 +12606,13 @@ func _campaign_upgrade() -> bool:
 
 
 func _campaign_mission_ready() -> bool:
-	return _campaign_active() and not game_over and _living_core_count() > 0 and _chapter_bounded_progress(lifetime_organic_absorbed, 360.0) >= 360.0 and _chapter_bounded_progress(lifetime_mineral_absorbed, 18.0) >= 18.0 and _chapter_bounded_progress(_chapter_living_hypha_length(), 600.0) >= 600.0
+	return _campaign_active() and is_instance_valid(active_world) and _world_scene_id() == String(campaign["active_mission"]["id"]) and active_world.mission_ready(self)
+
+
+func _campaign_goal_targets() -> Dictionary:
+	if is_instance_valid(active_world) and _world_scene_id() == CampaignState.MISSION_ID:
+		return active_world.goal_targets()
+	return WorldSceneCatalog.targets(CampaignState.MISSION_ID)
 
 
 func _total_core_biomass() -> float:
