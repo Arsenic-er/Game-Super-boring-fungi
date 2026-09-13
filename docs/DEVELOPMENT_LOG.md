@@ -242,3 +242,14 @@ The following remain local build/runtime products and are intentionally not comm
 - 用户确认独立任务地图，以及第一章主动游玩 4–6 小时、每天约一小时对应 4–6 天的时间目标；旧“快首通＋通关后约三天经营”改为历史基线，不再作为当前内容目标。
 - 更新主计划与旧收尾审计的范围提示，新增剧情战役文档。先实现主巢→独立任务→返回结算→主巢升级的一个闭环，再扩充剧情与全部地图。
 - 本次仅修改计划文档，没有修改当前游戏或本地测试包；任务编队/科技继承、任务中主巢结算、失败代价、主巢失活与旧档身份迁移均保留为待明确规则。
+
+## 2026-09-14 — First persistent-nest mission loop / 首个主巢独立任务闭环
+
+- Implemented a persistent nest ledger, an independent fixed-supply mission, victory/retreat/failure return, exactly-once first-win materials, and one nest upgrade with a short story/locked next-challenge preview. This is one playable loop, not the complete 4–6-hour campaign.
+- Added seven-language campaign UI, the J shortcut, fractional uptake progress, safe modal handling, scrolling small-window text and existing pixel sound cues. Main-nest identity migrates to a living core without reviving dead cores or changing the all-cores-dead failure rule.
+- World snapshots now preserve complete resource/hotspot catalogs, random-generator state and simulation clocks, with atomic home/mission/reward persistence. Active missions pause offline; the home settles the departure interval once, capped at 48 hours. Failed departure, reward settlement or upgrade writes roll back their live state.
+- Added structural snapshot validation before destructive restore, backup recovery for damaged nested worlds, and valid pursuit-target restoration. Repaired inactive founder state loss, task-triggered legacy chapter inference and carried-over discovery markers.
+- A paid, ordinary-resource route reached the first mission at 845.750 simulated seconds after spending 37 organic on three extensions. Uptake was 360.087 organic / 96.090 mineral and living mature hyphae 792.947 world units. This fixed script is reachability evidence, not average player timing.
+- Windows actual OpenGL rendering produced 33 screenshots with isolated test saves and no stderr, including real 640×360 viewport checks. Fixtures are explicitly not economic evidence. See `CHAPTER1_CAMPAIGN_LOOP_QA.zh-CN.md` for scope, procedures and remaining work.
+- 已实现一个主巢—出征—返回—升级闭环；七语、旧档兼容、48 小时主巢离线和任务离线暂停同步接入。下一任务仍为预告，不把旧版首通或此次截图等同于完整剧情战役完成。
+- Final full-server verification passed resource import, all 81 smoke tests and headless startup in 262 seconds: `/home/ubuntu/fungi/test-logs/20260913T180431Z-2943894/summary.txt`. Existing timing gates were retained. The portable split EXE/PCK archive passed exact-layout validation; SHA-256: `ab6e4855aac15b2a3605ce091151691b3c3ae611c8d5a5455910f7a1c1b04a0d`.

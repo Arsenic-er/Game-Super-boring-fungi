@@ -13,6 +13,9 @@ const RivalCombatLocalization = preload("res://scripts/rival_combat_localization
 const SaveStore = preload("res://scripts/save_store.gd")
 const DeveloperLocalization = preload("res://scripts/developer_localization.gd")
 const OfflineLocalization = preload("res://scripts/offline_localization.gd")
+const CampaignState = preload("res://scripts/campaign_state.gd")
+const CampaignController = preload("res://scripts/campaign_controller.gd")
+const WorldSnapshotValidator = preload("res://scripts/world_snapshot_validator.gd")
 
 const WORLD_HALF := 16384.0
 const MAX_SEGMENT_LENGTH := 280.0
@@ -580,9 +583,12 @@ var expedition_stage_mid_atlases: Dictionary = {}
 var guide_textures: Array[Texture2D] = []
 var pixel_audio: Node
 var audio_hover_target := ""
+var campaign: Dictionary = CampaignState.fresh()
+var campaign_ui: RefCounted
 
 
 func _ready() -> void:
+	campaign_ui = CampaignController.new(self)
 	var settings_file_existed := FileAccess.file_exists(SETTINGS_PATH)
 	fallback_font = ThemeDB.fallback_font
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1757,6 +1763,7 @@ func _complete_founder_spore_germination() -> bool:
 	founder_spore["state"] = "settled"
 	founder_spore["selected"] = false
 	cores.append(_make_core(founder_pos))
+	_ensure_campaign_main_core()
 	selected_core = 0
 	menu_anim = 0.0
 	game_over = false
@@ -1771,7 +1778,7 @@ func _complete_founder_spore_germination() -> bool:
 
 func _process(delta: float) -> void:
 	if pixel_audio != null:
-		pixel_audio.update_context(main_menu_active, pause_menu_open or offline_settlement_active or offline_report_open or chapter_report_open, game_over, camera_zoom)
+		pixel_audio.update_context(main_menu_active, pause_menu_open or offline_settlement_active or offline_report_open or chapter_report_open or (campaign_ui != null and campaign_ui.open), game_over, camera_zoom)
 	if developer_mode_enabled:
 		_developer_grant_resources()
 	if splash_active:
@@ -1792,6 +1799,12 @@ func _process(delta: float) -> void:
 		queue_redraw()
 		return
 	if chapter_report_open:
+		queue_redraw()
+		return
+	if _campaign_active() and game_over and campaign_ui != null and not campaign_ui.failure_presented:
+		campaign_ui.failure_presented = true
+		campaign_ui.open = true
+	if campaign_ui != null and campaign_ui.open:
 		queue_redraw()
 		return
 	if pause_menu_open or game_over:
@@ -4289,6 +4302,8 @@ func _infer_chapter_task_index() -> int:
 
 
 func _update_chapter_flow(show_feedback: bool = true) -> void:
+	if _campaign_active():
+		return
 	if chapter_complete:
 		if not chapter_report_seen and not offline_report_open and game_started:
 			chapter_report_open = true
@@ -5064,6 +5079,9 @@ func _finish_ecology_event(event: Dictionary, contained: bool) -> void:
 
 
 func _update_ecology_events(sim_delta: float) -> void:
+	# The first expedition is a supply tutorial; later missions own their hazards.
+	if _campaign_active():
+		return
 	if sim_delta <= 0.0:
 		return
 	if ecology_events.is_empty():
@@ -5625,6 +5643,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if offline_settlement_active:
 		return
+	if not main_menu_active and not offline_report_open and not chapter_report_open and not pause_menu_open and campaign_ui != null and campaign_ui.handle_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	if event is InputEventMouseMotion:
 		_update_audio_hover(event.position)
 	if main_menu_active:
@@ -5918,6 +5939,9 @@ func _zoom_at(screen_pos: Vector2, factor: float) -> void:
 
 
 func _handle_left_click(pos: Vector2, shift_pressed: bool = false, ctrl_pressed: bool = false) -> void:
+	if campaign_ui != null and campaign_ui.hud_rect().has_point(pos):
+		campaign_ui.show_panel()
+		return
 	if game_over:
 		return
 	if _pause_hud_rect().has_point(pos):
@@ -6815,6 +6839,8 @@ func _draw() -> void:
 		_draw_chapter_report(viewport)
 	elif pause_menu_open:
 		_draw_pause_menu(viewport)
+	elif campaign_ui != null and campaign_ui.open:
+		campaign_ui.draw_panel(viewport)
 
 
 func _draw_splash(viewport: Vector2) -> void:
@@ -7218,6 +7244,10 @@ func _begin_new_culture() -> void:
 
 func _start_new_culture() -> void:
 	# 这是新局的唯一初始化入口，测试和未来的“重新开始”也复用它。
+	campaign = CampaignState.fresh()
+	if campaign_ui != null:
+		campaign_ui.reset_panel()
+		campaign_ui.failure_presented = false
 	_reset_offline_settlement_state()
 	rng.seed = 0xF00D47
 	_generate_world()
@@ -8254,6 +8284,8 @@ func _draw_hud(viewport: Vector2) -> void:
 	_draw_chapter_guidance(viewport)
 	_draw_enemy_threat_hud(viewport)
 	_draw_help(viewport)
+	if campaign_ui != null:
+		campaign_ui.draw_hud()
 
 
 func _draw_unit_filter_bar() -> void:
@@ -8688,6 +8720,9 @@ func _chapter_guidance_rect() -> Rect2:
 
 
 func _draw_chapter_guidance(_viewport: Vector2) -> void:
+	if _campaign_active():
+		campaign_ui.draw_progress(_chapter_guidance_rect())
+		return
 	var rect := _chapter_guidance_rect()
 	var accent := Color("76f5ca") if not chapter_complete else Color("f4ca83")
 	var hovered := rect.has_point(last_mouse)
@@ -8720,6 +8755,9 @@ func _handle_chapter_guidance_click(pos: Vector2) -> bool:
 	var rect := _chapter_guidance_rect()
 	if not rect.has_point(pos):
 		return false
+	if _campaign_active():
+		campaign_ui.show_panel()
+		return true
 	if chapter_complete:
 		chapter_report_open = true
 		_play_sound("panel_open")
@@ -11127,23 +11165,66 @@ func _parse_save_payload(payload: String) -> Dictionary:
 	if json.parse(payload) != OK:
 		return {}
 	var parsed = json.data
-	if not parsed is Dictionary or int(parsed.get("version", 0)) != 1:
+	if not _valid_saved_world(parsed):
 		return {}
-	if bool(parsed.get("developer_session", false)) != developer_mode_enabled:
-		return {}
-	for numeric_field in ["saved_at", "organic", "mineral", "dna"]:
-		if not parsed.get(numeric_field, null) is int and not parsed.get(numeric_field, null) is float:
+	if parsed.has("campaign"):
+		var raw = parsed["campaign"]
+		if not raw is Dictionary or not _finite_save_number(raw.get("version", null)) or float(raw.get("version", 0)) != CampaignState.VERSION or not raw.get("active_mission", null) is Dictionary or not raw.get("home_world", null) is Dictionary:
 			return {}
-	if not parsed.get("cores", null) is Array or not parsed.get("segments", null) is Array:
-		return {}
+		var cleaned := CampaignState.sanitize(raw)
+		if not raw["active_mission"].is_empty():
+			if cleaned["active_mission"].is_empty() or raw["home_world"].has("campaign") or not _valid_saved_world(raw["home_world"]):
+				return {}
+		elif not raw["home_world"].is_empty():
+			return {}
 	return parsed
+
+
+func _valid_saved_world(parsed: Variant) -> bool:
+	if not parsed is Dictionary or not _finite_save_number(parsed.get("version", null)) or float(parsed.get("version", 0)) != 1.0 or bool(parsed.get("developer_session", false)) != developer_mode_enabled:
+		return false
+	if not WorldSnapshotValidator.validate(parsed):
+		return false
+	for numeric_field in ["saved_at", "organic", "mineral", "dna"]:
+		if not _finite_save_number(parsed.get(numeric_field, null)):
+			return false
+	if not parsed.get("cores", null) is Array or not parsed.get("segments", null) is Array:
+		return false
+	if parsed.has("resource_catalog"):
+		if not parsed["resource_catalog"] is Array or parsed["resource_catalog"].size() > 20000 or not parsed.get("hotspot_catalog", null) is Array:
+			return false
+		for item in parsed["resource_catalog"]:
+			if not item is Dictionary:
+				return false
+			for field in ["x", "y", "kind", "initial_amount", "amount", "phase"]:
+				if not _finite_save_number(item.get(field, null)):
+					return false
+			if int(item["kind"]) not in [0, 1] or float(item["initial_amount"]) < 0.0:
+				return false
+		for item in parsed["hotspot_catalog"]:
+			if not item is Dictionary:
+				return false
+			for field in ["x", "y", "radius", "kind"]:
+				if not _finite_save_number(item.get(field, null)):
+					return false
+	var clocks = parsed.get("simulation_clocks", {})
+	if not clocks is Dictionary:
+		return false
+	for value in clocks.values():
+		if not _finite_save_number(value) or float(value) < 0.0:
+			return false
+	return true
+
+
+func _finite_save_number(value: Variant) -> bool:
+	return (value is int or value is float) and is_finite(float(value))
 
 
 func _has_recoverable_save() -> bool:
 	return SaveStore.has_recoverable_save(save_path, Callable(self, "_parse_save_payload"))
 
 
-func _save_game() -> bool:
+func _capture_world_state() -> Dictionary:
 	var core_data: Array = []
 	for core in cores:
 		core_data.append({
@@ -11425,10 +11506,34 @@ func _save_game() -> bool:
 		"discovered_hotspots": discovery_data,
 		"ecology_events": ecology_data
 	}
+	# World switches cannot reconstruct a custom mission from legacy resource IDs.
+	var catalog: Array = []
+	for resource in resources:
+		catalog.append({"x": resource["pos"].x, "y": resource["pos"].y, "kind": resource["kind"], "initial_amount": resource["initial_amount"], "amount": resource["amount"], "phase": resource["phase"]})
+	var hotspots: Array = []
+	for hotspot in resource_hotspots:
+		hotspots.append({"id": hotspot.get("id", ""), "x": hotspot["pos"].x, "y": hotspot["pos"].y, "radius": hotspot["radius"], "kind": hotspot["kind"], "anomalous": hotspot.get("anomalous", false)})
+	data["resource_catalog"] = catalog
+	data["hotspot_catalog"] = hotspots
+	data["rng_seed"] = str(rng.seed)
+	data["rng_state"] = str(rng.state)
+	data["simulation_clocks"] = {"absorb_clock": absorb_clock, "bacteria_update_clock": bacteria_update_clock, "expedition_update_clock": expedition_update_clock, "barracks_auto_clock": barracks_auto_clock, "enemy_fungus_update_clock": enemy_fungus_update_clock, "enemy_guard_update_clock": enemy_guard_update_clock}
+	return data.duplicate(true)
+
+
+func _commit_world_and_campaign(world: Dictionary) -> bool:
+	var data := world.duplicate(true)
+	data["campaign"] = campaign.duplicate(true)
 	var saved := SaveStore.commit(save_path, JSON.stringify(data), Callable(self, "_parse_save_payload"))
 	if saved:
 		main_menu_has_save = true
 	return saved
+
+
+func _save_game() -> bool:
+	if offline_settlement_active:
+		return false
+	return _commit_world_and_campaign(_capture_world_state())
 
 
 func _load_game(defer_offline: bool = false) -> bool:
@@ -11439,6 +11544,52 @@ func _load_game(defer_offline: bool = false) -> bool:
 	if String(inspected.get("path", save_path)) != save_path:
 		if not SaveStore.commit(save_path, String(inspected.get("payload", "")), Callable(self, "_parse_save_payload")):
 			push_warning("Recovered save could not repair its primary file: " + save_path)
+	campaign = CampaignState.sanitize(parsed.get("campaign", {}))
+	if not _restore_world_state(parsed):
+		return false
+	if _campaign_active():
+		# Only the active mission resumes. Its archived home keeps its own timestamp.
+		return true
+	_ensure_campaign_main_core()
+	_settle_home_elapsed(parsed, defer_offline)
+	return true
+
+
+func _restore_world_state(parsed: Dictionary) -> bool:
+	_reset_offline_settlement_state()
+	offline_report_open = false
+	offline_report.clear()
+	if campaign_ui != null:
+		campaign_ui.reset_panel()
+		campaign_ui.failure_presented = false
+	rng.seed = 0xF00D47
+	_generate_world()
+	var catalog = parsed.get("resource_catalog", null)
+	if catalog is Array:
+		resources.clear()
+		resource_grid.clear()
+		for resource in catalog:
+			var initial := maxf(0.0, float(resource.get("initial_amount", 0.0)))
+			_add_resource(Vector2(float(resource.get("x", 0.0)), float(resource.get("y", 0.0))), int(resource.get("kind", 0)), initial)
+			resources.back()["amount"] = clampf(float(resource.get("amount", initial)), 0.0, initial)
+			resources.back()["alive"] = float(resources.back()["amount"]) > 0.0005
+			resources.back()["phase"] = float(resource.get("phase", 0.0))
+		resource_hotspots.clear()
+		for hotspot in parsed.get("hotspot_catalog", []):
+			resource_hotspots.append({"id": String(hotspot.get("id", "")), "pos": Vector2(float(hotspot.get("x", 0.0)), float(hotspot.get("y", 0.0))), "radius": float(hotspot.get("radius", 0.0)), "kind": int(hotspot.get("kind", 0)), "anomalous": bool(hotspot.get("anomalous", false))})
+	# Transient targeting caches belong to the previous world, never the destination.
+	purge_density_grid.clear()
+	purge_claim_cache.clear()
+	upgrade_open = false
+	goals_open = false
+	show_status = false
+	_close_barracks_production_menu()
+	selected_tip_valid = false
+	left_selecting = false
+	left_dragged = false
+	dragging = false
+	defense_zone_drawing = false
+	developer_placement_action = ""
 	var migrated_unavailable_primary_diet := false
 	organic = float(parsed.get("organic", 220.0))
 	mineral = float(parsed.get("mineral", 24.0))
@@ -11455,6 +11606,8 @@ func _load_game(defer_offline: bool = false) -> bool:
 		founder_spore = _make_founder_spore(saved_founder_pos)
 		founder_spore["energy"] = clampf(float(saved_founder.get("energy", FOUNDER_SPORE_ENERGY_MAX)), 0.0, FOUNDER_SPORE_ENERGY_MAX)
 		founder_spore["state"] = "dormant" if float(founder_spore["energy"]) <= 0.000001 else "idle"
+	elif saved_founder is Dictionary and not saved_founder.is_empty():
+		founder_spore = {"active": false, "state": String(saved_founder.get("state", "settled")), "pos": Vector2(float(saved_founder.get("x", 0.0)), float(saved_founder.get("y", 0.0))), "energy": clampf(float(saved_founder.get("energy", 0.0)), 0.0, FOUNDER_SPORE_ENERGY_MAX)}
 	diet_order.clear()
 	for diet_id in parsed.get("diet_order", []):
 		if DIET_IDS.has(String(diet_id)) and not diet_order.has(String(diet_id)):
@@ -11810,7 +11963,7 @@ func _load_game(defer_offline: bool = false) -> bool:
 			if not alive:
 				continue
 			var guard_state := String(item.get("state", "patrol"))
-			if not valid_guard_states.has(guard_state) or guard_state == "chasing" or guard_state == "attacking":
+			if not valid_guard_states.has(guard_state) or (not parsed.has("resource_catalog") and guard_state in ["chasing", "attacking"]):
 				guard_state = "patrol"
 			var owner_index := _enemy_fungus_index_by_id(fungus_id)
 			if owner_index < 0 or not bool(enemy_fungi[owner_index].get("alive", false)):
@@ -11824,7 +11977,7 @@ func _load_game(defer_offline: bool = false) -> bool:
 				"pos": guard_pos,
 				"state": guard_state,
 				"target_pos": target_pos,
-				"target_unit_id": -1,
+				"target_unit_id": int(item.get("target_unit_id", -1)) if parsed.has("resource_catalog") and guard_state in ["chasing", "attacking"] else -1,
 				"biomass": biomass,
 				"max_biomass": maximum,
 				"alive": true,
@@ -12039,6 +12192,14 @@ func _load_game(defer_offline: bool = false) -> bool:
 		_enforce_harvest_zone(loaded_unit)
 		_enforce_purge_zone(loaded_unit)
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
+	# Validate modern snapshot pursuit after both populations have been restored.
+	for guard in enemy_guard_spores:
+		if String(guard.get("state", "")) not in ["chasing", "attacking"]:
+			continue
+		var target_index := _expedition_unit_index_by_id(int(guard.get("target_unit_id", -1)))
+		if target_index < 0 or float(expedition_units[target_index].get("biomass", 0.0)) <= 0.0005:
+			guard["target_unit_id"] = -1
+			guard["state"] = "patrol"
 	# v0.22 及更早存档没有章节字段：根据已完成的实际行为向前补齐，不回退玩家进度。
 	lifetime_expedition_units_built = maxi(lifetime_expedition_units_built, expedition_units.size())
 	if lifetime_expedition_units_built == 0 and (lifetime_expedition_organic_returned > 0.0 or lifetime_expedition_mineral_returned > 0.0 or lifetime_expedition_bacteria_killed > 0):
@@ -12046,30 +12207,31 @@ func _load_game(defer_offline: bool = false) -> bool:
 	if not core_selected_once and (not segments.is_empty() or lifetime_organic_absorbed > 0.0 or lifetime_dna_produced > 0 or _living_core_count() > 1 or not diet_order.is_empty()):
 		core_selected_once = true
 	# Keep earned completions, but old in-progress indices must not skip new goals.
-	if int(parsed.get("chapter_rules_version", 1)) < CHAPTER_RULES_VERSION:
-		if not parsed.has("chapter_complete") and _legacy_chapter_completed(migrated_unavailable_primary_diet):
+	if not _campaign_active():
+		if int(parsed.get("chapter_rules_version", 1)) < CHAPTER_RULES_VERSION:
+			if not parsed.has("chapter_complete") and _legacy_chapter_completed(migrated_unavailable_primary_diet):
+				chapter_complete = true
+			if not chapter_complete:
+				if developer_mode_enabled and chapter_task_index >= 7:
+					chapter_task_index += 2
+				else:
+					chapter_task_index = mini(chapter_task_index, 7)
+		if chapter_complete:
+			chapter_task_index = _chapter_tasks().size()
+		chapter_task_index = maxi(chapter_task_index, _infer_chapter_task_index())
+		if migrated_unavailable_primary_diet and not parsed.has("chapter_task_index"):
+			chapter_task_index = maxi(chapter_task_index, 6)
+			var migration_tasks := _chapter_tasks()
+			while chapter_task_index < migration_tasks.size() and _chapter_task_complete(chapter_task_index):
+				chapter_task_index += 1
+		chapter_task_index = clampi(chapter_task_index, 0, _chapter_tasks().size())
+		_constrain_chapter_progress_to_live_goals()
+		if chapter_task_index >= _chapter_tasks().size():
+			if not chapter_complete:
+				chapter_completed_rules_version = CHAPTER_RULES_VERSION
 			chapter_complete = true
-		if not chapter_complete:
-			if developer_mode_enabled and chapter_task_index >= 7:
-				chapter_task_index += 2
-			else:
-				chapter_task_index = mini(chapter_task_index, 7)
-	if chapter_complete:
-		chapter_task_index = _chapter_tasks().size()
-	chapter_task_index = maxi(chapter_task_index, _infer_chapter_task_index())
-	if migrated_unavailable_primary_diet and not parsed.has("chapter_task_index"):
-		chapter_task_index = maxi(chapter_task_index, 6)
-		var migration_tasks := _chapter_tasks()
-		while chapter_task_index < migration_tasks.size() and _chapter_task_complete(chapter_task_index):
-			chapter_task_index += 1
-	chapter_task_index = clampi(chapter_task_index, 0, _chapter_tasks().size())
-	_constrain_chapter_progress_to_live_goals()
-	if chapter_task_index >= _chapter_tasks().size():
-		if not chapter_complete:
-			chapter_completed_rules_version = CHAPTER_RULES_VERSION
-		chapter_complete = true
-		if chapter_completed_at <= 0.0:
-			chapter_completed_at = sim_time
+			if chapter_completed_at <= 0.0:
+				chapter_completed_at = sim_time
 	if not parsed.has("explored_cells") or explored_cells.is_empty():
 		_update_exploration(false)
 	_sync_hotspot_discoveries(false)
@@ -12080,20 +12242,6 @@ func _load_game(defer_offline: bool = false) -> bool:
 	game_over = false if _founder_spore_active() else (bool(parsed.get("game_over", false)) or _living_core_count() <= 0)
 	if game_over:
 		sim_speed = 0.0
-	var now: float = Time.get_unix_time_from_system()
-	var actual_elapsed := maxf(0.0, now - float(parsed.get("saved_at", now)))
-	var settled_elapsed := minf(actual_elapsed, OFFLINE_CAP_SECONDS)
-	if _founder_spore_active():
-		offline_report_open = false
-		offline_report.clear()
-		_update_exploration(false)
-	elif defer_offline:
-		_begin_offline_progress(settled_elapsed, actual_elapsed, true)
-	else:
-		_apply_offline_progress(settled_elapsed, actual_elapsed)
-		# Synchronous callers retain the existing immediate checkpoint behavior.
-		if offline_report_open:
-			_save_game()
 	selected_core = -1
 	selected_expedition_ids.clear()
 	unit_selection_filter = "all"
@@ -12101,10 +12249,59 @@ func _load_game(defer_offline: bool = false) -> bool:
 	pause_menu_open = false
 	pause_menu_page = "main"
 	pause_menu_notice = ""
-	barracks_auto_clock = 0.0
-	enemy_fungus_update_clock = 0.0
-	enemy_guard_update_clock = 0.0
+	for clock_name in ["absorb_clock", "bacteria_update_clock", "expedition_update_clock", "barracks_auto_clock", "enemy_fungus_update_clock", "enemy_guard_update_clock"]:
+		set(clock_name, maxf(0.0, float(parsed.get("simulation_clocks", {}).get(clock_name, 0.0))))
+	save_clock = 0.0
+	if parsed.get("rng_seed", null) is String and String(parsed["rng_seed"]).is_valid_int():
+		rng.seed = String(parsed["rng_seed"]).to_int()
+	if parsed.get("rng_state", null) is String and String(parsed["rng_state"]).is_valid_int():
+		rng.state = String(parsed["rng_state"]).to_int()
 	return true
+
+
+func _settle_home_elapsed(parsed: Dictionary, deferred: bool) -> void:
+	if _founder_spore_active():
+		return
+	var now := Time.get_unix_time_from_system()
+	var actual := maxf(0.0, now - float(parsed.get("saved_at", now)))
+	if deferred:
+		_begin_offline_progress(minf(actual, OFFLINE_CAP_SECONDS), actual, true)
+	else:
+		_apply_offline_progress(minf(actual, OFFLINE_CAP_SECONDS), actual)
+		if offline_report_open:
+			_save_game()
+
+
+func _campaign_active() -> bool:
+	return not (campaign.get("active_mission", {}) as Dictionary).is_empty()
+
+
+func _ensure_campaign_main_core() -> void:
+	if _campaign_active() or _founder_spore_active():
+		return
+	if _is_core_alive(int(campaign.get("main_core_id", -1))):
+		return
+	# Old saves can have lost their founder core; use a surviving relay, never revive it.
+	for index in range(cores.size()):
+		if _is_core_alive(index):
+			campaign["main_core_id"] = index
+			return
+
+
+func _campaign_start_mission() -> bool:
+	return campaign_ui.start_mission()
+
+
+func _campaign_return(outcome: String) -> bool:
+	return campaign_ui.return_home(outcome)
+
+
+func _campaign_upgrade() -> bool:
+	return campaign_ui.upgrade_nest()
+
+
+func _campaign_mission_ready() -> bool:
+	return _campaign_active() and not game_over and _living_core_count() > 0 and _chapter_bounded_progress(lifetime_organic_absorbed, 360.0) >= 360.0 and _chapter_bounded_progress(lifetime_mineral_absorbed, 18.0) >= 18.0 and _chapter_bounded_progress(_chapter_living_hypha_length(), 600.0) >= 600.0
 
 
 func _total_core_biomass() -> float:
