@@ -231,3 +231,14 @@ The following remain local build/runtime products and are intentionally not comm
 - 长经营诊断发现的保守策略停滞、恢复、新三天窗口及后续付费升级接入资源区实验分别保留于 [长会话记录](CHAPTER1_MANAGED_LONG_SESSION.zh-CN.md)，不把存活、探索增长或团簇潜在总量冒充已经收到的收入。
 - Final bounded recovery demonstration used only existing mechanics: 25 DNA for branching level four and 137 organic for eleven naturally grown bridge segments. The real connection completed at 275 simulated seconds. At twenty minutes, actual new hyphal uptake was 241.898 and delivered cargo 36.000; a separate 25-organic goal reward was accounted independently. All seven cores and fifteen units survived, and explored cells rose from 176 to 220. The process exited zero in 105.195 seconds. This demonstrates a paid growth route after long cultivation, not a claim that sparse visits or every route sustain a positive economy.
 - 最后用现有升级与已探索资源进行有界验证：25 DNA 升分枝、137 有机搭 11 段桥，275 秒真实接通；20 分钟新增吸收 241.898、返巢 36.000，目标奖励 25 单列。七核十五兵存活，探索 176→220；进程 105.195 秒、退出 0。未改变资源分布、价格、产速或敌人强度来凑结果。
+
+## 2026-09-14 — Story campaign scope confirmation / 剧情战役范围确认
+
+- The user selected independent mission maps and confirmed a Chapter 1 target of 4–6 hours of active play, approximately 4–6 play days at one hour daily. This replaces the earlier fast-clear/three-day-postgame pacing target; it is a design budget, not a tested player completion time or a mandatory calendar wait.
+- Persistent main-nest growth, mission-earned construction materials, and story/challenge unlocks become the new chapter direction while retaining existing RTS controls. Six regular missions and three nest challenges remain a candidate budget, not a fixed or implemented content list.
+- Added `CHAPTER1_STORY_CAMPAIGN.zh-CN.md` with phased implementation and eight acceptance gates covering isolated world snapshots, in-mission saves, all return paths, exactly-once rewards/upgrades, bounded offline accounting and legacy-save compatibility. Remaining decisions are explicitly marked rather than inferred from acceptance of the pacing proposal.
+- No gameplay code, prices, saves, release assets or Windows installation changed in this planning update. The previous 76-test result belongs to the old technical baseline; it is not certification of the new campaign. No Git push was performed by this entry.
+
+- 用户确认独立任务地图，以及第一章主动游玩 4–6 小时、每天约一小时对应 4–6 天的时间目标；旧“快首通＋通关后约三天经营”改为历史基线，不再作为当前内容目标。
+- 更新主计划与旧收尾审计的范围提示，新增剧情战役文档。先实现主巢→独立任务→返回结算→主巢升级的一个闭环，再扩充剧情与全部地图。
+- 本次仅修改计划文档，没有修改当前游戏或本地测试包；任务编队/科技继承、任务中主巢结算、失败代价、主巢失活与旧档身份迁移均保留为待明确规则。
