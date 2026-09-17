@@ -266,3 +266,13 @@ The following remain local build/runtime products and are intentionally not comm
 - 本次补上真正独立的主巢和首任务场景，不把不同地图数据当作全部场景拆分已完成。每个世界有独立实体、统计和随机状态，任务配置实际驱动地图与目标；公共输入、模拟和绘制继续复用。
 - 已验证旧档、任务离线暂停、存读档不刷新世界，以及写盘失败保留原场景实例。首个任务玩法和数值不变；下一任务仍未制作，完整 4–6 小时剧情战役没有完成。
 - 详细结构、测试范围与剩余边界见 `CHAPTER1_INDEPENDENT_SCENES.zh-CN.md`。本次不推送 Git。
+
+## 2026-09-17 — Server retirement backup / 服务器到期归档
+
+- The user requested that both repositories be pushed and this server's fungi project files removed only after backup. The latest gameplay commit remains `9547157`; no new mission or gameplay change is made by this archival update.
+- Added `SERVER_RETIREMENT_2026-09-17.zh-CN.md` with the exact development branch, current scope, restoration procedure and deletion boundaries. The default source `main` remains an old archive; current development is on `codex/fungi-next`.
+- Audited original art/audio against the private asset repository: all production assets were already retained. A content-addressed private recovery archive records 3,033 original paths with 724 new objects (6,391,858 bytes), including 44 unique unarchived QA PNGs, logs, historical drafts and server-only project saves. Existing identical contents are referenced rather than uploaded twice. Credential-pattern checks and all 3,033 recovery references passed locally before pushing.
+- Cleanup is gated on both successful pushes, matching remote refs, fresh network clones, Git object integrity and the full recovery-manifest verification. Preserve SSH/Tailscale, shared Godot configuration and all other projects. This log records the archival plan and pre-push evidence, not a premature claim that deletion has already occurred.
+
+- 用户明确要求双库备份后清理旧服务器 fungi；本轮只归档，不改玩法。源码、素材和关键文件哈希已核对，补存未归档资料时按内容去重，服务器存档仅进入私有库。
+- 恢复时使用源码 `codex/fungi-next`、素材 `main`，以及两库的同名 `server-retirement-2026-09-17` 标签。本机测试版和存档不在清理范围内。
