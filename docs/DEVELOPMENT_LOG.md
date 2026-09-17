@@ -275,4 +275,6 @@ The following remain local build/runtime products and are intentionally not comm
 - Cleanup is gated on both successful pushes, matching remote refs, fresh network clones, Git object integrity and the full recovery-manifest verification. Preserve SSH/Tailscale, shared Godot configuration and all other projects. This log records the archival plan and pre-push evidence, not a premature claim that deletion has already occurred.
 
 - 用户明确要求双库备份后清理旧服务器 fungi；本轮只归档，不改玩法。源码、素材和关键文件哈希已核对，补存未归档资料时按内容去重，服务器存档仅进入私有库。
-- 恢复时使用源码 `codex/fungi-next`、素材 `main`，以及两库的同名 `server-retirement-2026-09-17` 标签。本机测试版和存档不在清理范围内。
+- 恢复时使用源码 `codex/fungi-next`、素材 `main`，以及两库的同名 `server-retirement-2026-09-17-verified` 标签。本机测试版和存档不在清理范围内。
+- Fresh remote-clone validation caught 569 recovery `.log` objects excluded by the asset repository's existing ignore rule. Cleanup was blocked. Added an archive-scoped ignore exception and a tracked-object assertion to the verifier; preserve the original upload checkpoint and use the new `-verified` tag only after full network-retrieval checks pass. No server data was deleted during this failed verification.
+- 远端重取验证发现首次上传漏了被既有忽略规则挡住的 569 份日志对象，清理立即停止；新增只针对本次归档的例外规则，并要求清单对象必须确实被 Git 跟踪。初次标签保留历史，完整恢复使用后续经验证标签。

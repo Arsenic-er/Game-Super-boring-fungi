@@ -4,7 +4,7 @@
 
 - 公开源码仓库：`Arsenic-er/Game-Super-boring-fungi`，当前开发分支 **`codex/fungi-next`**。默认 `main` 仍是旧归档，不要只拉默认分支就当作最新版本。
 - 私有素材仓库：`Arsenic-er/Game-Super-boring-fungi-dev-assets`，分支 **`main`**。
-- 两库使用同名恢复标签 `server-retirement-2026-09-17` 固定此次归档；不改写既有分支历史，不更改仓库可见性。
+- 两库使用同名恢复标签 `server-retirement-2026-09-17-verified` 固定此次完整归档；不改写既有分支历史，不更改仓库可见性。无 `-verified` 后缀的是首次上传检查点，部分日志曾被忽略规则排除，不能作为完整恢复点。
 - 本次不开发新玩法。最后一个游戏代码提交为 `954715782fdcd4416207f67df1cb7268f6f69235`；其后的此次提交只记录恢复信息。
 
 ## 目前真正完成的内容
