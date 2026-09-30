@@ -189,10 +189,41 @@ func _run() -> void:
 		return
 	if not _check(_read_text(SLOT) == committed and _signature(game._capture_world_state()) == _signature(world_before) and game.campaign == state_before, "failed upgrade does not spend materials, DNA or home stock"):
 		return
-	_unblock()
-	if not _check(game._campaign_upgrade() and game._load_game(true) and int(game.campaign["nest_level"]) == 2 and int(game.campaign["materials"]) == 0 and bool(game.campaign["completed"].get("first_supply", false)), "successful upgrade and reward ledger survive reload"):
+	if not _check(game.campaign_ui.notice == game.campaign_ui.text("save_failed"), "failed upgrade keeps its visible save error until a successful retry"):
 		return
-	print("CAMPAIGN_SAVE_OK checks=%d legacy=true catalog+RNG+clocks=preserved task_offline=frozen home_offline=48h-once nested_profile=rejected failed_commits=start+return+upgrade settlement_ms=%d frames=%d" % [checks, settlement_elapsed, frames])
+	_unblock()
+	if not _check(game._campaign_upgrade() and game.campaign_ui.notice.is_empty() and int(game.campaign["nest_level"]) == 2 and int(game.campaign["materials"]) == 0, "successful upgrade clears the stale save error before any panel reset or reload"):
+		return
+	if not _check(game._load_game(true) and int(game.campaign["nest_level"]) == 2 and int(game.campaign["materials"]) == 0 and bool(game.campaign["completed"].get("first_supply", false)), "successful upgrade and reward ledger survive reload"):
+		return
+	game.offline_report_open = false
+	game.chapter_report_open = false
+	game.campaign_ui.open = true
+	var save_key := InputEventKey.new()
+	save_key.keycode = KEY_F5
+	save_key.pressed = true
+	for locale_id in ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]:
+		game.settings_locale = locale_id
+		committed = _read_text(SLOT)
+		game.organic += 0.125
+		world_before = game._capture_world_state()
+		state_before = game.campaign.duplicate(true)
+		if not _check(_block(), locale_id + " can obstruct the real F5 temporary-save path"):
+			return
+		game._unhandled_input(save_key)
+		if not _check(game.campaign_ui.notice == game.campaign_ui.text("save_failed") and _read_text(SLOT) == committed and _signature(game._capture_world_state()) == _signature(world_before) and game.campaign == state_before, locale_id + " failed F5 reports its error without altering the world, ledger or disk"):
+			return
+		_unblock()
+		game._unhandled_input(save_key)
+		if not _check(game.campaign_ui.open and game.campaign_ui.notice.is_empty() and is_equal_approx(float(_read_json(SLOT).get("organic", -1.0)), game.organic), locale_id + " successful F5 commits the changed stock and clears only the old save error in the same panel"):
+			return
+		game.campaign_ui.notice = "campaign_test_unrelated_notice"
+		game._unhandled_input(save_key)
+		if not _check(game.campaign_ui.notice == "campaign_test_unrelated_notice", locale_id + " successful F5 preserves an unrelated campaign notice"):
+			return
+	if not _check(game.campaign["nest_level"] == 2 and game.campaign["materials"] == 0, "repeated F5 retries never repeat the nest upgrade or material cost"):
+		return
+	print("CAMPAIGN_SAVE_OK checks=%d legacy=true catalog+RNG+clocks=preserved task_offline=frozen home_offline=48h-once nested_profile=rejected failed_commits=start+return+upgrade notice_recovery=upgrade+F5x7 settlement_ms=%d frames=%d" % [checks, settlement_elapsed, frames])
 	SaveStore.remove_slot(SLOT)
 	SaveStore.remove_slot(BAD_SLOT)
 	await _dispose(game)

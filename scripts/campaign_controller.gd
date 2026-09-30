@@ -101,6 +101,8 @@ func handle_input(event: InputEvent) -> bool:
 		elif event.keycode == KEY_F5:
 			if not g._save_game():
 				notice = text("save_failed")
+			elif notice == text("save_failed"):
+				notice = ""
 	g.queue_redraw()
 	return true
 
@@ -205,6 +207,8 @@ func upgrade_nest() -> bool:
 		g.campaign = previous
 		notice = text("save_failed")
 		return false
+	if notice == text("save_failed"):
+		notice = ""
 	scroll = 0
 	g._play_sound("upgrade")
 	g.queue_redraw()
