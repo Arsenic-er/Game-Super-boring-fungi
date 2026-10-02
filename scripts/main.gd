@@ -13408,6 +13408,15 @@ func _developer_apply_action(action_id: String) -> void:
 	if not developer_mode_enabled:
 		toast(_dt("action_blocked"), 2.0, "error")
 		return
+	if action_id.begins_with("campaign_"):
+		var reason: String = campaign_ui.developer_action_reason(action_id)
+		if not reason.is_empty() or not campaign_ui.developer_apply_action(action_id):
+			_play_sound("ui_error")
+			toast(_dt(reason) if not reason.is_empty() else campaign_ui.text("save_failed"), 3.0, "error")
+		elif action_id not in ["campaign_start", "campaign_return"]:
+			toast(_dt("action_applied_fmt") % _developer_action_label(action_id), 2.2, "info")
+		queue_redraw()
+		return
 	var placement_actions := ["spawn_core", "spawn_barracks", "place_organic", "place_mineral", "place_bacteria", "place_rival", "spawn_guard", "place_bloom", "place_toxin"]
 	if placement_actions.has(action_id):
 		_developer_begin_placement(action_id)
@@ -13500,7 +13509,7 @@ func _developer_button_rects(viewport: Vector2) -> Array[Rect2]:
 	var actions := DeveloperLocalization.page_actions(page_id)
 	var rows := maxi(1, int(ceil(float(actions.size()) / 2.0)))
 	var gap := 6.0
-	var top := panel.position.y + 76.0
+	var top := panel.position.y + (94.0 if page_id == "campaign" else 76.0)
 	var bottom := panel.end.y - 48.0
 	var height := clampf((bottom - top - gap * float(rows - 1)) / float(rows), 22.0, 40.0)
 	var width := (panel.size.x - 46.0) * 0.5
@@ -13519,6 +13528,22 @@ func _developer_navigation_rect(viewport: Vector2, index: int) -> Rect2:
 	return Rect2(_pixel_snap(Vector2(panel.get_center().x - total * 0.5 + index * (width + gap), panel.end.y - 38.0)), Vector2(width, 26.0))
 
 
+func _developer_campaign_hint(viewport: Vector2) -> String:
+	# Toasts render below the pause modal, so a failed save needs an in-panel notice.
+	if not campaign_ui.notice.is_empty():
+		return campaign_ui.notice
+	var actions := DeveloperLocalization.page_actions("campaign")
+	var rects := _developer_button_rects(viewport)
+	var page_index := clampi(developer_page, 0, DeveloperLocalization.PAGE_IDS.size() - 1)
+	if String(DeveloperLocalization.PAGE_IDS[page_index]) == "campaign":
+		for index in range(actions.size()):
+			if rects[index].has_point(last_mouse):
+				var reason: String = campaign_ui.developer_action_reason(String(actions[index]))
+				if not reason.is_empty():
+					return _dt(reason)
+	return DeveloperLocalization.page_description("campaign", settings_locale)
+
+
 func _draw_developer_tools(viewport: Vector2) -> void:
 	var panel := _developer_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.016, 0.055, 0.074, 0.995), Color("60e6b2"), 12, 2), panel)
@@ -13530,16 +13555,22 @@ func _draw_developer_tools(viewport: Vector2) -> void:
 	var page_label := _dt("page_label_fmt") % [developer_page + 1, DeveloperLocalization.PAGE_IDS.size(), DeveloperLocalization.page_title(page_id, settings_locale)]
 	draw_string(fallback_font, panel.position + Vector2(18.0, 48.0), page_label, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 36.0, _fit_font_size(page_label, panel.size.x - 36.0, 11, 8), COLOR_TEXT)
 	var description := DeveloperLocalization.page_description(page_id, settings_locale)
+	if page_id == "campaign":
+		description = campaign_ui.developer_status_text()
+		var hint := _developer_campaign_hint(viewport)
+		draw_string(fallback_font, panel.position + Vector2(18.0, 85.0), hint, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 36.0, _fit_font_size(hint, panel.size.x - 36.0, 10, 7), COLOR_MUTED)
 	draw_string(fallback_font, panel.position + Vector2(18.0, 67.0), description, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 36.0, _fit_font_size(description, panel.size.x - 36.0, 10, 7), COLOR_MUTED)
 	var actions := DeveloperLocalization.page_actions(page_id)
 	var rects := _developer_button_rects(viewport)
 	for index in range(actions.size()):
 		var rect: Rect2 = rects[index]
-		var hovered := rect.has_point(last_mouse)
-		draw_style_box(_rounded_style(Color(0.08, 0.27, 0.22, 0.98) if hovered else Color(0.025, 0.13, 0.15, 0.98), Color("6ef2b8") if hovered else COLOR_BORDER, 6, 2 if hovered else 1), rect)
+		var enabled: bool = page_id != "campaign" or campaign_ui.developer_action_reason(String(actions[index])).is_empty()
+		var hovered := enabled and rect.has_point(last_mouse)
+		var fill := Color(0.08, 0.27, 0.22, 0.98) if hovered else Color(0.025, 0.13, 0.15, 0.98)
+		draw_style_box(_rounded_style(fill if enabled else Color("09151c"), Color("6ef2b8") if hovered else COLOR_BORDER, 6, 2 if hovered else 1), rect)
 		var label := _developer_action_label(String(actions[index]))
 		var font_size := _fit_font_size(label, rect.size.x - 12.0, 11, 7)
-		draw_string(fallback_font, Vector2(rect.position.x + 6.0, rect.get_center().y + font_size * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 12.0, font_size, COLOR_TEXT)
+		draw_string(fallback_font, Vector2(rect.position.x + 6.0, rect.get_center().y + font_size * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 12.0, font_size, COLOR_TEXT if enabled else COLOR_MUTED)
 	var nav_labels := [_dt("previous_page"), _dt("next_page"), _dt("close")]
 	for index in range(3):
 		var rect := _developer_navigation_rect(viewport, index)

@@ -57,6 +57,15 @@ assert captures, "No screenshots"
 locales = {"zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"}
 assert {c["locale"] for c in captures if c["label"].startswith("compact_progress_")} == locales
 assert {c["locale"] for c in captures if c["label"].startswith("compact_hud_")} == locales
+for phase in ("home", "mission"):
+    for width in (640, 1280):
+        group = [c for c in captures if c["label"].startswith("developer_%s_%d_" % (phase, width))]
+        assert {c["locale"] for c in group} == locales
+        for capture in group:
+            actions = {a["id"]: a["disabled_reason"] for a in capture["developer_actions"]}
+            assert len(actions) == 6
+            assert actions["campaign_start"] == ("campaign_in_mission" if phase == "mission" else "")
+            assert actions["campaign_return"] == ("" if phase == "mission" else "campaign_not_in_mission")
 for capture in captures:
     image = root / (capture["label"] + ".png")
     with image.open("rb") as stream:

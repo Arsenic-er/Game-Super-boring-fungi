@@ -208,7 +208,55 @@ func _run() -> void:
 	if not await _capture("mission_failed_closed_en", "dead-colony-panel-dismissed"):
 		await _finish(false, failure)
 		return
+	if not await _capture_developer_campaign():
+		await _finish(false, failure)
+		return
 	await _finish(true, "")
+
+
+func _capture_developer_campaign() -> bool:
+	# Keep every actual save on the fixture path. Temporarily selecting the exact
+	# developer path below enables realistic read-only button rendering only.
+	game.campaign_ui.reset_panel()
+	game.developer_mode_enabled = true
+	game._start_new_culture()
+	game._complete_founder_spore_germination()
+	game.main_menu_active = false
+	game.game_started = true
+	for phase in ["home", "mission"]:
+		if phase == "mission":
+			game.pause_menu_open = false
+			game.campaign_ui.reset_panel()
+			if not game._campaign_start_mission():
+				failure = "Developer render mission failed on its isolated fixture path"
+				return false
+		game._open_developer_tools()
+		game.developer_page = 3
+		for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+			await _resize(size)
+			for locale in Words.LOCALES:
+				game.settings_locale = locale
+				# In the mission show the real disabled-home-edit explanation.
+				game.last_mouse = game._developer_button_rects(Vector2(size))[1].get_center() if phase == "mission" else Vector2(-1, -1)
+				var fixture_path: String = game.save_path
+				game.save_path = game.DEVELOPER_SAVE_PATH
+				var captured := await _capture("developer_" + phase + "_" + str(size.x) + "_" + locale, "developer-ui-render-only")
+				game.save_path = fixture_path
+				if not captured:
+					return false
+	# The return action only opens a confirmation; no save or settlement occurs.
+	var fixture_path: String = game.save_path
+	game.save_path = game.DEVELOPER_SAVE_PATH
+	var confirmed: bool = game.campaign_ui.developer_apply_action("campaign_return")
+	game.save_path = fixture_path
+	if not confirmed or not game.campaign_ui.confirm_retreat or not game._campaign_active():
+		failure = "Developer return must only open the existing confirmation"
+		return false
+	for locale in ["zh_CN", "en"]:
+		game.settings_locale = locale
+		if not await _capture("developer_return_confirm_" + locale, "developer-return-not-settled"):
+			return false
+	return true
 
 
 func _resize(size: Vector2i) -> void:
@@ -256,6 +304,14 @@ func _capture(label: String, fixture: String) -> bool:
 		"labels": game.campaign_ui.action_labels(),
 		"enabled": [game.campaign_ui.action_enabled(0), game.campaign_ui.action_enabled(1), game.campaign_ui.action_enabled(2)]
 	}
+	if game.pause_menu_open and game.pause_menu_page == "developer":
+		item["developer_status"] = game.campaign_ui.developer_status_text()
+		item["developer_hint"] = game._developer_campaign_hint(viewport)
+		item["developer_actions"] = []
+		for action in game.campaign_ui.DEVELOPER_ACTIONS:
+			item["developer_actions"].append({
+				"id": action, "label": game._developer_action_label(action),
+				"disabled_reason": game.campaign_ui.developer_action_reason(action)})
 	if validate_only:
 		captures.append(item)
 		print("CAMPAIGN_FIXTURE_VALIDATED " + label + " viewport=" + str(viewport))

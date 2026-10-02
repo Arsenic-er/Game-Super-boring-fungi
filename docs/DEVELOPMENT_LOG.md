@@ -301,3 +301,15 @@ The following remain local build/runtime products and are intentionally not comm
 
 - 首任务加入六种实时下一步提示，修复进度显示提前四舍五入达标；七语、存读、失活撤销和只读性均通过验证。详见 [首任务指引核验](CHAPTER1_MISSION_HINTS.zh-CN.md)。
 - 本轮以后仅在服务器开发与保留构建，不再自动下载覆盖本机测试版。删除被执行策略拦截即停止，约 138 MiB 历史临时副本仍在，未谎称清理成功。
+
+## 2026-10-03 — Developer nest and mission controls / 开发档主巢与任务控制
+
+- Added a fourth F10 developer page with six actions: nest level down/up (1–2), materials down/up (0–3), real FirstSupply departure and return confirmation. Home edits autosave and require both developer mode and the exact developer slot. Active missions cannot alter the archived nest.
+- Edits preserve campaign identity, attempt serials and unique reward records; failed writes restore the previous ledger. Setting level two uses the existing completed-mission invariant, and lowering it never restores first-win eligibility. This does not alter ordinary prices, objectives, rewards or save formats.
+- Departure reuses the existing scene/save transaction and retains the selected developer page. Return only opens the existing retreat confirmation, with cancellation and no premature settlement. Failed-save messages now appear inside the pause panel instead of behind it.
+- Independent static review found no blocking/P1/P2 issues. Seven-language localization passed 1,729 assertions (4 pages / 36 actions / 101 keys); the focused campaign regression passed 15,826 assertions, largely seven-language, two-size layout combinations plus real persistence, rollback and isolation checks. Initial failures were corrected fixture assumptions about developer auto-germination and JSON floating-point precision, not hidden gameplay relaxations.
+- Final isolated verification passed import, **84/84 smoke tests** and main-scene startup in 344 seconds, retaining all prior timeouts: `/home/ubuntu/fungi/test-logs/20261002T214825Z-151146/summary.txt`. Server software-OpenGL verification produced 92 captures under `/home/ubuntu/fungi/test-logs/campaign-visual-20261002T214631Z-148775/`; PNGs and logs stayed on the server. This is not human visual/input/audio QA.
+- Server Windows EXE/PCK export and exact three-file ZIP validation passed. SHA-256: `805f0348bd2bb5774695768ab038ca25c9c3b04ac92a643ce3d04a9d2ed652a9`. Package: `/home/ubuntu/fungi/game/release/FungiMicroculture-Windows-x64.zip`. No download, local installation, Windows runtime execution, private-art change or Git push was performed.
+
+- 开发档新增 F10 第四页，可调现有主巢等级、材料，并进入真实独立任务或打开返巢确认；普通档不受影响。写入失败会回滚并在面板内显示，降级不重置首胜奖励。
+- 本轮补足测试入口，不代表第二任务或完整剧情战役已经完成；下一独立场景仍先提交玩法说明审阅。详见 [开发者战役入口及验收](CHAPTER1_DEVELOPER_CAMPAIGN.zh-CN.md)。

@@ -2,6 +2,10 @@ extends RefCounted
 
 const State = preload("res://scripts/campaign_state.gd")
 const Words = preload("res://scripts/campaign_localization.gd")
+const DEVELOPER_ACTIONS := [
+	"campaign_nest_down", "campaign_nest_up", "campaign_material_down",
+	"campaign_material_up", "campaign_start", "campaign_return"
+]
 
 var g
 var open := false
@@ -210,6 +214,88 @@ func upgrade_nest() -> bool:
 	if notice == text("save_failed"):
 		notice = ""
 	scroll = 0
+	g._play_sound("upgrade")
+	g.queue_redraw()
+	return true
+
+
+func developer_action_reason(action_id: String) -> String:
+	# A mode flag alone is insufficient: never write these edits to a normal slot.
+	if not g.developer_mode_enabled or g.save_path != g.DEVELOPER_SAVE_PATH:
+		return "campaign_dev_only"
+	if not DEVELOPER_ACTIONS.has(action_id):
+		return "campaign_busy"
+	if busy or open or not g.game_started or g.splash_active or g.main_menu_active or g.offline_settlement_active or g.offline_report_open or g.chapter_report_open or g.upgrade_open or g.goals_open or g.barracks_production_open:
+		return "campaign_busy"
+	if g.pause_menu_open and g.pause_menu_page != "developer":
+		return "campaign_busy"
+	var active: bool = g._campaign_active()
+	if action_id == "campaign_return":
+		return "" if active else "campaign_not_in_mission"
+	if active:
+		return "campaign_in_mission" if action_id == "campaign_start" else "campaign_home_only"
+	if g.game_over or g._founder_spore_active() or g._living_core_count() <= 0:
+		return "campaign_settle_first"
+	match action_id:
+		"campaign_nest_down":
+			return "campaign_limit" if int(g.campaign.nest_level) <= 1 else ""
+		"campaign_nest_up":
+			return "campaign_limit" if int(g.campaign.nest_level) >= State.MAX_NEST_LEVEL else ""
+		"campaign_material_down":
+			return "campaign_limit" if int(g.campaign.materials) <= 0 else ""
+		"campaign_material_up":
+			return "campaign_limit" if int(g.campaign.materials) >= State.MAX_MATERIALS else ""
+		"campaign_start":
+			return "" if State.can_begin(g.campaign) else "campaign_limit"
+	return "campaign_busy"
+
+
+func developer_status_text() -> String:
+	var world_label: String = g._dt("campaign_mission" if g._campaign_active() else "campaign_home")
+	return g._dt("campaign_status_fmt") % [world_label, int(g.campaign.nest_level), int(g.campaign.materials)]
+
+
+func developer_apply_action(action_id: String) -> bool:
+	if not developer_action_reason(action_id).is_empty():
+		return false
+	if action_id in ["campaign_start", "campaign_return"]:
+		# Only release this developer pause page. All unrelated modal guards remain.
+		var was_paused: bool = g.pause_menu_open
+		var previous_page: String = g.pause_menu_page
+		var previous_developer_page: int = g.developer_page
+		g.pause_menu_open = false
+		g.pause_menu_page = "main"
+		if action_id == "campaign_return":
+			show_panel()
+			confirm_retreat = true
+			scroll = 0
+			return true
+		if start_mission():
+			g.developer_page = previous_developer_page
+			return true
+		# Scene initialization can reset the page index even when the save rolls back.
+		g.pause_menu_open = was_paused
+		g.pause_menu_page = previous_page
+		g.developer_page = previous_developer_page
+		open = false
+		g.queue_redraw()
+		return false
+	var previous: Dictionary = g.campaign.duplicate(true)
+	var next: Dictionary = previous.duplicate(true)
+	match action_id:
+		"campaign_nest_down": next.nest_level = int(next.nest_level) - 1
+		"campaign_nest_up": next.nest_level = int(next.nest_level) + 1
+		"campaign_material_down": next.materials = int(next.materials) - 1
+		"campaign_material_up": next.materials = int(next.materials) + 1
+	# Level two implies the first-win flag. Lowering the level cannot restore it.
+	g.campaign = State.sanitize(next)
+	if not g._save_game():
+		g.campaign = previous
+		notice = text("save_failed")
+		g.queue_redraw()
+		return false
+	if notice == text("save_failed"):
+		notice = ""
 	g._play_sound("upgrade")
 	g.queue_redraw()
 	return true

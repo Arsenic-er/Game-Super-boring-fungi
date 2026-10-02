@@ -3,8 +3,13 @@ extends SceneTree
 
 const DeveloperLocalization = preload("res://scripts/developer_localization.gd")
 const EXPECTED_LOCALES: Array[String] = ["zh_CN", "zh_TW", "en", "ja", "es", "de", "ru"]
-const EXPECTED_PAGE_IDS: Array[String] = ["colony", "world", "progress"]
+const EXPECTED_PAGE_IDS: Array[String] = ["colony", "world", "progress", "campaign"]
 const REQUIRED_OFFLINE_KEYS: Array[String] = ["offline_settlement_title", "offline_settlement_progress_fmt"]
+const REQUIRED_CAMPAIGN_KEYS: Array[String] = [
+	"campaign_dev_only", "campaign_busy", "campaign_home_only", "campaign_settle_first",
+	"campaign_limit", "campaign_not_in_mission", "campaign_in_mission",
+	"campaign_home", "campaign_mission", "campaign_status_fmt"
+]
 
 var assertion_count := 0
 
@@ -19,10 +24,10 @@ func _run() -> void:
 	var reference: Dictionary = DeveloperLocalization.TEXTS.get("en", {})
 	if not _check(reference.size() >= 83, "developer localization should expose the original 81 keys plus two offline-settlement keys"):
 		return
-	for required_key in REQUIRED_OFFLINE_KEYS:
+	for required_key in REQUIRED_OFFLINE_KEYS + REQUIRED_CAMPAIGN_KEYS:
 		if not _check(reference.has(required_key) and not String(reference.get(required_key, "")).strip_edges().is_empty(), "English developer table should contain %s" % required_key):
 			return
-	if not _check(DeveloperLocalization.PAGE_IDS == EXPECTED_PAGE_IDS, "developer pages should remain colony, world, progress"):
+	if not _check(DeveloperLocalization.PAGE_IDS == EXPECTED_PAGE_IDS, "developer pages should include the independent campaign controls"):
 		return
 
 	var all_action_ids: Array[String] = []
@@ -31,7 +36,7 @@ func _run() -> void:
 		if not _check(not page_actions.is_empty(), "%s page should expose developer actions" % page_id):
 			return
 		all_action_ids.append_array(page_actions)
-	if not _check(all_action_ids.size() == 30, "three developer pages should expose all 30 actions"):
+	if not _check(all_action_ids.size() == 36, "four developer pages should expose 36 actions"):
 		return
 	if not _check(_unique_count(all_action_ids) == all_action_ids.size(), "developer action IDs should be unique across pages"):
 		return
@@ -50,13 +55,13 @@ func _run() -> void:
 			if not _check(_format_signature(translated) == _format_signature(String(reference[key])), "%s:%s should preserve format placeholders" % [locale_id, key]):
 				return
 		for page_id in DeveloperLocalization.PAGE_IDS:
-			if not _check(not DeveloperLocalization.page_title(page_id, locale_id).strip_edges().is_empty() and not DeveloperLocalization.page_description(page_id, locale_id).strip_edges().is_empty(), "%s:%s page title and description should be non-empty" % [locale_id, page_id]):
+			if not _check(table.has("page_" + page_id) and table.has("page_" + page_id + "_desc") and not DeveloperLocalization.page_title(page_id, locale_id).strip_edges().is_empty() and not DeveloperLocalization.page_description(page_id, locale_id).strip_edges().is_empty(), "%s:%s page title and description must be translated" % [locale_id, page_id]):
 				return
 		for action_id in all_action_ids:
-			if not _check(not DeveloperLocalization.action_label(action_id, locale_id).strip_edges().is_empty(), "%s:%s action label should be non-empty" % [locale_id, action_id]):
+			if not _check(table.has("action_" + action_id) or table.has("action_" + action_id + "_fmt"), "%s:%s action label must have a translation key" % [locale_id, action_id]):
 				return
 
-	print("DEVELOPER_LOCALIZATION_OK locales=7 keys=%d pages=3 actions=30 assertions=%d placeholders=stable" % [reference.size(), assertion_count])
+	print("DEVELOPER_LOCALIZATION_OK locales=7 keys=%d pages=4 actions=36 assertions=%d placeholders=stable" % [reference.size(), assertion_count])
 	quit(0)
 
 
