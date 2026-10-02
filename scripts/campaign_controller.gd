@@ -274,12 +274,49 @@ func draw_hud() -> void:
 				g.draw_rect(Rect2(g._pixel_snap(mark), Vector2.ONE * (4 if int(g.campaign.nest_level) > 1 else 2)), Color("e6c67c"))
 
 
-func progress_text() -> String:
+func progress_text(compact: bool = false) -> String:
 	var targets: Dictionary = g._campaign_goal_targets()
 	var organic_goal := float(targets.get("organic", 0.0))
 	var mineral_goal := float(targets.get("mineral", 0.0))
 	var length_goal := float(targets.get("length_world", 0.0))
-	return text("progress", {"organic": "%.3f" % minf(g.lifetime_organic_absorbed, organic_goal), "organic_goal": _goal_number(organic_goal), "mineral": "%.3f" % minf(g.lifetime_mineral_absorbed, mineral_goal), "mineral_goal": _goal_number(mineral_goal), "length": "%.0f" % floorf(minf(g._chapter_living_hypha_length(), length_goal) / 2.0), "length_goal": _goal_number(length_goal / 2.0)})
+	# Normalize in world units with the authoritative predicate's exact epsilon.
+	var organic: float = g._chapter_bounded_progress(g.lifetime_organic_absorbed, organic_goal)
+	var mineral: float = g._chapter_bounded_progress(g.lifetime_mineral_absorbed, mineral_goal)
+	var length: float = g._chapter_bounded_progress(g._chapter_living_hypha_length(), length_goal)
+	return text("progress_compact" if compact else "progress", {
+		"organic": _progress_number(organic, organic_goal, compact), "organic_goal": _goal_number(organic_goal),
+		"mineral": _progress_number(mineral, mineral_goal, compact), "mineral_goal": _goal_number(mineral_goal),
+		"length": _progress_number(length / 2.0, length_goal / 2.0, true), "length_goal": _goal_number(length_goal / 2.0)
+	})
+
+
+func _progress_number(value: float, goal: float, whole: bool) -> String:
+	if value >= goal:
+		return _goal_number(goal) if whole else "%.3f" % goal
+	# Never round an incomplete value up into a visually completed objective.
+	return "%.0f" % floorf(value) if whole else "%.3f" % (floorf(value * 1000.0) / 1000.0)
+
+
+func progress_hint_key() -> String:
+	if g.game_over or g._living_core_count() <= 0:
+		return "hint_dead"
+	if g._campaign_mission_ready():
+		return "hint_ready"
+	var has_live_extension := false
+	for segment in g.segments:
+		if g._is_core_alive(int(segment.get("core_id", -1))) and not bool(segment.get("orphaned", false)) and float(segment.get("viability", 1.0)) > 0.0:
+			has_live_extension = true
+			break
+	if not has_live_extension:
+		return "hint_extend"
+	var targets: Dictionary = g._campaign_goal_targets()
+	var organic_goal := float(targets.get("organic", 0.0))
+	var mineral_goal := float(targets.get("mineral", 0.0))
+	if g._chapter_bounded_progress(g.lifetime_organic_absorbed, organic_goal) < organic_goal:
+		return "hint_organic"
+	if g._chapter_bounded_progress(g.lifetime_mineral_absorbed, mineral_goal) < mineral_goal:
+		return "hint_mineral"
+	return "hint_grow"
 
 
 func _goal_number(value: float) -> String:
@@ -291,14 +328,34 @@ func mission_values() -> Dictionary:
 	return {"organic": _goal_number(float(targets.get("organic", 0.0))), "mineral": _goal_number(float(targets.get("mineral", 0.0))), "length": _goal_number(float(targets.get("length_world", 0.0)) / 2.0)}
 
 
+func progress_hud_lines(rect: Rect2) -> Array[Dictionary]:
+	var lines: Array[Dictionary] = []
+	var width := rect.size.x - 20.0
+	var hint := text(progress_hint_key())
+	if rect.size.y <= 60:
+		lines.append(_progress_line(hint, "hint", 13, width, 10))
+		lines.append(_progress_line(progress_text(true), "progress", 28, width, 9))
+		return lines
+	lines.append(_progress_line(text("mission_title"), "title", 22, width, 12))
+	if rect.size.y < 100:
+		lines.append(_progress_line(progress_text(true), "progress", 41, width, 11))
+	else:
+		var progress_lines: Array[String] = g._wrap_guide_text(progress_text(), width, 11)
+		for index in range(progress_lines.size()):
+			lines.append(_progress_line(progress_lines[index], "progress", 43 + index * 17, width, 11))
+	lines.append(_progress_line(hint, "hint", rect.size.y - 10, width, 11))
+	return lines
+
+
+func _progress_line(value: String, role: String, baseline: float, width: float, preferred: int) -> Dictionary:
+	return {"text": value, "role": role, "position": Vector2(10, baseline), "size": g._fit_font_size(value, width, preferred, 7)}
+
+
 func draw_progress(rect: Rect2) -> void:
 	g.draw_style_box(g._rounded_style(Color("091d29"), Color("c7ad6d"), 8, 2), rect)
-	var label := text("mission_title")
-	g.draw_string(g.fallback_font, rect.position + Vector2(10, 22), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, g._fit_font_size(label, rect.size.x - 20, 12, 7), Color("f2d797"))
-	if rect.size.y > 60:
-		var lines: Array[String] = g._wrap_guide_text(progress_text(), rect.size.x - 20, 11)
-		for index in range(mini(lines.size(), 3)):
-			g.draw_string(g.fallback_font, rect.position + Vector2(10, 43 + index * 17), lines[index], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, 11, Color("cbe5db"))
+	for line in progress_hud_lines(rect):
+		var color := Color("cbe5db") if line["role"] == "progress" else Color("f2d797")
+		g.draw_string(g.fallback_font, rect.position + line["position"], line["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, line["size"], color)
 
 
 func paragraphs() -> Array[String]:

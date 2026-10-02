@@ -106,6 +106,14 @@ func _run() -> void:
 		if not await _capture("mission_panel_" + locale, "mission-partial-counters-fixture"):
 			await _finish(false, failure)
 			return
+	await _resize(Vector2i(640, 360))
+	for locale in Words.LOCALES:
+		game.settings_locale = locale
+		game.campaign_ui.reset_panel()
+		if not await _capture("compact_progress_" + locale, "mission-partial-compact"):
+			await _finish(false, failure)
+			return
+	await _resize(Vector2i(1280, 720))
 	game.lifetime_organic_absorbed = 360.0
 	game.lifetime_mineral_absorbed = 18.0
 	if not game._campaign_mission_ready():
@@ -113,13 +121,17 @@ func _run() -> void:
 		return
 	for locale in ["zh_CN", "en"]:
 		game.settings_locale = locale
+		game.campaign_ui.reset_panel()
+		if not await _capture("mission_ready_hud_" + locale, "mission-ready-hud"):
+			await _finish(false, failure)
+			return
 		game.campaign_ui.show_panel()
 		if not await _capture("mission_ready_" + locale, "mission-ready-counters-fixture"):
 			await _finish(false, failure)
 			return
 
 	await _resize(Vector2i(640, 360))
-	for locale in ["es", "ru"]:
+	for locale in Words.LOCALES:
 		game.settings_locale = locale
 		game.campaign_ui.reset_panel()
 		if not await _capture("compact_hud_" + locale, "mission-ready-compact"):

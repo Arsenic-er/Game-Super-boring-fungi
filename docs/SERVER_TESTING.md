@@ -1,11 +1,26 @@
 # Server-side verification / 服务器端测试
 
-## Daily local Windows test build / 日常本机 Windows 测试版
+## Current default: server only / 当前默认：仅在服务器（2026-10-03）
 
-From 2026-09-13, daily user testing uses one fixed local installation, while
-source development and export remain on the server. The game is still split
-into an EXE and adjacent PCK: "one copy" means one current version, not one
-embedded executable.
+Keep source checkout, editing, dependencies, builds, tests, experiments, results
+and Git publishing on the designated server. The user's computer is a remote
+control endpoint, not a fallback development environment. Return concise text
+summaries only. Downloading any particular file requires explicit user consent.
+Do not create local clones, worktrees, build directories or experimental caches.
+If SSH/Tailscale fails, diagnose the connection and report a blocker rather than
+building locally. Stop a cleanup operation if the execution environment blocks it.
+
+源码、编辑、依赖、构建、测试、实验、结果和 Git 发布默认均在服务器；本机仅作
+远程控制端，不再自动下载测试包或建立开发副本。具体文件下载须先获得明确同意。
+连接失败不退回本机构建；删除被拦截就停止，不换工具绕过，也不谎称已完成。
+先前通过本机 Git mirror/bundle 中转恢复的记录仅作历史保留，不再自动沿用。
+需要更新私有仓库时，先在服务器核对受控认证；不能因此把完整仓库再次克隆到本机。
+
+## Optional Windows delivery / 经明确同意才进行的 Windows 交付
+
+The local-update workflow below was the default on 2026-09-13. From 2026-10-03
+it is opt-in only. When requested, keep one installed version with separate EXE
+and adjacent PCK files, not an embedded executable.
 
 Build the portable ZIP with `tools/package_windows_portable.sh`, copy that
 archive to a temporary local download location, and obtain its SHA-256 from
@@ -29,14 +44,45 @@ Run `tools/windows_update_local_test_selftest.ps1` to verify replacement,
 rollback on a locked file, running-game rejection, hash checking and missing-PCK
 rejection without downloading a game build.
 
-从 2026-09-13 起，源码开发和导出继续在服务器进行，日常测试版放在本机
-`%USERPROFILE%\Documents\战舰\fungi-test`，每次覆盖同一目录。仅保留一份最新版，
+以下本机安装步骤保留作为按需交付工具，不再自动执行。仅在用户明确要求下载后，
+测试版可放在本机 `%USERPROFILE%\Documents\战舰\fungi-test` 并覆盖同一目录。
+届时只保留一份最新版，
 仍采用 EXE 加独立 PCK 的拆分布局，不退回资源全部内嵌的单文件形式。
 
 更新前先核对压缩包 SHA-256 并测试 EXE/PCK 能否启动；游戏运行中不会强行覆盖。
 中途失败会恢复上一份文件，成功后删除临时备份和下载 ZIP，保留构建提交号与
 校验值。用户存档和非安装器管理的文件不删除。浏览器存档与 Windows 存档仍
 相互独立，本流程不做隐式迁移。
+
+## Server-only OpenGL captures / 仅在服务器生成画面证据
+
+On the configured server, run:
+
+```bash
+cd /home/ubuntu/fungi/game
+bash tools/server_campaign_visual_probe.sh
+```
+
+The helper uses project-local Xvfb/PRoot utilities and the existing Mesa software
+renderer, with an isolated source snapshot and HOME/XDG directories. It does not
+change GPU drivers or require a permanent display service. PNGs, fixture saves
+and complete logs remain under the server's `test-logs/campaign-visual-*/`.
+Only return its concise text summary unless the user explicitly requests files.
+The checks confirm actual rendering, PNG dimensions and seven-language compact
+coverage; they do not claim human visual review, real input testing or balance.
+
+On the restored server, portable display tools live under
+`/home/ubuntu/fungi/tools/xvfb`; downloaded Debian packages stay under
+`/home/ubuntu/fungi/tools/xvfb-downloads`. They were extracted there without
+installing system packages: `xvfb`, `libxfont2`, `xserver-common`, `libpixman-1-0`,
+`libfontenc1`, `x11-xkb-utils`, `libxkbfile1`, `proot`, `libtalloc2`, `libxcursor1`,
+`libxinerama1`, `libxi6`, `libxrandr2`, `libxrender1`, `libxfixes3`, `libxkbcommon0`.
+System `xauth` and Mesa were already available. PRoot maps the project-local
+`xkbcomp` into Xvfb's fixed child-process lookup path; it does not replace the
+host executable or grant extra privileges. Missing tools stop the run.
+
+已配置服务器可在用户目录内运行便携虚拟显示与软件 OpenGL。图像与完整日志不回传本机。
+无界面回归不等于真实画面；成功生成画面也不等于已经人工审阅文字、完成真人操作或数值验收。
 
 ## English
 
@@ -221,13 +267,13 @@ Godot 4.7 的 Web 导出不能从普通的 `http://<server-ip>:8060/` 来源运�
 上面的 SSH 本地转发，并准确打开 `http://127.0.0.1:8060/`。直接 IP 能访问
 只能证明文件可达，不能证明游戏已经成功运行。
 
-## Current isolated development checkout / 当前隔离开发检出
+## Current restored checkout / 当前恢复后的开发检出（2026-10-03）
 
-The archived main checkout remains at `/home/ubuntu/fungi/game`. Ongoing work
-uses `/home/ubuntu/fungi/worktrees/codex-fungi-next` on branch
-`codex/fungi-next`. Run verification and exports from the worktree while the
-new iteration is under development.
+The current server checkout is `/home/ubuntu/fungi/game` on branch
+`codex/fungi-next`. Run verification and exports there. The older
+`/home/ubuntu/fungi/worktrees/codex-fungi-next` path belonged to a retired server
+layout; do not assume that worktree exists on the restored server.
 
-归档主检出仍位于 `/home/ubuntu/fungi/game`。当前开发使用
-`/home/ubuntu/fungi/worktrees/codex-fungi-next`，分支为 `codex/fungi-next`。
-新版本尚在迭代时，验证和导出均应从该工作树执行。
+新服务器当前检出为 `/home/ubuntu/fungi/game`，分支为 `codex/fungi-next`。
+旧工作树路径仅属历史部署记录；后续验证、构建和编辑均以当前检出为准，
+不在本机重新建立仓库或工作树。
