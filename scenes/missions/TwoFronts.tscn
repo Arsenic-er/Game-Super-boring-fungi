@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/worlds/nest_trial.gd" id="1_world"]
+
+[node name="TwoFronts" type="Node2D"]
+script = ExtResource("1_world")
+scene_id = "two_fronts"
+revision = 1
+wave_sizes = Array[int]([4, 5, 6])
+organic_required = 60.0
+mineral_required = 2.0
+raider_biomass = 1.7
+raider_speed = 9.0
+raider_attack_rate = 0.022

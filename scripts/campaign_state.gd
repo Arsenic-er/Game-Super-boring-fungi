@@ -7,7 +7,12 @@ const VERSION := 1
 const MISSION_ID := "first_supply"
 const FIRST_VICTORY_MATERIALS := 3
 const MAX_MATERIALS := Catalog.TOTAL_MATERIAL_BUDGET
-const MAX_NEST_LEVEL := 2
+const MAX_NEST_LEVEL := 4
+const BRANCH_IDS: Array[String] = ["transport", "resilience", "defense"]
+const MAX_BRANCH_LEVEL := 2
+const BRANCH_MATERIAL_COST := 2
+const NEST_UPGRADE_COSTS := {1: 3, 2: 6, 3: 6}
+const NEST_UPGRADE_PREREQUISITES := {1: "first_supply", 2: "first_contact", 3: "two_fronts"}
 const MAX_SERIAL := 2147483647
 const MAX_CORE_ID := 2147483647
 const MAX_JSON_DEPTH := 16
@@ -22,7 +27,8 @@ static func fresh() -> Dictionary:
 	return {
 		"version": VERSION, "nest_level": 1, "materials": 0,
 		"main_core_id": -1, "serial": 0, "completed": {},
-		"active_mission": {}, "home_world": {}, "last_result": {}
+		"active_mission": {}, "home_world": {}, "last_result": {},
+		"branches": {"transport": 0, "resilience": 0, "defense": 0}
 	}
 
 
@@ -34,6 +40,8 @@ static func sanitize(raw: Variant) -> Dictionary:
 	clean["materials"] = _integer(raw.get("materials", 0), 0, 0, MAX_MATERIALS)
 	clean["main_core_id"] = _integer(raw.get("main_core_id", -1), -1, -1, MAX_CORE_ID)
 	clean["serial"] = _integer(raw.get("serial", 0), 0, 0, MAX_SERIAL)
+	for branch_id in BRANCH_IDS:
+		clean["branches"][branch_id] = branch_level(raw, branch_id)
 	var completed: Variant = raw.get("completed", {})
 	if completed is Dictionary:
 		for entry in Catalog.entries():
@@ -125,14 +133,13 @@ static func settle(state: Dictionary, outcome: Variant) -> Dictionary:
 
 
 static func upgrade(state: Dictionary) -> bool:
-	if not state.get("active_mission", null) is Dictionary or not state["active_mission"].is_empty():
+	if not _home_edit_allowed(state):
 		return false
 	var clean := sanitize(state)
 	if not can_upgrade(clean):
 		return false
-	clean["materials"] = int(clean["materials"]) - FIRST_VICTORY_MATERIALS
-	clean["nest_level"] = 2
-	clean["completed"][MISSION_ID] = true
+	clean["materials"] = int(clean["materials"]) - upgrade_cost(clean)
+	clean["nest_level"] = int(clean["nest_level"]) + 1
 	_replace(state, clean)
 	return true
 
@@ -141,8 +148,72 @@ static func can_begin(state: Dictionary, mission_id: String = MISSION_ID) -> boo
 	return _integer(state.get("version", null), -1, -1, MAX_SERIAL) == VERSION and Catalog.is_implemented(mission_id) and Catalog.is_unlocked(state, mission_id) and state.get("active_mission", null) is Dictionary and state["active_mission"].is_empty() and _integer(state.get("serial", MAX_SERIAL), MAX_SERIAL, 0, MAX_SERIAL) < MAX_SERIAL
 
 
+static func upgrade_cost(state: Dictionary) -> int:
+	if _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+		return 0
+	var level := _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL)
+	return int(NEST_UPGRADE_COSTS.get(level, 0))
+
+
 static func can_upgrade(state: Dictionary) -> bool:
-	return state.get("active_mission", null) is Dictionary and state["active_mission"].is_empty() and _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL) == 1 and _integer(state.get("materials", 0), 0, 0, MAX_MATERIALS) >= FIRST_VICTORY_MATERIALS
+	if not _home_edit_allowed(state):
+		return false
+	var cost := upgrade_cost(state)
+	var level := _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL)
+	var prerequisite := String(NEST_UPGRADE_PREREQUISITES.get(level, ""))
+	var completed: Variant = state.get("completed", {})
+	return cost > 0 and completed is Dictionary and typeof(completed.get(prerequisite, null)) == TYPE_BOOL and completed[prerequisite] and _integer(state.get("materials", 0), 0, 0, MAX_MATERIALS) >= cost
+
+
+static func required_material_reserve(state: Dictionary) -> int:
+	# Optional construction may never consume any still-unpaid main-path cost.
+	# Reserving all future upgrades also prevents an early purchase from creating
+	# a later soft lock when only first victories award materials.
+	var level := _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL)
+	var reserve := 0
+	for source_level in range(level, MAX_NEST_LEVEL):
+		reserve += int(NEST_UPGRADE_COSTS.get(source_level, 0))
+	return reserve
+
+
+static func branch_level(state: Dictionary, branch_id: String) -> int:
+	if not BRANCH_IDS.has(branch_id) or _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+		return 0
+	var branches: Variant = state.get("branches", {})
+	if not branches is Dictionary:
+		return 0
+	return _integer(branches.get(branch_id, 0), 0, 0, MAX_BRANCH_LEVEL)
+
+
+static func can_purchase_branch(state: Dictionary, branch_id: String) -> bool:
+	if not _home_edit_allowed(state) or not BRANCH_IDS.has(branch_id) or branch_level(state, branch_id) >= MAX_BRANCH_LEVEL:
+		return false
+	return _integer(state.get("materials", 0), 0, 0, MAX_MATERIALS) >= required_material_reserve(state) + BRANCH_MATERIAL_COST
+
+
+static func purchase_branch(state: Dictionary, branch_id: String) -> bool:
+	if not can_purchase_branch(state, branch_id):
+		return false
+	var clean := sanitize(state)
+	if not can_purchase_branch(clean, branch_id):
+		return false
+	clean["materials"] = int(clean["materials"]) - BRANCH_MATERIAL_COST
+	clean["branches"][branch_id] = branch_level(clean, branch_id) + 1
+	_replace(state, clean)
+	return true
+
+
+static func chapter_completed(state: Dictionary) -> bool:
+	if _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+		return false
+	var completed: Variant = state.get("completed", {})
+	return completed is Dictionary and typeof(completed.get("stable_colony", null)) == TYPE_BOOL and completed["stable_colony"]
+
+
+static func _home_edit_allowed(state: Dictionary) -> bool:
+	# Reject raw damaged activity before sanitizing: recovery must not silently
+	# discard an in-flight mission while editing persistent progression.
+	return _integer(state.get("version", null), -1, -1, MAX_SERIAL) == VERSION and state.get("active_mission", null) is Dictionary and state["active_mission"].is_empty()
 
 
 static func next_mission_preview(state: Dictionary) -> Dictionary:

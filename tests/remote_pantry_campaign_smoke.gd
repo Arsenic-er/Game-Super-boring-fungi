@@ -32,7 +32,8 @@ func _run() -> void:
 		return
 	for locale_id in LOCALES:
 		game.settings_locale = locale_id
-		if not _check(game.campaign_ui.paragraphs().has(game.campaign_ui.chapter_text("mission_locked")), locale_id + " explains the lock"):
+		var expected_lock: String = game.campaign_ui.chapter_text("mission_locked_generic", {"level": 2, "mission": game.campaign_ui.chapter_text("first_supply_title")})
+		if not _check(game.campaign_ui.paragraphs().has(expected_lock), locale_id + " explains the required level two and completed first mission"):
 			return
 		for viewport in [Vector2(1280, 720), Vector2(960, 540), Vector2(640, 360)]:
 			var panel: Rect2 = game.campaign_ui.panel_rect(viewport)

@@ -4,6 +4,8 @@
 
 # Game: Super boring fungi
 
+Development update — 2026-10-04: Chapter 1 now contains six independent expeditions and three home-nest challenges. Press J to choose missions, spend first-win materials on four nest levels and three construction branches, and follow the culture-record story. Home challenges restore the pre-battle nest and return only the first-win material reward; expeditions use separate supplies and pause offline. The older cultivation milestones described below are home guidance, not completion of the nine-mission campaign. Human playtime, visual and audio testing remains pending.
+
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
 The project is currently an early Windows prototype. Version `0.49.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
@@ -112,6 +114,8 @@ The source code, visual assets, game design, text, and other repository contents
 ---
 
 # 《超级无聊真菌游戏》
+
+开发更新 — 2026-10-04：第一章现包含六个独立探索任务与三次主巢挑战。按 J 选择任务，以首次胜利材料升级四级主巢和三条建设分支，逐步解锁培养记录剧情。主巢挑战结束恢复战前状态，仅首次胜利材料回流；外出任务使用独立补给，离线暂停。下文旧培养目标是主巢引导，不代表九关剧情战役通关。真人时长、画面与音效试玩仍待验收。
 
 [English](docs/i18n/README.en.md) | [**简体中文**](docs/i18n/README.zh-Hans.md) | [繁體中文](docs/i18n/README.zh-Hant.md) | [日本語](docs/i18n/README.ja.md) | [Español](docs/i18n/README.es.md) | [Deutsch](docs/i18n/README.de.md) | [Русский](docs/i18n/README.ru.md)
 

@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/worlds/nest_trial.gd" id="1_world"]
+
+[node name="FirstContact" type="Node2D"]
+script = ExtResource("1_world")
+scene_id = "first_contact"
+revision = 1
+wave_sizes = Array[int]([2, 3, 4])

@@ -9,7 +9,7 @@ extends Node
 const MainScene: PackedScene = preload("res://scenes/Main.tscn")
 const Words = preload("res://scripts/campaign_localization.gd")
 const FRAME_TIMEOUT_MS := 5000
-const PROBE_TIMEOUT_MS := 120000
+const PROBE_TIMEOUT_MS := 240000
 
 var game: Node
 var output_dir := ""
@@ -211,6 +211,9 @@ func _run() -> void:
 	if not await _capture("mission_failed_closed_en", "dead-colony-panel-dismissed"):
 		await _finish(false, failure)
 		return
+	if not await _capture_chapter_roster():
+		await _finish(false, failure)
+		return
 	if not await _capture_developer_campaign():
 		await _finish(false, failure)
 		return
@@ -249,6 +252,288 @@ func _capture_remote_pantry() -> bool:
 		return false
 	await _resize(Vector2i(1280, 720))
 	return true
+
+
+func _capture_chapter_roster() -> bool:
+	# Explicit display fixture: unlock the roster to exercise every real selector.
+	# No claim of earned mission rewards or economic progression is made here.
+	game.campaign_ui.reset_panel()
+	game.developer_mode_enabled = false
+	game.pause_menu_open = false
+	game.chapter_report_open = false
+	game._start_new_culture()
+	game._complete_founder_spore_germination()
+	game.main_menu_active = false
+	game.game_started = true
+	game.campaign["nest_level"] = 4
+	game.campaign["materials"] = 9
+	for entry in game.campaign_ui.Catalog.entries():
+		if entry["id"] != "stable_colony":
+			game.campaign["completed"][entry["id"]] = true
+	if not await _capture_home_pages():
+		return false
+	# Exercise actual branch hit targets and transactions on the isolated slot.
+	game.campaign_ui.show_panel()
+	var viewport: Vector2 = game.get_viewport_rect().size
+	for index in range(3):
+		var id: String = ["transport", "resilience", "defense"][index]
+		_click(game.campaign_ui.branch_rect(viewport, index).get_center())
+		if int(game.campaign["branches"][id]) != 1:
+			failure = "A home construction branch is not reachable by its displayed control: " + id
+			return false
+	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+		await _resize(size)
+		for locale in Words.LOCALES:
+			game.settings_locale = locale
+			game.campaign_ui.show_panel()
+			if not await _capture("chapter_branches_%d_%s" % [size.x, locale], "three-real-purchases-on-unlocked-display-fixture"):
+				return false
+	for entry in game.campaign_ui.Catalog.entries():
+		var id: String = entry["id"]
+		if id in ["first_supply", "remote_pantry"]:
+			continue
+		game.campaign_ui.reset_panel()
+		if not game._campaign_start_mission(id):
+			failure = "New mission display fixture cannot enter its independent scene: " + id
+			return false
+		if not await _capture_new_mission(id, "initial"):
+			return false
+		if entry["kind"] == "nest_challenge":
+			# A genuine persisted JSON restore must retain the preparation action.
+			var snapshot: Dictionary = JSON.parse_string(JSON.stringify(game._capture_world_state()))
+			if not game._restore_world_state(snapshot):
+				failure = "Trial preparation restore failed: " + id
+				return false
+			game.campaign_ui.show_panel()
+			var key: String = game.campaign_ui._phase_action_key()
+			if key != "trial_start_wave":
+				failure = "Trial start control missing after JSON restore: " + id
+				return false
+			_click(game.campaign_ui.phase_action_rect(game.get_viewport_rect().size).get_center())
+			if game.enemy_guard_spores.is_empty() or not bool(game.world_runtime.data.get("mission_state", {}).get("wave_active", false)):
+				failure = "Displayed trial stage button did not start a real wave: " + id
+				return false
+			if not await _capture_new_mission(id, "wave"):
+				return false
+		game.campaign_ui.reset_panel()
+		if not game._campaign_return("retreat") or not await _finish_home_settlement():
+			failure = "New mission render fixture cannot return home: " + id
+			return false
+	# Chapter completion is an explicit display-only fixture, not a fabricated win.
+	game.campaign["completed"]["stable_colony"] = true
+	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+		await _resize(size)
+		for locale in Words.LOCALES:
+			game.settings_locale = locale
+			game.campaign_ui.show_panel()
+			if not game.campaign_ui.paragraphs().has(game.campaign_ui.chapter_text("chapter_end")):
+				failure = "Completed chapter story is absent from the real panel"
+				return false
+			if not await _capture("chapter_complete_%d_%s" % [size.x, locale], "completed-ledger-display-fixture"):
+				return false
+	return true
+
+
+func _capture_home_pages() -> bool:
+	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+		await _resize(size)
+		for locale in Words.LOCALES:
+			game.settings_locale = locale
+			game.campaign_ui.show_panel()
+			# Navigate using actual hit targets, including backwards from the
+			# recommended final mission to the first page.
+			var viewport: Vector2 = game.get_viewport_rect().size
+			for _step in range(5):
+				_click(game.campaign_ui.page_rect(viewport, -1).get_center())
+			var reached: Array[String] = []
+			var choices: Array[String] = game.campaign_ui._mission_choices()
+			for page in range(5):
+				if game.campaign_ui.selection_start != page * 2:
+					failure = "Roster page navigation failed"
+					return false
+				for index in range(mini(2, choices.size() - page * 2)):
+					var expected: String = choices[page * 2 + index]
+					_click(game.campaign_ui.selection_rect(viewport, index).get_center())
+					if game.campaign_ui.selected_mission_id != expected:
+						failure = "Roster mission not reachable by displayed selection: " + expected
+						return false
+					reached.append(expected)
+				if not await _capture("chapter_home_page%d_%d_%s" % [page + 1, size.x, locale], "nine-mission-real-click-selector"):
+					return false
+				_click(game.campaign_ui.page_rect(viewport, 1).get_center())
+			if reached != choices or game.campaign_ui.selection_start != 8:
+				failure = "Not all nine missions are reachable, or final page exceeds bounds"
+				return false
+	return true
+
+
+func _capture_new_mission(id: String, phase: String) -> bool:
+	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+		await _resize(size)
+		for locale in Words.LOCALES:
+			game.settings_locale = locale
+			game.campaign_ui.reset_panel()
+			if not await _capture("chapter_%s_%s_hud_%d_%s" % [id, phase, size.x, locale], "new-independent-mission-" + phase):
+				return false
+			game.campaign_ui.show_panel()
+			if not await _capture("chapter_%s_%s_panel_%d_%s" % [id, phase, size.x, locale], "new-independent-mission-" + phase):
+				return false
+			if not _scroll_to_mission_goals():
+				return false
+			if not await _capture("chapter_%s_%s_goals_%d_%s" % [id, phase, size.x, locale], "new-independent-mission-goals-" + phase):
+				return false
+			if not _check_scroll_reachability():
+				return false
+	return true
+
+
+func _scroll_to_mission_goals() -> bool:
+	var ui = game.campaign_ui
+	var viewport: Vector2 = game.get_viewport_rect().size
+	var body: Dictionary = ui.panel_body_layout(viewport)
+	var target := 0
+	var found := false
+	for paragraph in ui.paragraphs():
+		if paragraph == ui.progress_text():
+			found = true
+			break
+		target += game._wrap_guide_text(paragraph, body["width"], body["font_size"]).size() + 1
+	if not found:
+		failure = "Mission progress paragraph cannot be reached"
+		return false
+	var target_scroll := mini(target, int(body["max_scroll"]))
+	while ui.scroll < target_scroll:
+		_scroll_down()
+	ui.scroll = clampi(ui.scroll, 0, int(body["max_scroll"]))
+	if target < ui.scroll or target >= ui.scroll + int(body["visible"]):
+		# Wheel moves by two lines. One upward key event still uses the real
+		# handler; visible ranges overlap at normal and compact sizes.
+		var event := InputEventKey.new()
+		event.pressed = true
+		event.keycode = KEY_UP
+		ui.handle_input(event)
+		ui.scroll = clampi(ui.scroll, 0, int(body["max_scroll"]))
+	if target < ui.scroll or target >= ui.scroll + int(body["visible"]):
+		failure = "Mission progress text is not within the scrolled visible range"
+		return false
+	return true
+
+
+func _check_scroll_reachability() -> bool:
+	var ui = game.campaign_ui
+	var body: Dictionary = ui.panel_body_layout(game.get_viewport_rect().size)
+	for _step in range(int(body["max_scroll"]) / 2 + 3):
+		_scroll_down()
+	ui.scroll = clampi(ui.scroll, 0, int(body["max_scroll"]))
+	if ui.scroll != int(body["max_scroll"]) or ui.scroll + int(body["visible"]) < body["lines"].size():
+		failure = "Campaign body cannot scroll to its final lines"
+		return false
+	return true
+
+
+func _scroll_down() -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_WHEEL_DOWN
+	event.position = game.campaign_ui.panel_rect(game.get_viewport_rect().size).get_center()
+	event.pressed = true
+	game.campaign_ui.handle_input(event)
+
+
+func _click(position: Vector2) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.position = position
+	event.pressed = false
+	game.campaign_ui.handle_input(event)
+
+
+func _validate_campaign_layout(viewport: Vector2) -> Dictionary:
+	var ui = game.campaign_ui
+	var controls: Array[Rect2] = []
+	var labels_checked := 0
+	var body_lines_checked := 0
+	if ui.open:
+		var panel: Rect2 = ui.panel_rect(viewport)
+		var bounds := Rect2(Vector2.ZERO, viewport)
+		if not bounds.grow(0.5).encloses(panel):
+			return {"ok": false, "error": "Campaign panel exceeds viewport"}
+		var width := panel.size.x - 40.0
+		for label in [
+			[ui.text("title"), width, 18, 12],
+			[ui.text("nest", {"level": game.campaign.nest_level, "materials": game.campaign.materials}), width, 12, 9]
+		]:
+			if not _label_fits(label[0], label[1], label[2], label[3]):
+				return {"ok": false, "error": "Panel header text overflows: " + label[0]}
+			labels_checked += 1
+		if not game._campaign_active():
+			for direction in [-1, 1]:
+				controls.append(ui.page_rect(viewport, direction))
+			var choices: Array[String] = ui._mission_choices()
+			for index in range(mini(2, choices.size() - ui.selection_start)):
+				var rect: Rect2 = ui.selection_rect(viewport, index)
+				controls.append(rect)
+				var label: String = ui.chapter_text(choices[ui.selection_start + index] + "_title")
+				if not _label_fits(label, rect.size.x - 16, 12, 8):
+					return {"ok": false, "error": "Mission selection text overflows: " + label}
+				labels_checked += 1
+			for index in range(3):
+				var rect: Rect2 = ui.branch_rect(viewport, index)
+				controls.append(rect)
+				var id: String = ["transport", "resilience", "defense"][index]
+				var label: String = ui.chapter_text("branch_buy", {"branch": ui.chapter_text("branch_" + id), "level": game.campaign["branches"][id], "cost": 2})
+				if not _label_fits(label, rect.size.x - 16, 12, 7):
+					return {"ok": false, "error": "Construction branch text overflows: " + label}
+				labels_checked += 1
+		elif not ui.confirm_retreat and not ui._phase_action_key().is_empty():
+			var rect: Rect2 = ui.phase_action_rect(viewport)
+			controls.append(rect)
+			var label: String = ui.chapter_text(ui._phase_action_key())
+			if not _label_fits(label, rect.size.x - 16, 12, 7):
+				return {"ok": false, "error": "Mission stage action text overflows: " + label}
+			labels_checked += 1
+		var actions: Array[String] = ui.action_labels()
+		for index in range(3):
+			var rect: Rect2 = ui.button_rect(viewport, index)
+			controls.append(rect)
+			if not _label_fits(actions[index], rect.size.x - 16, 12, 7):
+				return {"ok": false, "error": "Campaign action text overflows: " + actions[index]}
+			labels_checked += 1
+		for first in range(controls.size()):
+			if not panel.grow(0.5).encloses(controls[first]):
+				return {"ok": false, "error": "Campaign control exceeds panel"}
+			for second in range(first + 1, controls.size()):
+				if controls[first].intersects(controls[second]):
+					return {"ok": false, "error": "Campaign controls overlap"}
+		var body: Dictionary = ui.panel_body_layout(viewport)
+		ui.scroll = clampi(ui.scroll, 0, int(body["max_scroll"]))
+		for value in body["lines"]:
+			if game.fallback_font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, int(body["font_size"])).x > float(body["width"]) + 0.5:
+				return {"ok": false, "error": "Wrapped campaign body line overflows: " + value}
+			body_lines_checked += 1
+		for index in range(mini(int(body["visible"]), body["lines"].size() - ui.scroll)):
+			var baseline: float = panel.position.y + float(body["first_baseline"]) + index * int(body["line_height"])
+			var ascent: float = game.fallback_font.get_ascent(int(body["font_size"]))
+			var descent: float = game.fallback_font.get_descent(int(body["font_size"]))
+			var text_rect := Rect2(Vector2(panel.position.x + 20, baseline - ascent), Vector2(float(body["width"]), ascent + descent))
+			if not panel.grow(0.5).encloses(text_rect):
+				return {"ok": false, "error": "Body text exceeds panel vertically"}
+			for rect in controls:
+				if text_rect.intersects(rect):
+					return {"ok": false, "error": "Campaign body text overlaps a control"}
+	elif game._campaign_active() and not game.pause_menu_open:
+		var rect: Rect2 = game._chapter_guidance_rect()
+		for line in ui.progress_hud_lines(rect):
+			var measured: Vector2 = game.fallback_font.get_string_size(line["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(line["size"]))
+			var pos: Vector2 = line["position"]
+			if pos.x + measured.x > rect.size.x - 9.5 or pos.y + game.fallback_font.get_descent(int(line["size"])) > rect.size.y + 0.5 or pos.y - game.fallback_font.get_ascent(int(line["size"])) < -0.5:
+				return {"ok": false, "error": "Mission HUD text overflows: " + String(line["text"])}
+			labels_checked += 1
+	return {"ok": true, "controls": controls.size(), "labels": labels_checked, "wrapped_lines": body_lines_checked}
+
+
+func _label_fits(value: String, width: float, preferred: int, minimum: int) -> bool:
+	var size: int = game._fit_font_size(value, width, preferred, minimum)
+	return game.fallback_font.get_string_size(value, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= width + 0.5
 
 
 func _capture_developer_campaign() -> bool:
@@ -320,7 +605,7 @@ func _finish_home_settlement() -> bool:
 
 func _capture(label: String, fixture: String) -> bool:
 	if Time.get_ticks_msec() - started_ms > PROBE_TIMEOUT_MS:
-		failure = "Render probe exceeded its 120-second bound"
+		failure = "Render probe exceeded its 240-second bound"
 		return false
 	game.toast_time = 0.0
 	game.discovery_banner_time = 0.0
@@ -331,6 +616,10 @@ func _capture(label: String, fixture: String) -> bool:
 	if not viewport.is_equal_approx(Vector2(window.content_scale_size)):
 		failure = "Requested layout size differs from actual viewport: " + str(viewport)
 		return false
+	var layout := _validate_campaign_layout(viewport)
+	if not bool(layout["ok"]):
+		failure = label + ": " + String(layout["error"])
+		return false
 	var item: Dictionary = {
 		"label": label, "locale": game.settings_locale, "fixture": fixture,
 		"viewport": [viewport.x, viewport.y], "window": [window.size.x, window.size.y],
@@ -338,6 +627,9 @@ func _capture(label: String, fixture: String) -> bool:
 		"scroll": game.campaign_ui.scroll, "mission_active": game._campaign_active(),
 		"mission_ready": game._campaign_mission_ready(), "game_over": game.game_over,
 		"nest_level": game.campaign.nest_level,
+		"world_scene_id": game._world_scene_id(), "layout": layout,
+		"selection_start": game.campaign_ui.selection_start,
+		"phase_action": game.campaign_ui._phase_action_key(),
 		"labels": game.campaign_ui.action_labels(),
 		"enabled": [game.campaign_ui.action_enabled(0), game.campaign_ui.action_enabled(1), game.campaign_ui.action_enabled(2)]
 	}

@@ -2,6 +2,8 @@
 
 # Game: Super boring fungi
 
+Actualización de desarrollo — 2026-10-04: el capítulo 1 incluye seis expediciones independientes y tres desafíos del nido. Pulsa J para elegir misiones y usar materiales de primeras victorias en cuatro niveles del nido y tres ramas de construcción, siguiendo la historia del registro de cultivo. Los desafíos restauran el nido anterior al combate y solo devuelven la recompensa material de la primera victoria. Las expediciones usan suministros separados y se pausan sin conexión. Los antiguos hitos de cultivo descritos abajo son una guía del nido, no el final de las nueve misiones. La duración y las pruebas visuales y sonoras con jugadores siguen pendientes.
+
 Un juego incremental de evolución y expansión que comienza con una espora microscópica y crece hasta alcanzar ecosistemas, sociedades humanas, países y, finalmente, todo el planeta.
 
 El proyecto se encuentra en la fase de prototipo temprano para Windows, versión `0.49.0`. El desarrollo actual se centra en el Capítulo 1, un microcultivo de laboratorio visto desde arriba en el que el jugador controla exclusivamente al hongo, extiende su red de hifas, absorbe nutrientes, evoluciona nuevas capacidades y dirige esporas expedicionarias. La versión 0.40 incorpora órdenes seguras según la función de cada unidad, evitando que una espora recolecte o ataque objetivos incompatibles con su especialización.

@@ -3,6 +3,7 @@ extends RefCounted
 const State = preload("res://scripts/campaign_state.gd")
 const Words = preload("res://scripts/campaign_localization.gd")
 const ChapterWords = preload("res://scripts/campaign_chapter_localization.gd")
+const StoryWords = preload("res://scripts/campaign_story_localization.gd")
 const Catalog = preload("res://scripts/campaign_mission_catalog.gd")
 const DEVELOPER_ACTIONS := [
 	"campaign_nest_down", "campaign_nest_up", "campaign_material_down",
@@ -17,6 +18,7 @@ var busy := false
 var notice := ""
 var failure_presented := false
 var selected_mission_id := State.MISSION_ID
+var selection_start := 0
 
 
 func _init(game) -> void:
@@ -28,7 +30,7 @@ func text(key: String, values: Dictionary = {}) -> String:
 
 
 func chapter_text(key: String, values: Dictionary = {}) -> String:
-	return ChapterWords.text(g.settings_locale, key, values)
+	return ChapterWords.text(g.settings_locale, key, values) if ChapterWords.KEYS.has(key) else StoryWords.text(g.settings_locale, key, values)
 
 
 func mission_id() -> String:
@@ -38,22 +40,55 @@ func mission_id() -> String:
 
 
 func mission_title() -> String:
-	return chapter_text("remote_pantry_title") if mission_id() == "remote_pantry" else text("mission_title")
+	return text("mission_title") if mission_id() == State.MISSION_ID else chapter_text(mission_id() + "_title")
 
 
 func mission_description() -> String:
-	return chapter_text("remote_pantry_desc", mission_values()) if mission_id() == "remote_pantry" else text("mission_desc", mission_values())
+	return text("mission_desc", mission_values()) if mission_id() == State.MISSION_ID else chapter_text(mission_id() + "_desc", mission_values())
 
 
 func selection_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := panel_rect(viewport)
-	var width := (panel.size.x - 48.0) * 0.5
-	return Rect2(panel.position + Vector2(20 + index * (width + 8), 82), Vector2(width, 30))
+	var width := (panel.size.x - 112.0) * 0.5
+	return Rect2(panel.position + Vector2(52 + index * (width + 8), 82), Vector2(width, 30))
 
+
+func page_rect(viewport: Vector2, direction: int) -> Rect2:
+	var panel := panel_rect(viewport)
+	return Rect2(panel.position + Vector2(20 if direction < 0 else panel.size.x - 44, 82), Vector2(24, 30))
+
+
+func branch_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := panel_rect(viewport)
+	var width := (panel.size.x - 56.0) / 3.0
+	return Rect2(panel.position + Vector2(20 + index * (width + 8), 116), Vector2(width, 30))
+
+
+func phase_action_rect(viewport: Vector2) -> Rect2:
+	var panel := panel_rect(viewport)
+	return Rect2(panel.position + Vector2(20, 82), Vector2(panel.size.x - 40, 30))
+
+
+func _sync_selection() -> void:
+	var choices := _mission_choices()
+	var index := choices.find(selected_mission_id)
+	selection_start = maxi(0, index / 2) * 2
+
+
+func _page_selection(direction: int) -> void:
+	var choices := _mission_choices()
+	selection_start = clampi(selection_start + direction * 2, 0, ((choices.size() - 1) / 2) * 2)
+	selected_mission_id = choices[selection_start]
+	scroll = 0
+	g._play_sound("ui_confirm")
+	g.queue_redraw()
 
 func _mission_choices() -> Array[String]:
-	return [State.MISSION_ID, "remote_pantry"]
-
+	var choices: Array[String] = []
+	for entry in Catalog.entries():
+		if bool(entry["implemented"]):
+			choices.append(String(entry["id"]))
+	return choices
 
 func reset_panel() -> void:
 	open = false
@@ -77,6 +112,7 @@ func show_panel() -> void:
 	g.developer_placement_action = ""
 	if not g._campaign_active():
 		selected_mission_id = State.recommended_mission_id(g.campaign)
+		_sync_selection()
 	open = true
 	confirm_retreat = false
 	scroll = 0
@@ -110,27 +146,55 @@ func handle_input(event: InputEvent) -> bool:
 		return false
 	if event is InputEventMouseMotion:
 		g.last_mouse = event.position
+		var hovered := ""
+		var viewport: Vector2 = g.get_viewport_rect().size
 		for index in range(3):
-			if button_rect(g.get_viewport_rect().size, index).has_point(event.position):
-				var target := "campaign_%d" % index
-				if g.audio_hover_target != target:
-					g.audio_hover_target = target
-					g._play_sound("ui_hover", 0.65)
+			if button_rect(viewport, index).has_point(event.position):
+				hovered = "campaign_%d" % index
+		if not g._campaign_active():
+			for index in range(3):
+				if branch_rect(viewport, index).has_point(event.position):
+					hovered = "campaign_branch_%d" % index
+			for direction in [-1, 1]:
+				if page_rect(viewport, direction).has_point(event.position):
+					hovered = "campaign_page_%d" % direction
+			for index in range(mini(2, _mission_choices().size() - selection_start)):
+				if selection_rect(viewport, index).has_point(event.position):
+					hovered = "campaign_choice_%d" % (selection_start + index)
+		elif not confirm_retreat and not _phase_action_key().is_empty() and phase_action_rect(viewport).has_point(event.position):
+			hovered = "campaign_phase"
+		if g.audio_hover_target != hovered:
+			g.audio_hover_target = hovered
+			if not hovered.is_empty():
+				g._play_sound("ui_hover", 0.65)
 	elif event is InputEventMouseButton:
 		g.last_mouse = event.position
 		if event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_DOWN, MOUSE_BUTTON_WHEEL_UP]:
 			scroll = maxi(0, scroll + (2 if event.button_index == MOUSE_BUTTON_WHEEL_DOWN else -2))
 		elif not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			var viewport: Vector2 = g.get_viewport_rect().size
 			if not g._campaign_active():
-				for choice_index in range(_mission_choices().size()):
-					if selection_rect(g.get_viewport_rect().size, choice_index).has_point(event.position):
-						selected_mission_id = _mission_choices()[choice_index]
+				for direction in [-1, 1]:
+					if page_rect(viewport, direction).has_point(event.position):
+						_page_selection(direction)
+						return true
+				var choices := _mission_choices()
+				for choice_index in range(mini(2, choices.size() - selection_start)):
+					if selection_rect(viewport, choice_index).has_point(event.position):
+						selected_mission_id = choices[selection_start + choice_index]
 						scroll = 0
 						g._play_sound("ui_confirm")
 						g.queue_redraw()
 						return true
+				for index in range(3):
+					if branch_rect(viewport, index).has_point(event.position):
+						purchase_branch(["transport", "resilience", "defense"][index])
+						return true
+			elif not confirm_retreat and not _phase_action_key().is_empty() and phase_action_rect(viewport).has_point(event.position):
+				advance_mission()
+				return true
 			for index in range(3):
-				if button_rect(g.get_viewport_rect().size, index).has_point(event.position):
+				if button_rect(viewport, index).has_point(event.position):
 					activate(index)
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
@@ -139,6 +203,8 @@ func handle_input(event: InputEvent) -> bool:
 			else:
 				reset_panel()
 			g._play_sound("ui_cancel")
+		elif event.keycode in [KEY_LEFT, KEY_RIGHT] and not g._campaign_active():
+			_page_selection(-1 if event.keycode == KEY_LEFT else 1)
 		elif event.keycode in [KEY_DOWN, KEY_PAGEDOWN]:
 			scroll += 2
 		elif event.keycode in [KEY_UP, KEY_PAGEUP]:
@@ -150,7 +216,6 @@ func handle_input(event: InputEvent) -> bool:
 				notice = ""
 	g.queue_redraw()
 	return true
-
 
 func other_modal_active() -> bool:
 	return g.main_menu_active or g.pause_menu_open or g.offline_settlement_active or g.offline_report_open or g.chapter_report_open or g.upgrade_open or g.goals_open or g.barracks_production_open
@@ -181,7 +246,19 @@ func start_mission(requested_id: String = State.MISSION_ID) -> bool:
 		busy = false
 		return false
 	g.campaign = next
-	_inherit_unit_licenses(home)
+	if _is_trial(requested_id):
+		var trial_snapshot := home.duplicate(true)
+		trial_snapshot["world_scene_id"] = requested_id
+		trial_snapshot["mission_state"] = {}
+		if not g._restore_world_state(trial_snapshot, incoming_world):
+			g.campaign = previous
+			g._activate_world_scene(previous_world)
+			busy = false
+			notice = text("save_failed")
+			return false
+		g.active_world.initialize_trial(g)
+	else:
+		_inherit_unit_licenses(home)
 	g.game_started = true
 	g.main_menu_active = false
 	if not g._save_game():
@@ -240,6 +317,9 @@ func return_home(outcome: String) -> bool:
 		busy = false
 		return false
 	var home: Dictionary = result["home_world"]
+	if _is_trial(String(result["mission_id"])):
+		# A home-clone challenge must not also generate a second offline economy.
+		home["saved_at"] = Time.get_unix_time_from_system()
 	# Commit reward and restored home atomically, retaining the departure timestamp.
 	# A crash now reloads this one envelope and settles the unprocessed home interval.
 	if not g._commit_world_and_campaign(home):
@@ -256,6 +336,7 @@ func return_home(outcome: String) -> bool:
 		g._save_game()
 	busy = false
 	selected_mission_id = State.recommended_mission_id(g.campaign)
+	_sync_selection()
 	open = true
 	confirm_retreat = false
 	g._play_sound("goal" if outcome == "victory" else "ui_cancel")
@@ -276,7 +357,51 @@ func upgrade_nest() -> bool:
 	if notice == text("save_failed"):
 		notice = ""
 	scroll = 0
+	selected_mission_id = State.recommended_mission_id(g.campaign)
+	_sync_selection()
 	g._play_sound("upgrade")
+	g.queue_redraw()
+	return true
+
+
+func _is_trial(id: String) -> bool:
+	return Catalog.mission(id).get("kind", "") == "nest_challenge"
+
+
+func _phase_action_key() -> String:
+	return g.active_world.manual_action_key(g) if g._campaign_active() else ""
+
+
+func purchase_branch(branch_id: String) -> bool:
+	if busy or other_modal_active() or g._campaign_active() or g.game_over:
+		return false
+	var previous: Dictionary = g.campaign.duplicate(true)
+	if not State.purchase_branch(g.campaign, branch_id):
+		g._play_sound("ui_error")
+		return false
+	if not g._save_game():
+		g.campaign = previous
+		notice = text("save_failed")
+		return false
+	notice = ""
+	g._play_sound("upgrade")
+	g.queue_redraw()
+	return true
+
+
+func advance_mission() -> bool:
+	if busy or other_modal_active() or not g._campaign_active() or g.game_over:
+		return false
+	var before: Dictionary = g._capture_world_state()
+	if not g.active_world.mission_action(g):
+		return false
+	if not g._save_game():
+		g._restore_world_state(before)
+		notice = text("save_failed")
+		open = true
+		return false
+	open = false
+	g._play_sound("warning")
 	g.queue_redraw()
 	return true
 
@@ -368,7 +493,8 @@ func action_labels() -> Array[String]:
 		return [text("confirm"), text("cancel"), text("close")]
 	if g._campaign_active():
 		return [text("return_fail") if g.game_over else text("return_win"), text("retreat"), text("close")]
-	return [text("retry") if g.campaign.get("completed", {}).get(mission_id(), false) else text("start"), text("upgrade"), text("close")]
+	var upgrade_label := chapter_text("upgrade_cost", {"level": int(g.campaign.nest_level) + 1, "cost": State.upgrade_cost(g.campaign)}) if int(g.campaign.nest_level) < State.MAX_NEST_LEVEL else chapter_text("nest_max")
+	return [text("retry") if g.campaign.get("completed", {}).get(mission_id(), false) else text("start"), upgrade_label, text("close")]
 
 
 func action_enabled(index: int) -> bool:
@@ -423,6 +549,21 @@ func draw_hud() -> void:
 
 
 func progress_text(compact: bool = false) -> String:
+	if mission_id() not in [State.MISSION_ID, "remote_pantry"] and g._campaign_active():
+		var rows: Array[Dictionary] = g.active_world.mission_status(g)
+		var lines: Array[String] = []
+		for row in rows:
+			var current := float(row.get("current", 0.0))
+			var target := float(row.get("target", 0.0))
+			var label := chapter_text("mission_goal_row", {
+				"name": chapter_text(String(row["key"])),
+				"current": _progress_number(minf(current, target), target, compact),
+				"target": _goal_number(target)
+			})
+			lines.append(label)
+			if compact and current < target - 0.0005:
+				return label
+		return (" · ".join(lines) if not compact else (lines[-1] if not lines.is_empty() else ""))
 	var targets: Dictionary = g._campaign_goal_targets()
 	var organic_goal := float(targets.get("organic", 0.0))
 	var mineral_goal := float(targets.get("mineral", 0.0))
@@ -454,9 +595,11 @@ func _progress_number(value: float, goal: float, whole: bool) -> String:
 
 func progress_hint_key() -> String:
 	if g.game_over or g._living_core_count() <= 0:
-		return "hint_dead"
+		return "hint_dead" if mission_id() in [State.MISSION_ID, "remote_pantry"] else "mission_failed_hint"
 	if g._campaign_mission_ready():
 		return "hint_ready"
+	if mission_id() not in [State.MISSION_ID, "remote_pantry"]:
+		return "mission_hint"
 	if mission_id() == "remote_pantry":
 		var has_barracks := false
 		for core_id in range(g.cores.size()):
@@ -500,14 +643,14 @@ func progress_hud_lines(rect: Rect2) -> Array[Dictionary]:
 	var lines: Array[Dictionary] = []
 	var width := rect.size.x - 20.0
 	var hint := text(progress_hint_key())
-	if mission_id() == "remote_pantry" and progress_hint_key() not in ["hint_ready", "hint_dead"]:
+	if progress_hint_key() in ["mission_hint", "mission_failed_hint"] or (mission_id() == "remote_pantry" and progress_hint_key() not in ["hint_ready", "hint_dead"]):
 		hint = chapter_text(progress_hint_key())
 	if rect.size.y <= 60:
 		lines.append(_progress_line(hint, "hint", 13, width, 10))
 		lines.append(_progress_line(progress_text(true), "progress", 28, width, 9))
 		return lines
 	lines.append(_progress_line(mission_title(), "title", 22, width, 12))
-	if rect.size.y < 100:
+	if rect.size.y < 100 or mission_id() not in [State.MISSION_ID, "remote_pantry"]:
 		lines.append(_progress_line(progress_text(true), "progress", 41, width, 11))
 	else:
 		var progress_lines: Array[String] = g._wrap_guide_text(progress_text(), width, 11)
@@ -535,9 +678,15 @@ func paragraphs() -> Array[String]:
 	if g._campaign_active():
 		result.append(text("mission_active"))
 		result.append(mission_description())
+		if g.active_world.has_method("mission_notes"):
+			for note in g.active_world.mission_notes(g):
+				if note is Dictionary and note.get("key", "") is String and note.get("values", {}) is Dictionary:
+					result.append(chapter_text(note["key"], note.get("values", {})))
+		if g.active_world.has_method("warning_key"):
+			result.append(chapter_text(g.active_world.warning_key()))
 		result.append(progress_text())
 		if g.game_over:
-			result.append(text("failure"))
+			result.append(chapter_text("mission_failed"))
 		elif g._campaign_mission_ready():
 			result.append(text("return_win"))
 		result.append(text("confirm_retreat") if confirm_retreat else text("mission_paused"))
@@ -547,28 +696,55 @@ func paragraphs() -> Array[String]:
 			var outcome := String(last.get("outcome", ""))
 			var reward_value = last.get("reward", {})
 			var reward: int = int(reward_value.get("materials", 0)) if reward_value is Dictionary else int(reward_value)
-			result.append(text("victory", {"reward": reward}) if outcome == "victory" else text("failure" if outcome == "failure" else "retreated"))
-		if int(g.campaign.nest_level) >= 2:
-			result.append(text("story"))
-			if bool(g.campaign.get("completed", {}).get("remote_pantry", false)):
-				result.append(chapter_text("remote_pantry_story"))
+			result.append(text("victory", {"reward": reward}) if outcome == "victory" else (chapter_text("mission_failed") if outcome == "failure" else text("retreated")))
+		if State.chapter_completed(g.campaign):
+			result.append(chapter_text("chapter_end"))
 		else:
-			result.append(text("settle_first") if g._founder_spore_active() else text("need_materials"))
+			result.append(chapter_text("story_%d" % int(g.campaign.nest_level)))
+		if g._founder_spore_active():
+			result.append(text("settle_first"))
 		result.append(mission_title())
 		result.append(mission_description())
 		if not Catalog.is_unlocked(g.campaign, mission_id()):
-			result.append(chapter_text("mission_locked"))
+			var entry := Catalog.mission(mission_id())
+			result.append(chapter_text("mission_locked_generic", {
+				"level": entry.get("required_nest_level", 1),
+				"mission": chapter_text(String(entry.get("prerequisite", State.MISSION_ID)) + "_title")
+			}))
+		result.append(chapter_text("nest_benefits"))
+		result.append(chapter_text("branch_info"))
+		result.append(chapter_text("branch_reserve", {"reserve": State.required_material_reserve(g.campaign)}))
 		result.append(chapter_text("chapter_roster"))
 		for entry in Catalog.entries():
 			var id: String = String(entry["id"])
-			var status_key := "planned" if not Catalog.is_implemented(id) else ("mission_done" if bool(g.campaign.get("completed", {}).get(id, false)) else "mission_ready")
-			if Catalog.is_implemented(id) and not Catalog.is_unlocked(g.campaign, id):
-				status_key = "mission_locked"
+			var status_key := "mission_done" if bool(g.campaign.get("completed", {}).get(id, false)) else ("mission_ready" if Catalog.is_unlocked(g.campaign, id) else "locked")
 			result.append(chapter_text(id + "_title") + " · " + chapter_text(status_key))
-	result.append(chapter_text("inheritance_note"))
-	result.append(text("rules"))
-	result.append(text("home_note"))
+	if _is_trial(mission_id()):
+		result.append(chapter_text("trial_rules"))
+	else:
+		result.append(chapter_text("inheritance_note"))
+		result.append(text("rules"))
+		result.append(text("home_note"))
 	return result
+
+
+func panel_body_layout(viewport: Vector2) -> Dictionary:
+	# Shared geometry for rendering and the server-only layout probe.
+	var panel := panel_rect(viewport)
+	var width := panel.size.x - 40.0
+	var lines: Array[String] = []
+	var font_size := 12 if panel.size.y >= 440.0 else 10
+	var has_phase: bool = g._campaign_active() and not confirm_retreat and not _phase_action_key().is_empty()
+	var selection_height := 76.0 if not g._campaign_active() else (38.0 if has_phase else 0.0)
+	for paragraph in paragraphs():
+		lines.append_array(g._wrap_guide_text(paragraph, width - 12, font_size))
+		lines.append("")
+	var line_height := font_size + 6
+	var visible := maxi(1, int((panel.size.y - 220.0 - selection_height) / line_height))
+	return {"lines": lines, "font_size": font_size, "line_height": line_height,
+		"visible": visible, "first_baseline": 97.0 + selection_height,
+		"selection_height": selection_height, "has_phase": has_phase,
+		"max_scroll": maxi(0, lines.size() - visible), "width": width - 12.0}
 
 
 func draw_panel(viewport: Vector2) -> void:
@@ -580,35 +756,51 @@ func draw_panel(viewport: Vector2) -> void:
 	g.draw_string(g.fallback_font, panel.position + Vector2(20, 28), title, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(title, width, 18, 12), Color("f2d797"))
 	var nest := text("nest", {"level": g.campaign.nest_level, "materials": g.campaign.materials})
 	g.draw_string(g.fallback_font, panel.position + Vector2(20, 52), nest, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(nest, width, 12, 9), Color("cbe5db"))
-	var subtitle := text("prototype")
+	var done := 0
+	for entry in Catalog.entries():
+		if bool(g.campaign.get("completed", {}).get(entry["id"], false)):
+			done += 1
+	var subtitle := chapter_text("chapter_progress", {"done": done})
 	g.draw_string(g.fallback_font, panel.position + Vector2(20, 73), subtitle, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(subtitle, width, 10, 8), Color("88a8aa"))
-	var lines: Array[String] = []
-	var font_size := 12 if panel.size.y >= 440.0 else 10
-	var selection_height := 38.0 if not g._campaign_active() else 0.0
-	for paragraph in paragraphs():
-		lines.append_array(g._wrap_guide_text(paragraph, width - 12, font_size))
-		lines.append("")
-	var line_height := font_size + 6
-	var visible := maxi(1, int((panel.size.y - 220.0 - selection_height) / line_height))
-	scroll = clampi(scroll, 0, maxi(0, lines.size() - visible))
+	var body := panel_body_layout(viewport)
+	var lines: Array[String] = body["lines"]
+	var font_size: int = body["font_size"]
+	var has_phase: bool = body["has_phase"]
+	var selection_height: float = body["selection_height"]
+	var line_height: int = body["line_height"]
+	var visible: int = body["visible"]
+	scroll = clampi(scroll, 0, int(body["max_scroll"]))
 	for index in range(mini(visible, lines.size() - scroll)):
-		g.draw_string(g.fallback_font, panel.position + Vector2(20, 97 + selection_height + index * line_height), lines[index + scroll], HORIZONTAL_ALIGNMENT_LEFT, width - 12, font_size, Color("cbe5db"))
+		g.draw_string(g.fallback_font, panel.position + Vector2(20, float(body["first_baseline"]) + index * line_height), lines[index + scroll], HORIZONTAL_ALIGNMENT_LEFT, width - 12, font_size, Color("cbe5db"))
 	if lines.size() > visible:
 		g.draw_string(g.fallback_font, panel.position + Vector2(panel.size.x - 30, 100 + selection_height), "↑", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("f2d797"))
 		g.draw_string(g.fallback_font, panel.position + Vector2(panel.size.x - 30, panel.size.y - 142), "↓", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("f2d797"))
 	if not g._campaign_active():
-		for choice_index in range(_mission_choices().size()):
-			var id := _mission_choices()[choice_index]
+		var choices := _mission_choices()
+		selection_start = clampi(selection_start, 0, ((choices.size() - 1) / 2) * 2)
+		for direction in [-1, 1]:
+			var enabled := selection_start > 0 if direction < 0 else selection_start + 2 < choices.size()
+			_draw_button(page_rect(viewport, direction), "‹" if direction < 0 else "›", enabled)
+		for choice_index in range(mini(2, choices.size() - selection_start)):
+			var id := choices[selection_start + choice_index]
 			var choice := selection_rect(viewport, choice_index)
 			var selected := id == mission_id()
 			var accent := Color("f2d797") if selected else Color("88a8aa")
 			g.draw_style_box(g._rounded_style(Color("163a3c") if selected else Color("0c2630"), accent, 6, 1), choice)
 			var label := chapter_text(id + "_title")
 			g.draw_string(g.fallback_font, choice.position + Vector2(8, 21), label, HORIZONTAL_ALIGNMENT_CENTER, choice.size.x - 16, g._fit_font_size(label, choice.size.x - 16, 12, 8), accent)
+		for index in range(3):
+			var branch_id: String = ["transport", "resilience", "defense"][index]
+			var label := chapter_text("branch_buy", {"branch": chapter_text("branch_" + branch_id), "level": State.branch_level(g.campaign, branch_id), "cost": State.BRANCH_MATERIAL_COST})
+			_draw_button(branch_rect(viewport, index), label, State.can_purchase_branch(g.campaign, branch_id) and not g.game_over)
+	elif has_phase:
+		_draw_button(phase_action_rect(viewport), chapter_text(_phase_action_key()), not g.game_over)
 	var labels := action_labels()
 	for index in range(3):
-		var rect := button_rect(viewport, index)
-		var enabled := action_enabled(index)
-		var accent := Color("bad7c1") if enabled else Color("465c60")
-		g.draw_style_box(g._rounded_style(Color("163a3c") if rect.has_point(g.last_mouse) and enabled else Color("0c2630"), accent, 7, 1), rect)
-		g.draw_string(g.fallback_font, rect.position + Vector2(12, 21), labels[index], HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 24, g._fit_font_size(labels[index], rect.size.x - 24, 12, 8), accent)
+		_draw_button(button_rect(viewport, index), labels[index], action_enabled(index))
+
+
+func _draw_button(rect: Rect2, label: String, enabled: bool) -> void:
+	var accent := Color("bad7c1") if enabled else Color("465c60")
+	g.draw_style_box(g._rounded_style(Color("163a3c") if rect.has_point(g.last_mouse) and enabled else Color("0c2630"), accent, 7, 1), rect)
+	g.draw_string(g.fallback_font, rect.position + Vector2(8, 21), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 16, g._fit_font_size(label, rect.size.x - 16, 12, 7), accent)

@@ -5,6 +5,13 @@ const PATHS := {
 	"home_nest": "res://scenes/worlds/HomeNest.tscn",
 	"first_supply": "res://scenes/missions/FirstSupply.tscn",
 	"remote_pantry": "res://scenes/missions/RemotePantry.tscn",
+	"first_contact": "res://scenes/missions/FirstContact.tscn",
+	"substrate_race": "res://scenes/missions/SubstrateRace.tscn",
+	"lost_network": "res://scenes/missions/LostNetwork.tscn",
+	"two_fronts": "res://scenes/missions/TwoFronts.tscn",
+	"toxic_frontier": "res://scenes/missions/ToxicFrontier.tscn",
+	"boundary_counterattack": "res://scenes/missions/BoundaryCounterattack.tscn",
+	"stable_colony": "res://scenes/missions/StableColony.tscn",
 }
 const REVISION := 1
 static var _target_cache: Dictionary = {}
@@ -35,6 +42,15 @@ static func resolve_id(snapshot: Dictionary, fallback_id: String) -> String:
 	if not valid_metadata(snapshot) or not PATHS.has(fallback_id):
 		return ""
 	return String(snapshot.get("world_scene_id", fallback_id))
+
+static func valid_mission_snapshot(snapshot: Dictionary, expected_id: String) -> bool:
+	var scene := prepare(expected_id)
+	if scene == null:
+		return false
+	var valid: bool = scene.validate_snapshot(snapshot)
+	scene.free()
+	return valid
+
 
 static func targets(scene_id: String) -> Dictionary:
 	if not _target_cache.has(scene_id):

@@ -34,6 +34,8 @@ const TOP_LEVEL_NUMBERS := ["world_generation", "chapter_rules_version", "chapte
 
 
 static func validate(raw: Dictionary) -> bool:
+	if not _mission_data(raw.get("mission_state", {})):
+		return false
 	# Required top-level version/profile/economy validation remains in main.
 	# Optional fields stay optional for old saves; values that are present must
 	# be safe for the exact .get, typed assignment and Vector2 restore operations.
@@ -84,6 +86,28 @@ static func validate(raw: Dictionary) -> bool:
 	for field in ["rng_seed", "rng_state"]:
 		if raw.has(field) and (not raw[field] is String or not raw[field].is_valid_int()):
 			return false
+	return true
+
+
+static func _mission_data(raw: Variant) -> bool:
+	if not raw is Dictionary or raw.size() > 64:
+		return false
+	for key in raw:
+		if not key is String or key.length() > 64:
+			return false
+		var value: Variant = raw[key]
+		if typeof(value) == TYPE_BOOL:
+			continue
+		if value is String and value.length() <= 256:
+			continue
+		if _number(value) and absf(float(value)) <= 1000000000000.0:
+			continue
+		if value is Array and value.size() <= 256:
+			for element in value:
+				if not _number(element) or absf(float(element)) > 1000000000000.0:
+					return false
+			continue
+		return false
 	return true
 
 

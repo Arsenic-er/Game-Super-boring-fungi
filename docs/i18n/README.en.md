@@ -2,6 +2,8 @@
 
 # Game: Super boring fungi
 
+Development update — 2026-10-04: Chapter 1 now contains six independent expeditions and three home-nest challenges. Press J to choose missions, spend first-win materials on four nest levels and three construction branches, and follow the culture-record story. Home challenges restore the pre-battle nest and return only the first-win material reward; expeditions use separate supplies and pause offline. The older cultivation milestones described below are home guidance, not completion of the nine-mission campaign. Human playtime, visual and audio testing remains pending.
+
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
 The project is currently an early Windows prototype, version `0.49.0`. Chapter 1 is a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores. Version 0.40 adds role-safe commands so units no longer gather or attack targets that do not match their specialization.

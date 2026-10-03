@@ -90,9 +90,16 @@ func _limits_and_persistence(main_core: int) -> bool:
 			return false
 	if not _check(game.campaign_ui.developer_apply_action("campaign_nest_up") and game.campaign.nest_level == 2 and bool(game.campaign.completed.get(State.MISSION_ID, false)), "raising the nest to two uses sanitize's permanent first-win flag"):
 		return false
+	var reward_ledger: Dictionary = game.campaign.completed.duplicate(true)
+	for level in range(3, State.MAX_NEST_LEVEL + 1):
+		if not _check(game.campaign_ui.developer_apply_action("campaign_nest_up") and game.campaign.nest_level == level and game.campaign.completed == reward_ledger and game.campaign.materials == 0 and game.campaign.serial == 17, "raising the nest to %d does not fabricate later task wins, materials or attempts" % level):
+			return false
 	if not _unchanged_rejection("campaign_nest_up", "campaign_limit"):
 		return false
-	if not _check(game.campaign_ui.developer_apply_action("campaign_nest_down") and game.campaign.nest_level == 1 and bool(game.campaign.completed.get(State.MISSION_ID, false)), "downgrade preserves the unique-reward flag"):
+	for level in range(State.MAX_NEST_LEVEL - 1, 0, -1):
+		if not _check(game.campaign_ui.developer_apply_action("campaign_nest_down") and game.campaign.nest_level == level and game.campaign.completed == reward_ledger and game.campaign.materials == 0 and game.campaign.serial == 17, "downgrade to %d preserves the unique-reward ledger and attempt serial" % level):
+			return false
+	if not _unchanged_rejection("campaign_nest_down", "campaign_limit"):
 		return false
 	for value in range(1, State.MAX_MATERIALS + 1):
 		if not _check(game.campaign_ui.developer_apply_action("campaign_material_up") and game.campaign.materials == value, "materials rise one step and autosave: %d" % value):

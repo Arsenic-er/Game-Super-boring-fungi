@@ -406,6 +406,7 @@ const COLOR_PANEL := Color(0.025, 0.075, 0.12, 0.9)
 const COLOR_BORDER := Color(0.32, 0.67, 0.63, 0.48)
 
 const INITIAL_WORLD_STATE := {
+	"mission_state": {},
 	"resources": [],
 	"resource_grid": {},
 	"resource_hotspots": [],
@@ -928,6 +929,7 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	rng.seed = 0xF00D47
 	_generate_world()
+	world_runtime.data["mission_state"] = {}
 	main_menu_has_save = _has_recoverable_save()
 	first_locale_prompt = _should_prompt_for_locale(settings_file_existed, main_menu_has_save)
 	if first_locale_prompt:
@@ -1254,7 +1256,7 @@ func _seed_enemy_guards_for_migration(fungus_id: int, count: int) -> void:
 
 
 func _fungal_incursions_enabled() -> bool:
-	return chapter_complete and lifetime_enemy_fungi_defeated >= 1 and not game_over and _living_core_count() > 0
+	return active_world.allows_legacy_chapter() and chapter_complete and lifetime_enemy_fungi_defeated >= 1 and not game_over and _living_core_count() > 0
 
 
 func _has_living_barracks() -> bool:
@@ -1549,6 +1551,9 @@ func _update_enemy_guard_spores(sim_delta: float) -> void:
 			enemy["guard_spawn_time"] = rng.randf_range(ENEMY_GUARD_SPAWN_MIN, ENEMY_GUARD_SPAWN_MAX) if spawned else 12.0
 	var surviving: Array = []
 	for guard in enemy_guard_spores:
+		if is_instance_valid(active_world) and active_world.handles_enemy_guard(int(guard.get("id", -1))):
+			surviving.append(guard)
+			continue
 		guard["damage_flash"] = maxf(0.0, float(guard.get("damage_flash", 0.0)) - sim_delta)
 		var fungus_id := int(guard.get("fungus_id", -1))
 		var enemy_index := _enemy_fungus_index_by_id(fungus_id)
@@ -2133,6 +2138,11 @@ func _process(delta: float) -> void:
 		_update_bacteria(bacteria_step)
 		_update_core_hazards(bacteria_step)
 		_update_orphaned_segments(bacteria_step)
+	if _campaign_active() and is_instance_valid(active_world):
+		active_world.mission_tick(self, sim_delta)
+		if active_world.mission_failed(self):
+			game_over = true
+			sim_speed = 0.0
 	# 自动细菌丝感知在加速时最高按10×扫描，避免60×反复遍历整张地图。
 	absorb_clock += delta * minf(sim_speed, 10.0)
 	while absorb_clock >= 2.0:
@@ -3063,11 +3073,12 @@ func _move_expedition_unit(unit: Dictionary, target: Vector2, sim_delta: float) 
 
 
 func _expedition_cargo_capacity(unit: Dictionary) -> float:
+	var base := EXPEDITION_CARGO_CAPACITY
 	match String(unit.get("unit_type", "forager")):
-		"carrier": return 9.0
-		"chelator", "lytic", "disperser", "piercer": return 1.5
-		"coil": return 1.0
-	return EXPEDITION_CARGO_CAPACITY
+		"carrier": base = 9.0
+		"chelator", "lytic", "disperser", "piercer": base = 1.5
+		"coil": base = 1.0
+	return base * _campaign_nest_multiplier("transport")
 
 
 func _update_expedition_gathering(unit: Dictionary, sim_delta: float) -> void:
@@ -3253,7 +3264,7 @@ func _update_expedition_guard_attack(unit: Dictionary, sim_delta: float) -> void
 		unit["state"] = "guarding"
 		return
 	var before := float(guard.get("biomass", ENEMY_GUARD_MAX_BIOMASS))
-	var damage := minf(before, attack_rate * sim_delta)
+	var damage := minf(before, attack_rate * _campaign_nest_multiplier("defense") * sim_delta)
 	if damage > 0.0:
 		_play_sound("attack", 0.86)
 	var defeated := _damage_enemy_guard(guard_id, damage)
@@ -3309,7 +3320,7 @@ func _update_expedition_fungus_attack(unit: Dictionary, sim_delta: float) -> voi
 		unit["state"] = "guarding"
 		return
 	var before := float(enemy.get("biomass", ENEMY_FUNGUS_CORE_MAX_BIOMASS))
-	var damage := minf(before, attack_rate * sim_delta)
+	var damage := minf(before, attack_rate * _campaign_nest_multiplier("defense") * sim_delta)
 	var defeated := _damage_enemy_fungus(enemy_id, damage)
 	unit["cargo_organic"] = minf(_expedition_cargo_capacity(unit), float(unit.get("cargo_organic", 0.0)) + damage * 0.35)
 	if defeated:
@@ -4852,12 +4863,13 @@ func _issue_expedition_command(screen_pos: Vector2) -> void:
 		var enemy_index := _nearest_enemy_fungus_index(requested, maxf(hit_radius, ENEMY_FUNGUS_HIT_RADIUS), true)
 		var hypha_id := _nearest_enemy_hypha_id(requested, hit_radius, true, true)
 		var resource := _resource_at_world(requested, hit_radius)
-		if friendly_barracks_id >= 0:
-			pass
-		elif guard_index >= 0:
+		# Hostile hit targets stay actionable even when standing on a friendly nest.
+		if guard_index >= 0:
 			target_kind = "enemy_guard"
 			requested_target = enemy_guard_spores[guard_index]["pos"]
 			enemy_guard_id = int(enemy_guard_spores[guard_index].get("id", -1))
+		elif friendly_barracks_id >= 0:
+			pass
 		elif enemy_index >= 0:
 			target_kind = "enemy_fungus"
 			requested_target = enemy_fungi[enemy_index]["pos"]
@@ -6849,11 +6861,11 @@ func _toxin_damage_multiplier() -> float:
 
 
 func _passive_recovery_rate() -> float:
-	return CORE_PASSIVE_RECOVERY_RATE * (1.0 + int(survival_levels.get("repair", 0)) * 0.25)
+	return CORE_PASSIVE_RECOVERY_RATE * (1.0 + int(survival_levels.get("repair", 0)) * 0.25) * _campaign_nest_multiplier("resilience")
 
 
 func _repair_recovery_rate() -> float:
-	return CORE_REPAIR_RECOVERY_RATE * (1.0 + int(survival_levels.get("repair", 0)) * 0.20)
+	return CORE_REPAIR_RECOVERY_RATE * (1.0 + int(survival_levels.get("repair", 0)) * 0.20) * _campaign_nest_multiplier("resilience")
 
 
 func _repair_reserve_purchase_amount() -> float:
@@ -7069,6 +7081,7 @@ func _draw() -> void:
 	_draw_expedition_units(viewport)
 	_draw_fungal_incursion_marker()
 	_draw_world_fog(viewport)
+	_draw_campaign_markers(viewport)
 	_draw_founder_spore()
 	_draw_persistent_zones()
 	_draw_barracks_placement_preview()
@@ -7531,6 +7544,7 @@ func _start_new_culture(scene_id: String = "home_nest", retain_previous: bool = 
 	_reset_offline_settlement_state()
 	rng.seed = 0xF00D47
 	_generate_world()
+	world_runtime.data["mission_state"] = {}
 	cores.clear()
 	segments.clear()
 	feeders.clear()
@@ -7693,6 +7707,29 @@ func _apply_settings() -> void:
 			Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
 	if pixel_audio != null:
 		pixel_audio.configure(settings_master_volume, settings_ui_volume, settings_world_volume, settings_combat_volume, settings_ambient_volume)
+
+
+func _draw_campaign_markers(viewport: Vector2) -> void:
+	if not _campaign_active() or not active_world.has_method("mission_markers"):
+		return
+	# Briefing markers are task intelligence, not exploration. Fog and resource
+	# discovery stay unchanged, so only the objective outline is visible remotely.
+	for marker in active_world.mission_markers(self):
+		var center := _pixel_snap(world_to_screen(marker["pos"]))
+		var radius := maxf(5.0, float(marker.get("radius", 30.0)) * camera_zoom)
+		if not Rect2(Vector2.ZERO, viewport).grow(radius + 30.0).has_point(center):
+			continue
+		var accent := Color(String(marker.get("accent", "e3be78")))
+		if radius < 9.0:
+			draw_rect(Rect2(center - Vector2(3, 3), Vector2(6, 6)), accent, false, 1.0)
+		else:
+			for index in range(32):
+				var point := _pixel_snap(center + Vector2.from_angle(float(index) * TAU / 32.0) * radius)
+				draw_rect(Rect2(point, Vector2(2, 2)), Color(accent, 0.82))
+			var label: String = campaign_ui.chapter_text(String(marker["key"]))
+			var size := _fit_font_size(label, 220.0, 11, 8)
+			var width := fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+			draw_string(fallback_font, center + Vector2(-width * 0.5, -radius - 8.0), label, HORIZONTAL_ALIGNMENT_LEFT, 220, size, accent)
 
 
 func _cycle_audio_volume(index: int) -> void:
@@ -8721,6 +8758,11 @@ func _draw_minimap(_viewport: Vector2) -> void:
 		var up := _pixel_snap(_world_to_minimap(unit["pos"], inner))
 		var unit_color := Color("5edcf5") if String(unit.get("unit_type", "forager")) == "scout" else Color("76f5ca")
 		draw_rect(Rect2(up, Vector2(2, 2)), Color("56f08d") if selected_expedition_ids.has(int(unit.get("id", -1))) else unit_color)
+	if _campaign_active() and active_world.has_method("mission_markers"):
+		for marker in active_world.mission_markers(self):
+			var point := _pixel_snap(_world_to_minimap(marker["pos"], inner))
+			var accent := Color(String(marker.get("accent", "e3be78")))
+			draw_rect(Rect2(point - Vector2(3, 3), Vector2(6, 6)), accent, false, 1.0)
 	var world_view_size := get_viewport_rect().size / camera_zoom
 	var top_left := camera_center - world_view_size * 0.5
 	var bottom_right := camera_center + world_view_size * 0.5
@@ -10814,9 +10856,12 @@ func _draw_game_over(viewport: Vector2) -> void:
 	var rect := _game_over_panel_rect(viewport)
 	draw_style_box(_rounded_style(Color(0.055, 0.035, 0.055, 0.98), Color("c77888"), 12, 2), rect)
 	draw_string(fallback_font, rect.position + Vector2(32, 48), _ui("game_over_title"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, Color("ff9f9f"))
-	draw_string(fallback_font, rect.position + Vector2(32, 86), _ui("game_over_detail"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_TEXT)
-	draw_string(fallback_font, rect.position + Vector2(32, 120), _ui("game_over_body"), HORIZONTAL_ALIGNMENT_LEFT, -1, UI_FONT_SIZE, COLOR_MUTED)
-	var labels := [_ui("game_over_restart"), _ui("back_main")]
+	var detail: String = campaign_ui.chapter_text("mission_failed") if _campaign_active() else _ui("game_over_detail")
+	var body: String = campaign_ui.chapter_text("mission_failed_hint") if _campaign_active() else _ui("game_over_body")
+	var text_width := rect.size.x - 64.0
+	draw_string(fallback_font, rect.position + Vector2(32, 86), detail, HORIZONTAL_ALIGNMENT_LEFT, text_width, _fit_font_size(detail, text_width, UI_FONT_SIZE, 7), COLOR_TEXT)
+	draw_string(fallback_font, rect.position + Vector2(32, 120), body, HORIZONTAL_ALIGNMENT_LEFT, text_width, _fit_font_size(body, text_width, UI_FONT_SIZE, 7), COLOR_MUTED)
+	var labels := [campaign_ui.text("return_fail") if _campaign_active() else _ui("game_over_restart"), _ui("back_main")]
 	for i in range(2):
 		var button := _game_over_button_rect(viewport, i)
 		var hovered := button.has_point(last_mouse)
@@ -10842,6 +10887,10 @@ func _game_over_button_rect(viewport: Vector2, index: int) -> Rect2:
 func _handle_game_over_click(pos: Vector2) -> void:
 	var viewport := get_viewport_rect().size
 	if _game_over_button_rect(viewport, 0).has_point(pos):
+		if _campaign_active():
+			campaign_ui.show_panel()
+			queue_redraw()
+			return
 		pause_menu_open = true
 		pause_menu_page = "restart_confirm"
 		pause_menu_notice = ""
@@ -10953,6 +11002,16 @@ func _wrap_guide_text(text_value: String, max_width: float, font_size: int) -> A
 		if paragraph.contains(" "):
 			for word_value in paragraph.split(" ", false):
 				var word := String(word_value)
+				# Mixed CJK text and long compound words can exceed a whole line.
+				# Split only that token by characters instead of overflowing it.
+				if fallback_font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
+					if not current.is_empty():
+						lines.append(current)
+					var fragments := _wrap_guide_text(word, max_width, font_size)
+					for index in range(maxi(0, fragments.size() - 1)):
+						lines.append(fragments[index])
+					current = fragments[-1] if not fragments.is_empty() else ""
+					continue
 				var candidate := word if current == "" else current + " " + word
 				if current != "" and fallback_font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width:
 					lines.append(current)
@@ -11457,7 +11516,7 @@ func _parse_save_payload(payload: String) -> Dictionary:
 			expected_scene = String(cleaned["active_mission"]["id"])
 		elif not raw["home_world"].is_empty():
 			return {}
-	if not WorldSceneCatalog.matches(parsed, expected_scene):
+	if not WorldSceneCatalog.matches(parsed, expected_scene) or not WorldSceneCatalog.valid_mission_snapshot(parsed, expected_scene):
 		return {}
 	return parsed
 
@@ -11804,6 +11863,7 @@ func _capture_world_state() -> Dictionary:
 	data["simulation_clocks"] = {"absorb_clock": absorb_clock, "bacteria_update_clock": bacteria_update_clock, "expedition_update_clock": expedition_update_clock, "barracks_auto_clock": barracks_auto_clock, "enemy_fungus_update_clock": enemy_fungus_update_clock, "enemy_guard_update_clock": enemy_guard_update_clock}
 	data["world_scene_id"] = _world_scene_id()
 	data["world_scene_revision"] = WorldSceneCatalog.REVISION
+	data["mission_state"] = world_runtime.data.get("mission_state", {}).duplicate(true)
 	return data.duplicate(true)
 
 
@@ -11869,6 +11929,7 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 		campaign_ui.failure_presented = false
 	rng.seed = 0xF00D47
 	_generate_world()
+	world_runtime.data["mission_state"] = parsed.get("mission_state", {}).duplicate(true)
 	var catalog = parsed.get("resource_catalog", null)
 	if catalog is Array:
 		resources.clear()
@@ -12254,7 +12315,8 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 			if enemy_guard_spores.size() >= MAX_ENEMY_GUARD_SPORES:
 				break
 			var fungus_id := int(item.get("fungus_id", -1))
-			if not enemy_ids.has(fungus_id) or _enemy_guard_count_for_fungus(fungus_id) >= ENEMY_GUARD_MAX_PER_FUNGUS:
+			var trial_raider: bool = active_world.handles_enemy_guard(int(item.get("id", -1)))
+			if not trial_raider and (not enemy_ids.has(fungus_id) or _enemy_guard_count_for_fungus(fungus_id) >= ENEMY_GUARD_MAX_PER_FUNGUS):
 				continue
 			var guard_pos := Vector2(float(item.get("x", 0.0)), float(item.get("y", 0.0)))
 			if not guard_pos.is_finite() or guard_pos.length() > WORLD_HALF - 12.0:
@@ -12265,13 +12327,13 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 			var maximum := clampf(float(item.get("max_biomass", ENEMY_GUARD_MAX_BIOMASS)), 0.5, ENEMY_GUARD_MAX_BIOMASS * 2.0)
 			var biomass := clampf(float(item.get("biomass", maximum)), 0.0, maximum)
 			var alive := bool(item.get("alive", biomass > 0.0005)) and biomass > 0.0005
-			if not alive:
+			if not alive and not trial_raider:
 				continue
 			var guard_state := String(item.get("state", "patrol"))
 			if not valid_guard_states.has(guard_state) or (not parsed.has("resource_catalog") and guard_state in ["chasing", "attacking"]):
 				guard_state = "patrol"
 			var owner_index := _enemy_fungus_index_by_id(fungus_id)
-			if owner_index < 0 or not bool(enemy_fungi[owner_index].get("alive", false)):
+			if not trial_raider and (owner_index < 0 or not bool(enemy_fungi[owner_index].get("alive", false))):
 				guard_state = "orphaned"
 			var target_pos := Vector2(float(item.get("target_x", guard_pos.x)), float(item.get("target_y", guard_pos.y)))
 			if not target_pos.is_finite() or target_pos.length() > WORLD_HALF:
@@ -12285,7 +12347,7 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 				"target_unit_id": int(item.get("target_unit_id", -1)) if parsed.has("resource_catalog") and guard_state in ["chasing", "attacking"] else -1,
 				"biomass": biomass,
 				"max_biomass": maximum,
-				"alive": true,
+				"alive": alive,
 				"damage_flash": 0.0,
 				"patrol_time": clampf(float(item.get("patrol_time", 0.0)), 0.0, 30.0),
 				"phase": float(item.get("phase", 0.0))
@@ -12499,6 +12561,8 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 		next_expedition_id = maxi(next_expedition_id, unit_id + 1)
 	# Validate modern snapshot pursuit after both populations have been restored.
 	for guard in enemy_guard_spores:
+		if active_world.handles_enemy_guard(int(guard.get("id", -1))):
+			continue # Trial raiders can legitimately chase a core instead of a unit.
 		if String(guard.get("state", "")) not in ["chasing", "attacking"]:
 			continue
 		var target_index := _expedition_unit_index_by_id(int(guard.get("target_unit_id", -1)))
@@ -12613,6 +12677,14 @@ func _campaign_goal_targets() -> Dictionary:
 	if _campaign_active() and is_instance_valid(active_world) and _world_scene_id() == String(campaign["active_mission"]["id"]):
 		return active_world.goal_targets()
 	return WorldSceneCatalog.targets(campaign_ui.mission_id())
+
+
+func _campaign_nest_multiplier(branch_id: String) -> float:
+	if _campaign_active() and CampaignState.Catalog.mission(String(campaign["active_mission"]["id"])).get("kind", "") != "nest_challenge":
+		return 1.0
+	var level := int(campaign.get("nest_level", 1))
+	var tier_bonus := 0.10 if ((branch_id == "transport" and level >= 2) or (branch_id == "resilience" and level >= 3) or (branch_id == "defense" and level >= 4)) else 0.0
+	return 1.0 + tier_bonus + CampaignState.branch_level(campaign, branch_id) * 0.15
 
 
 func _total_core_biomass() -> float:

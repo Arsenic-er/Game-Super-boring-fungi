@@ -1,5 +1,14 @@
 # Server Verification Index / 服务器测试记录索引
 
+## Latest: 2026-10-04 Chapter 1 / 最新第一章验证
+
+- Full suite: **95/95 PASS**, resource import PASS, main-scene startup PASS, **497 s**. Run started at 2026-10-03 21:32:58 UTC against the chapter working tree based on `fdd1ba1ccfd2`; summary: `/home/ubuntu/fungi/test-logs/20261003T213258Z-271124/summary.txt`.
+- Render probe: **645 captures**, nine missions, seven languages, 1280×720 and 640×360, PASS. Evidence: `/home/ubuntu/fungi/test-logs/campaign-visual-20261003T213310Z-271531/`. No human visual/input/audio acceptance is implied.
+- Snapshot integrity: the full-suite snapshot had 97 checks; the final focused expansion passed **109**, including real backup recovery and rejection of missing mission entities. Product code was unchanged. Logs: `/home/ubuntu/fungi/test-logs/chapter1-focused-20261004/`.
+- Windows artifact: split EXE/PCK, exact three-file ZIP, CRC, x64 PE and all 137 PCK entry digests PASS; **no Windows runtime test this turn**. Evidence: `/home/ubuntu/fungi/test-logs/windows-chapter1-20261003T213257Z-271074/`.
+- Sole candidate: `/home/ubuntu/fungi/game/release/FungiMicroculture-Windows-x64.zip`, 44,108,704 bytes; SHA-256 `97c9f3c675621f4de3f0d7aac834f3720d1effcb67a235da9d4c33f4dbb7068d`.
+- Below are historical verification records, not the current test count. New implementation details and the unmeasured human-playtime boundary are recorded in `DEVELOPMENT_LOG.md` and `CHAPTER1_APPROVED_MISSIONS.zh-CN.md`.
+
 Godot version used by the archived server: `4.7.stable.official.5b4e0cb0f`.
 
 The full transient logs were stored outside the repository under `/home/ubuntu/fungi/test-logs/`. This file preserves the meaningful run summaries before server retirement; caches and verbose per-test logs are intentionally excluded from Git.

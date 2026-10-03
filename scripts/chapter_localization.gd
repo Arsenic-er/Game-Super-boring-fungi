@@ -9,67 +9,67 @@ const TASK_IDS: Array[String] = [
 
 const CHROME := {
 	"zh_CN": {
-		"complete": "第一章完成", "free_culture": "自由培养中 · 下一章节尚未开放",
-		"task_heading_fmt": "章节任务 %d/%d · %s", "unlimited": "按自己的节奏完成，不限时", "show_hint": "点击查看操作提示",
-		"complete_toast": "第一章完成：补给与扩张达标，首个竞争菌落已清除", "new_task_fmt": "新任务：%s",
+		"complete": "主巢培养目标达成", "free_culture": "继续培养 · [J] 第一章任务",
+		"task_heading_fmt": "培养引导 %d/%d · %s", "unlimited": "按自己的节奏完成，不限时", "show_hint": "点击查看操作提示",
+		"complete_toast": "主巢培养目标达成：补给、扩张与首战完成；第一章进度见 [J]", "new_task_fmt": "新任务：%s",
 		"supply_progress_fmt": "有机 %.0f/%.0f · 矿 %.0f/%.0f · 运 %.1f/%.1f",
 		"expansion_progress_fmt": "核心 %d/%d · 菌丝 %.0f/%.0f μm",
 		"review_report": "点击重看报告 · 培养仍可继续",
-		"report_legacy_subtitle": "此档已按旧版目标通关；成果保留，新增经营条件不追溯。"
+		"report_legacy_subtitle": "此档已达成旧版培养目标，成果保留，不追溯新增条件。完整第一章以 [J] 的九项任务为准。"
 	},
 	"zh_TW": {
-		"complete": "第一章完成", "free_culture": "自由培養中 · 下一章節尚未開放",
-		"task_heading_fmt": "章節任務 %d/%d · %s", "unlimited": "依自己的節奏完成，沒有時限", "show_hint": "點擊查看操作提示",
-		"complete_toast": "第一章完成：補給與擴張達標，首個競爭菌落已清除", "new_task_fmt": "新任務：%s",
+		"complete": "主巢培養目標達成", "free_culture": "繼續培養 · [J] 第一章任務",
+		"task_heading_fmt": "培養引導 %d/%d · %s", "unlimited": "依自己的節奏完成，沒有時限", "show_hint": "點擊查看操作提示",
+		"complete_toast": "主巢培養目標達成：補給、擴張與首戰完成；第一章進度見 [J]", "new_task_fmt": "新任務：%s",
 		"supply_progress_fmt": "有機 %.0f/%.0f · 礦 %.0f/%.0f · 運 %.1f/%.1f",
 		"expansion_progress_fmt": "核心 %d/%d · 菌絲 %.0f/%.0f μm",
 		"review_report": "點擊重看報告 · 培養仍可繼續",
-		"report_legacy_subtitle": "此檔已依舊版目標通關；成果保留，新增經營條件不追溯。"
+		"report_legacy_subtitle": "此檔已達成舊版培養目標，成果保留，不追溯新增條件。完整第一章以 [J] 的九項任務為準。"
 	},
 	"en": {
-		"complete": "Chapter 1 complete", "free_culture": "Free culture · Next chapter not yet available",
-		"task_heading_fmt": "Chapter task %d/%d · %s", "unlimited": "Complete at your own pace · No time limit", "show_hint": "Click for an action hint",
-		"complete_toast": "Chapter 1 complete: supply and expansion goals met, first rival cleared", "new_task_fmt": "New task: %s",
+		"complete": "Nest culture goals met", "free_culture": "Keep cultivating · [J] Chapter 1 missions",
+		"task_heading_fmt": "Culture guide %d/%d · %s", "unlimited": "Complete at your own pace · No time limit", "show_hint": "Click for an action hint",
+		"complete_toast": "Nest culture goals met: supply, expansion and first rival. Chapter 1 progress: [J]", "new_task_fmt": "New task: %s",
 		"supply_progress_fmt": "Org %.0f/%.0f · Min %.0f/%.0f · Cargo %.1f/%.1f",
 		"expansion_progress_fmt": "Cores %d/%d · Hyphae %.0f/%.0f μm",
 		"review_report": "Click to review report · Keep cultivating",
-		"report_legacy_subtitle": "Completed under earlier rules. Completion is retained; new economy goals do not apply retroactively."
+		"report_legacy_subtitle": "Earlier culture goals remain credited; new requirements are not retroactive. Full Chapter 1 completion requires all nine missions in [J]."
 	},
 	"ja": {
-		"complete": "第1章クリア", "free_culture": "自由培養中 · 次章は未開放",
-		"task_heading_fmt": "章タスク %d/%d · %s", "unlimited": "自分のペースで進行 · 時間制限なし", "show_hint": "クリックで操作ヒント",
-		"complete_toast": "第1章クリア：補給と拡張の目標を達成し、最初の競争菌を排除しました", "new_task_fmt": "新しいタスク：%s",
+		"complete": "母巣の培養目標を達成", "free_culture": "培養を続行 · [J] 第1章の任務",
+		"task_heading_fmt": "培養ガイド %d/%d · %s", "unlimited": "自分のペースで進行 · 時間制限なし", "show_hint": "クリックで操作ヒント",
+		"complete_toast": "母巣の培養目標達成：補給・拡張・最初の競争菌。第1章の進行は [J] へ", "new_task_fmt": "新しいタスク：%s",
 		"supply_progress_fmt": "有機 %.0f/%.0f · 鉱 %.0f/%.0f · 搬入 %.1f/%.1f",
 		"expansion_progress_fmt": "コア %d/%d · 菌糸 %.0f/%.0f μm",
 		"review_report": "クリックで結果を再表示 · 培養を続行可能",
-		"report_legacy_subtitle": "旧版の目標でクリア済みです。成果は保持され、新しい経営条件は遡って適用されません。"
+		"report_legacy_subtitle": "旧版の培養目標の達成は保持され、新しい条件は遡及しません。第1章のクリアには [J] の9つの任務をすべて完了してください。"
 	},
 	"es": {
-		"complete": "Capítulo 1 completado", "free_culture": "Cultivo libre · Próximo capítulo aún no disponible",
-		"task_heading_fmt": "Tarea %d/%d · %s", "unlimited": "Completa a tu ritmo · Sin límite de tiempo", "show_hint": "Haz clic para ver una pista",
-		"complete_toast": "Capítulo 1 completado: suministro y expansión logrados, primer rival eliminado", "new_task_fmt": "Nueva tarea: %s",
+		"complete": "Metas del cultivo logradas", "free_culture": "Seguir cultivando · [J] Misiones del capítulo 1",
+		"task_heading_fmt": "Guía de cultivo %d/%d · %s", "unlimited": "Completa a tu ritmo · Sin límite de tiempo", "show_hint": "Haz clic para ver una pista",
+		"complete_toast": "Metas del nido logradas: suministro, expansión y primer rival. Capítulo 1: [J]", "new_task_fmt": "Nueva tarea: %s",
 		"supply_progress_fmt": "Org %.0f/%.0f · Min %.0f/%.0f · Carga %.1f/%.1f",
 		"expansion_progress_fmt": "Núcleos %d/%d · Hifas %.0f/%.0f μm",
 		"review_report": "Clic para revisar el informe · Sigue cultivando",
-		"report_legacy_subtitle": "Completado con reglas anteriores. Se conserva el logro; las nuevas metas económicas no son retroactivas."
+		"report_legacy_subtitle": "Se conservan las metas de cultivo anteriores; los nuevos requisitos no son retroactivos. El capítulo 1 requiere las nueve misiones de [J]."
 	},
 	"de": {
-		"complete": "Kapitel 1 abgeschlossen", "free_culture": "Freie Kultur · Nächstes Kapitel noch nicht verfügbar",
-		"task_heading_fmt": "Kapitelziel %d/%d · %s", "unlimited": "Im eigenen Tempo · Kein Zeitlimit", "show_hint": "Klicken für einen Hinweis",
-		"complete_toast": "Kapitel 1 abgeschlossen: Versorgung und Ausbau erreicht, erster Rivale beseitigt", "new_task_fmt": "Neue Aufgabe: %s",
+		"complete": "Kulturziele des Nests erreicht", "free_culture": "Weiter kultivieren · [J] Missionen in Kapitel 1",
+		"task_heading_fmt": "Kulturhilfe %d/%d · %s", "unlimited": "Im eigenen Tempo · Kein Zeitlimit", "show_hint": "Klicken für einen Hinweis",
+		"complete_toast": "Nestkulturziele erreicht: Versorgung, Ausbau und erster Rivale. Kapitel 1: [J]", "new_task_fmt": "Neue Aufgabe: %s",
 		"supply_progress_fmt": "Org %.0f/%.0f · Min %.0f/%.0f · Fracht %.1f/%.1f",
 		"expansion_progress_fmt": "Kerne %d/%d · Hyphen %.0f/%.0f μm",
 		"review_report": "Bericht per Klick öffnen · Weiter kultivieren",
-		"report_legacy_subtitle": "Nach früheren Regeln abgeschlossen. Der Erfolg bleibt; neue Wirtschaftsziele gelten nicht rückwirkend."
+		"report_legacy_subtitle": "Frühere Kulturziele bleiben anerkannt; neue Anforderungen gelten nicht rückwirkend. Kapitel 1 erfordert alle neun Missionen unter [J]."
 	},
 	"ru": {
-		"complete": "Глава 1 завершена", "free_culture": "Свободная культура · Следующая глава пока недоступна",
-		"task_heading_fmt": "Задача %d/%d · %s", "unlimited": "Играйте в своём темпе · Без ограничения времени", "show_hint": "Нажмите, чтобы увидеть подсказку",
-		"complete_toast": "Глава 1 завершена: цели снабжения и расширения достигнуты, первый соперник побеждён", "new_task_fmt": "Новая задача: %s",
+		"complete": "Цели культуры гнезда достигнуты", "free_culture": "Продолжить культуру · [J] Задания главы 1",
+		"task_heading_fmt": "Обучение культуре %d/%d · %s", "unlimited": "Играйте в своём темпе · Без ограничения времени", "show_hint": "Нажмите, чтобы увидеть подсказку",
+		"complete_toast": "Цели гнезда достигнуты: снабжение, расширение и первый соперник. Глава 1: [J]", "new_task_fmt": "Новая задача: %s",
 		"supply_progress_fmt": "Орг %.0f/%.0f · Мин %.0f/%.0f · Груз %.1f/%.1f",
 		"expansion_progress_fmt": "Ядра %d/%d · Гифы %.0f/%.0f μm",
 		"review_report": "Нажмите для просмотра отчёта · Культура продолжается",
-		"report_legacy_subtitle": "Завершено по прежним правилам. Успех сохранён; новые хозяйственные цели не применяются задним числом."
+		"report_legacy_subtitle": "Прежние цели культуры засчитаны; новые требования не применяются задним числом. Для завершения главы 1 нужны все девять заданий в [J]."
 	}
 }
 
@@ -111,7 +111,7 @@ const TASK_TEXT := {
 		["Establish supply", "Meet absorption and returned-cargo goals", "Absorb organics and minerals through hyphae; gatherers must carry organics home. See the task panel for current and target amounts."],
 		["Expand the network", "Meet living-core and connected-hypha goals", "Add living cores, including barracks, and protect growing hyphae. Only mature, connected length counts; targets are shown in the task panel."],
 		["Discover a rival colony", "Explore and reveal a rival fungus", "Send a scout beyond the fog. Rivals appear only after entering vision."],
-		["Eliminate the rival", "Meet supply and expansion goals; defeat the first rival", "Select units and right-click the rival core; piercers excel. Supply and network goals must still be met when the chapter completes."]
+		["Eliminate the rival", "Meet supply and expansion goals; defeat the first rival", "Select units and right-click the rival core; piercers excel. Supply and network goals must still be met when the culture goals are completed."]
 	],
 	"ja": [
 		["胞子を目覚めさせる", "中央の胞子核をクリック", "光る胞子核を左クリックして、操作メニューを開きます。"],
@@ -124,7 +124,7 @@ const TASK_TEXT := {
 		["補給体制を築く", "吸収量と持ち帰った栄養の目標を達成", "菌糸で有機栄養とミネラルを吸収し、採集胞子で有機栄養を持ち帰ります。現在値と目標値はタスク欄に表示されます。"],
 		["菌糸網を広げる", "生存コア数と成熟した接続菌糸の目標を達成", "兵舎を含む生存コアを増やし、菌糸を伸ばして守りましょう。成熟し接続が保たれた長さのみ計上。目標値はタスク欄で確認できます。"],
 		["競争コロニーを発見", "探索して競争菌を発見", "偵察胞子を暗闇の外へ送りましょう。競争菌は視界に入るまで見えません。"],
-		["競争コロニーを排除", "補給・拡張を達成し最初の競争菌を倒す", "部隊を選び敵コアを右クリック。穿壁胞子が得意です。章の完了時にも補給と菌糸網の目標達成が必要です。"]
+		["競争コロニーを排除", "補給・拡張を達成し最初の競争菌を倒す", "部隊を選び敵コアを右クリック。穿壁胞子が得意です。培養目標の達成時にも補給と菌糸網の目標達成が必要です。"]
 	],
 	"es": [
 		["Despierta la espora", "Haz clic en el núcleo central", "Haz clic izquierdo en el núcleo brillante para abrir su menú de acciones."],
@@ -178,39 +178,39 @@ const REPORT_KEYS: Array[String] = [
 
 const REPORT_VALUES := {
 	"zh_CN": [
-		"第一章完成 · 实验室培养", "你已完成补给与菌落扩张目标，并清除了首个竞争菌落。", "培养时长　%s", "主菌丝长度　%d μm", "存活核心　%d",
+		"主巢培养报告", "已达成主巢补给、扩张与首个竞争菌落目标；这不是整章通关。", "培养时长　%s", "主菌丝长度　%d μm", "存活核心　%d",
 		"有机吸收　%.3f", "矿物吸收　%.3f", "DNA 记录　%d", "体外单位　建造 %d　损失 %d", "消化细菌　%d", "探索比例　%.2f%%",
-		"竞争守卫 %d　菌落 %d　孢子雨 %d", "长期目标中的未领取奖励仍可继续完成；本结算不会结束当前存档。", "下一章未开放；继续培养时，孢子雨仍可能带来新的竞争菌落。", "下一章节尚未开放"
+		"竞争守卫 %d　菌落 %d　孢子雨 %d", "长期目标中的未领取奖励仍可继续完成；本结算不会结束当前存档。", "可继续培养，孢子雨仍会带来竞争者。完整第一章需完成 [J] 中的九项任务。", "后续尺度尚未制作"
 	],
 	"zh_TW": [
-		"第一章完成 · 實驗室培養", "你已完成補給與菌落擴張目標，並清除了首個競爭菌落。", "培養時長　%s", "主菌絲長度　%d μm", "存活核心　%d",
+		"主巢培養報告", "已達成主巢補給、擴張與首個競爭菌落目標；這不是整章通關。", "培養時長　%s", "主菌絲長度　%d μm", "存活核心　%d",
 		"有機吸收　%.3f", "礦物吸收　%.3f", "DNA 記錄　%d", "體外單位　建造 %d　損失 %d", "消化細菌　%d", "探索比例　%.2f%%",
-		"競爭守衛 %d　菌落 %d　孢子雨 %d", "長期目標中的未領取獎勵仍可繼續完成；本結算不會結束目前存檔。", "下一章未開放；繼續培養時，孢子雨仍可能帶來新的競爭菌落。", "下一章節尚未開放"
+		"競爭守衛 %d　菌落 %d　孢子雨 %d", "長期目標中的未領取獎勵仍可繼續完成；本結算不會結束目前存檔。", "可繼續培養，孢子雨仍會帶來競爭者。完整第一章須完成 [J] 中的九項任務。", "後續尺度尚未製作"
 	],
 	"en": [
-		"Chapter 1 complete · Laboratory culture", "You met the supply and colony-expansion goals and cleared the first rival colony.", "Culture time  %s", "Main hypha length  %d μm", "Living cores  %d",
+		"Nest culture report", "Nest supply, expansion and first-rival goals are met. This does not complete the whole chapter.", "Culture time  %s", "Main hypha length  %d μm", "Living cores  %d",
 		"Organic absorbed  %.3f", "Minerals absorbed  %.3f", "DNA produced  %d", "Mobile units  built %d  lost %d", "Bacteria digested  %d", "Explored  %.2f%%",
-		"Rivals: guards %d  colonies %d  sporefalls %d", "Unclaimed long-term rewards remain available; this report does not end the current save.", "Next chapter is locked; continued cultivation can face new rival sporefalls.", "Next chapter not yet available"
+		"Rivals: guards %d  colonies %d  sporefalls %d", "Unclaimed long-term rewards remain available; this report does not end the current save.", "Keep cultivating; rival sporefalls can still arrive. Complete all nine missions in [J] to finish Chapter 1.", "Later scales are not implemented yet"
 	],
 	"ja": [
-		"第1章クリア · 実験室培養", "補給とコロニー拡張の目標を達成し、最初の競争コロニーを排除しました。", "培養時間　%s", "主菌糸長　%d μm", "生存コア　%d",
+		"母巣の培養レポート", "母巣の補給・拡張・最初の競争菌の目標を達成しました。章全体のクリアではありません。", "培養時間　%s", "主菌糸長　%d μm", "生存コア　%d",
 		"有機栄養吸収　%.3f", "ミネラル吸収　%.3f", "DNA生産　%d", "体外ユニット　生産 %d　損失 %d", "細菌消化　%d", "探索率　%.2f%%",
-		"競争菌：護衛 %d　コロニー %d　胞子雨 %d", "長期目標の未受取報酬は引き続き獲得できます。この結果画面で現在のセーブは終了しません。", "次章は未開放です。培養を続けると、胞子雨で新たな競争菌が現れることがあります。", "次章は未開放"
+		"競争菌：護衛 %d　コロニー %d　胞子雨 %d", "長期目標の未受取報酬は引き続き獲得できます。この結果画面で現在のセーブは終了しません。", "培養は続行でき、胞子雨で競争菌も現れます。第1章のクリアには [J] の9つの任務をすべて完了してください。", "次のスケールは未実装"
 	],
 	"es": [
-		"Capítulo 1 completado · Cultivo de laboratorio", "Cumpliste las metas de suministro y expansión y eliminaste la primera colonia rival.", "Tiempo de cultivo  %s", "Longitud de la hifa principal  %d μm", "Núcleos vivos  %d",
+		"Informe de cultivo del nido", "Se han logrado las metas de suministro, expansión y primer rival del nido. Esto no completa todo el capítulo.", "Tiempo de cultivo  %s", "Longitud de la hifa principal  %d μm", "Núcleos vivos  %d",
 		"Materia orgánica absorbida  %.3f", "Minerales absorbidos  %.3f", "ADN producido  %d", "Unidades móviles  creadas %d  perdidas %d", "Bacterias digeridas  %d", "Exploración  %.2f%%",
-		"Rivales: guardias %d  colonias %d  lluvias de esporas %d", "Las recompensas pendientes de objetivos a largo plazo siguen disponibles; este informe no cierra la partida.", "El siguiente capítulo está cerrado; al continuar pueden llegar nuevas lluvias de esporas rivales.", "Siguiente capítulo aún no disponible"
+		"Rivales: guardias %d  colonias %d  lluvias de esporas %d", "Las recompensas pendientes de objetivos a largo plazo siguen disponibles; este informe no cierra la partida.", "Puedes seguir cultivando y recibir nuevas lluvias de esporas rivales. Completa las nueve misiones de [J] para terminar el capítulo 1.", "Las siguientes escalas aún no están implementadas"
 	],
 	"de": [
-		"Kapitel 1 abgeschlossen · Laborkultur", "Du hast Versorgung und Kolonieausbau erreicht und die erste Rivalenkolonie beseitigt.", "Kulturzeit  %s", "Länge der Haupthyphe  %d μm", "Lebende Kerne  %d",
+		"Kulturbericht des Nests", "Versorgung, Ausbau und erster Rivale im Nest sind geschafft. Das schließt nicht das gesamte Kapitel ab.", "Kulturzeit  %s", "Länge der Haupthyphe  %d μm", "Lebende Kerne  %d",
 		"Organik aufgenommen  %.3f", "Mineralien aufgenommen  %.3f", "DNA erzeugt  %d", "Mobile Einheiten  gebaut %d  verloren %d", "Bakterien verdaut  %d", "Erkundet  %.2f%%",
-		"Rivalen: Wächter %d  Kolonien %d  Sporenregen %d", "Nicht abgeholte Langzeitziel-Belohnungen bleiben verfügbar; dieser Bericht beendet den Spielstand nicht.", "Das nächste Kapitel ist gesperrt; beim Weiterkultivieren drohen neue rivalisierende Sporenregen.", "Nächstes Kapitel noch nicht verfügbar"
+		"Rivalen: Wächter %d  Kolonien %d  Sporenregen %d", "Nicht abgeholte Langzeitziel-Belohnungen bleiben verfügbar; dieser Bericht beendet den Spielstand nicht.", "Die Kultur läuft weiter, und rivalisierender Sporenregen kann eintreffen. Für Kapitel 1 sind alle neun Missionen unter [J] erforderlich.", "Weitere Maßstäbe sind noch nicht umgesetzt"
 	],
 	"ru": [
-		"Глава 1 завершена · Лабораторная культура", "Вы достигли целей снабжения и расширения и победили первую колонию соперника.", "Время культивации  %s", "Длина главной гифы  %d μm", "Живые ядра  %d",
+		"Отчёт о культуре гнезда", "Достигнуты цели снабжения, расширения и победы над первым соперником в гнезде. Вся глава ещё не завершена.", "Время культивации  %s", "Длина главной гифы  %d μm", "Живые ядра  %d",
 		"Поглощено органики  %.3f", "Поглощено минералов  %.3f", "Создано ДНК  %d", "Мобильные единицы: создано %d, потеряно %d", "Переварено бактерий  %d", "Исследовано  %.2f%%",
-		"Соперники: стражи %d, колонии %d, споропады %d", "Неполученные награды долгосрочных целей остаются доступны; отчёт не завершает текущее сохранение.", "Следующая глава закрыта; при продолжении споропады могут принести новых соперников.", "Следующая глава недоступна"
+		"Соперники: стражи %d, колонии %d, споропады %d", "Неполученные награды долгосрочных целей остаются доступны; отчёт не завершает текущее сохранение.", "Культуру можно продолжать; новые споропады соперников всё ещё возможны. Для завершения главы 1 выполните все девять заданий в [J].", "Следующие масштабы ещё не реализованы"
 	]
 }
 

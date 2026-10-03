@@ -1,0 +1,66 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/worlds/campaign_expedition.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/worlds/resource_cluster.gd" id="2_cluster"]
+
+[node name="BoundaryCounterattack" type="Node2D"]
+script = ExtResource("1_world")
+scene_id = "boundary_counterattack"
+revision = 1
+map_seed = 8224
+organic_required = 450.0
+mineral_required = 0.0
+starting_organic = 220.0
+starting_mineral = 24.0
+
+[node name="ResourceClusters" type="Node2D" parent="."]
+
+[node name="StarterOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(220, -25)
+script = ExtResource("2_cluster")
+count = 32
+spread = 45.0
+kind = 0
+amount_min = 20.0
+amount_max = 26.0
+anomalous = true
+
+[node name="StarterMineral" type="Node2D" parent="ResourceClusters"]
+position = Vector2(-180, 150)
+script = ExtResource("2_cluster")
+count = 16
+spread = 45.0
+kind = 1
+amount_min = 6.0
+amount_max = 8.0
+anomalous = true
+
+[node name="ForwardOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(495, 100)
+script = ExtResource("2_cluster")
+count = 38
+spread = 45.0
+kind = 0
+amount_min = 22.0
+amount_max = 30.0
+anomalous = true
+
+[node name="ForwardMineral" type="Node2D" parent="ResourceClusters"]
+position = Vector2(490, 235)
+script = ExtResource("2_cluster")
+count = 20
+spread = 45.0
+kind = 1
+amount_min = 6.0
+amount_max = 8.0
+anomalous = true
+
+[node name="FlankOrganic" type="Node2D" parent="ResourceClusters"]
+position = Vector2(780, 280)
+script = ExtResource("2_cluster")
+count = 30
+spread = 45.0
+kind = 0
+amount_min = 20.0
+amount_max = 26.0
+anomalous = true

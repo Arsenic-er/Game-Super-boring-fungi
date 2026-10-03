@@ -2,6 +2,8 @@
 
 # Game: Super boring fungi
 
+Entwicklungsstand — 2026-10-04: Kapitel 1 umfasst sechs eigenständige Expeditionen und drei Nestherausforderungen. Mit J werden Missionen gewählt; Materialien aus ersten Siegen finanzieren vier Neststufen und drei Ausbauzweige. Kulturtagebücher begleiten den Fortschritt. Nach Herausforderungen wird das Nest vor dem Kampf wiederhergestellt; nur die Materialbelohnung für den ersten Sieg bleibt. Expeditionen nutzen eigene Vorräte und pausieren offline. Die unten beschriebenen älteren Kulturziele sind eine Nestanleitung und bedeuten nicht den Abschluss aller neun Missionen. Spielzeit sowie Bild und Ton müssen noch von Spielern geprüft werden.
+
 Ein Idle-Spiel über Evolution und Ausbreitung: Es beginnt mit einer mikroskopisch kleinen Spore und wächst über Ökosysteme, menschliche Gesellschaften und Staaten bis hin zum gesamten Planeten.
 
 Das Projekt ist derzeit ein früher Windows-Prototyp in Version `0.49.0`. Im Mittelpunkt steht Kapitel 1, eine mikroskopische Laborkultur aus der Vogelperspektive. Der Spieler kontrolliert ausschließlich den Pilz, erweitert sein Hyphennetz, nimmt Nährstoffe auf, entwickelt neue Fähigkeiten und befehligt mobile Expeditionssporen. Version 0.40 führt rollensichere Befehle ein, damit Einheiten keine Sammel- oder Angriffsaufgaben ausführen, die nicht zu ihrer Spezialisierung passen.

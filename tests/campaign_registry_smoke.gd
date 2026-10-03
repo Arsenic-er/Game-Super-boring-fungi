@@ -17,7 +17,7 @@ func _initialize() -> void:
 			push_error("CAMPAIGN_REGISTRY_FAIL: " + failure)
 		quit(1)
 		return
-	print("CAMPAIGN_REGISTRY_OK roster=9 implemented=2 legacy_v1=true unlocks=true per_mission_rewards=true exactly_once=true malformed_ids=true")
+	print("CAMPAIGN_REGISTRY_OK roster=9 implemented=9 legacy_v1=true unlocks=true per_mission_rewards=true exactly_once=true malformed_ids=true")
 	quit(0)
 
 
@@ -48,12 +48,14 @@ func _test_catalog() -> void:
 	for index in range(entries.size()):
 		var entry: Dictionary = entries[index]
 		_expect(entry["id"] == ids[index] and entry["order"] == index + 1, "stable mission ID and order")
-		_expect(entry["implemented"] == (index < 2), "only two missions are implemented")
+		_expect(entry["implemented"] == true, "every approved mission is now implemented")
+		_expect(entry["title_key"] == String(entry["id"]) + "_title", "catalog resolves the actual localized title key")
+		_expect(entry["required_nest_level"] == [1, 2, 2, 3, 3, 3, 4, 4, 4][index], "each act requires its nest upgrade")
 		rewards += int(entry["first_victory_materials"])
 		expeditions += 1 if entry["kind"] == "expedition" else 0
 		challenges += 1 if entry["kind"] == "nest_challenge" else 0
 	_expect(expeditions == 6 and challenges == 3, "roster distinguishes expeditions from nest challenges")
-	_expect(rewards == Campaign.MAX_MATERIALS and Campaign.MAX_NEST_LEVEL == 2, "reward budget can hold every proposed first-win reward but nest implementation remains level two")
+	_expect(rewards == Campaign.MAX_MATERIALS and rewards == 27 and Campaign.MAX_NEST_LEVEL == 4, "all nine first wins fund the four-level nest and optional branches")
 	entries[0]["implemented"] = false
 	var copy := Catalog.mission("remote_pantry")
 	copy["prerequisite"] = ""
@@ -94,9 +96,9 @@ func _test_isolated_rewards_and_replays() -> void:
 	_expect(state["completed"].get("first_supply", false) and state["completed"].get("remote_pantry", false), "both completion entries survive")
 	_expect(state["last_result"]["mission_id"] == "remote_pantry", "result history retains second mission identity")
 	var preview := Campaign.next_mission_preview(state)
-	_expect(preview["id"] == "first_contact" and not preview["implemented"] and preview["unlocked"], "next planned challenge is not falsely represented as playable")
-	_expect(not Campaign.can_begin(state, "first_contact"), "meeting prerequisites cannot launch an unimplemented scene")
-	_expect(Campaign.recommended_mission_id(state) == "remote_pantry", "all available content completed recommends latest playable replay")
+	_expect(preview["id"] == "first_contact" and preview["implemented"] and preview["unlocked"], "completed transport task unlocks the implemented first nest challenge")
+	_expect(Campaign.can_begin(state, "first_contact"), "first challenge becomes playable only after its prerequisites")
+	_expect(Campaign.recommended_mission_id(state) == "first_contact", "next uncompleted playable task is recommended")
 	var paid := state.duplicate(true)
 	_expect(not Campaign.settle(state, "victory")["ok"] and state == paid, "double settlement leaves the ledger untouched")
 	for mission_id in ["first_supply", "remote_pantry"]:
@@ -127,7 +129,7 @@ func _test_rejected_mission_ids() -> void:
 	for mission_id in ["first_contact", "stable_colony", "missing", "res://other.gd", ""]:
 		var state := _ready_for_second()
 		var before := state.duplicate(true)
-		_expect(not Campaign.begin(state, _home(), 400.0, {}, mission_id) and state == before, "planned or unknown mission cannot begin or mutate state")
+		_expect(not Campaign.begin(state, _home(), 400.0, {}, mission_id) and state == before, "locked or unknown mission cannot begin or mutate state")
 	for bad_id in ["missing", "first_contact", null, true, 2, [], {}]:
 		var state := _ready_for_second()
 		Campaign.begin(state, _home(), 410.0, {}, "remote_pantry")
@@ -138,7 +140,7 @@ func _test_rejected_mission_ids() -> void:
 	var malformed := _ready_for_second()
 	malformed["completed"] = {"first_supply": true, "remote_pantry": "true", "first_contact": true, "missing": true}
 	var clean := Campaign.sanitize(malformed)
-	_expect(clean["completed"] == {"first_supply": true}, "completion map rejects unimplemented IDs and non-boolean completion flags")
+	_expect(clean["completed"] == {"first_supply": true, "first_contact": true}, "completion map preserves known boolean entries and rejects unknown IDs or non-boolean flags")
 
 
 func _test_result_repair_and_versions() -> void:
@@ -148,10 +150,10 @@ func _test_result_repair_and_versions() -> void:
 	var clean := Campaign.sanitize(state)
 	_expect(clean["completed"].get("remote_pantry", false) and not clean["completed"].get("first_supply", false), "second historical victory never gets misattributed to the first mission")
 	_expect(clean["last_result"]["reward"]["materials"] == 3 and clean["materials"] == 3, "history clamps one mission reward without adding materials")
-	for mission_id in ["first_contact", "missing"]:
+	for mission_id in ["missing", "res://scenes/Main.tscn"]:
 		state["last_result"]["mission_id"] = mission_id
 		clean = Campaign.sanitize(state)
-		_expect(clean["last_result"].is_empty() and clean["completed"].is_empty(), "unknown or planned result cannot fabricate completion")
+		_expect(clean["last_result"].is_empty() and clean["completed"].is_empty(), "unknown result cannot fabricate completion")
 	for version in [2, 0, "1", true]:
 		state = _ready_for_second()
 		state["version"] = version

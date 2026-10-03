@@ -1,18 +1,18 @@
 class_name CampaignMissionCatalog
 extends RefCounted
 
-# This is the approved Chapter 1 roster, not a claim that every scene exists.
-# Future rewards remain tuning values; unavailable missions never enter saves.
+# Stable progression metadata for the nine independent Chapter 1 scenes.
+# Scene paths live in WorldSceneCatalog; save data never supplies resource paths.
 const MISSIONS := [
-	{"id": "first_supply", "order": 1, "title_key": "campaign.mission.first_supply", "kind": "expedition", "implemented": true, "required_nest_level": 1, "prerequisite": "", "first_victory_materials": 3},
-	{"id": "remote_pantry", "order": 2, "title_key": "campaign.mission.remote_pantry", "kind": "expedition", "implemented": true, "required_nest_level": 2, "prerequisite": "first_supply", "first_victory_materials": 3},
-	{"id": "first_contact", "order": 3, "title_key": "campaign.mission.first_contact", "kind": "nest_challenge", "implemented": false, "required_nest_level": 2, "prerequisite": "remote_pantry", "first_victory_materials": 3},
-	{"id": "substrate_race", "order": 4, "title_key": "campaign.mission.substrate_race", "kind": "expedition", "implemented": false, "required_nest_level": 2, "prerequisite": "first_contact", "first_victory_materials": 3},
-	{"id": "lost_network", "order": 5, "title_key": "campaign.mission.lost_network", "kind": "expedition", "implemented": false, "required_nest_level": 2, "prerequisite": "substrate_race", "first_victory_materials": 3},
-	{"id": "two_fronts", "order": 6, "title_key": "campaign.mission.two_fronts", "kind": "nest_challenge", "implemented": false, "required_nest_level": 2, "prerequisite": "lost_network", "first_victory_materials": 3},
-	{"id": "toxic_frontier", "order": 7, "title_key": "campaign.mission.toxic_frontier", "kind": "expedition", "implemented": false, "required_nest_level": 2, "prerequisite": "two_fronts", "first_victory_materials": 3},
-	{"id": "boundary_counterattack", "order": 8, "title_key": "campaign.mission.boundary_counterattack", "kind": "expedition", "implemented": false, "required_nest_level": 2, "prerequisite": "toxic_frontier", "first_victory_materials": 3},
-	{"id": "stable_colony", "order": 9, "title_key": "campaign.mission.stable_colony", "kind": "nest_challenge", "implemented": false, "required_nest_level": 2, "prerequisite": "boundary_counterattack", "first_victory_materials": 3},
+	{"id": "first_supply", "order": 1, "title_key": "first_supply_title", "kind": "expedition", "implemented": true, "required_nest_level": 1, "prerequisite": "", "first_victory_materials": 3},
+	{"id": "remote_pantry", "order": 2, "title_key": "remote_pantry_title", "kind": "expedition", "implemented": true, "required_nest_level": 2, "prerequisite": "first_supply", "first_victory_materials": 3},
+	{"id": "first_contact", "order": 3, "title_key": "first_contact_title", "kind": "nest_challenge", "implemented": true, "required_nest_level": 2, "prerequisite": "remote_pantry", "first_victory_materials": 3},
+	{"id": "substrate_race", "order": 4, "title_key": "substrate_race_title", "kind": "expedition", "implemented": true, "required_nest_level": 3, "prerequisite": "first_contact", "first_victory_materials": 3},
+	{"id": "lost_network", "order": 5, "title_key": "lost_network_title", "kind": "expedition", "implemented": true, "required_nest_level": 3, "prerequisite": "substrate_race", "first_victory_materials": 3},
+	{"id": "two_fronts", "order": 6, "title_key": "two_fronts_title", "kind": "nest_challenge", "implemented": true, "required_nest_level": 3, "prerequisite": "lost_network", "first_victory_materials": 3},
+	{"id": "toxic_frontier", "order": 7, "title_key": "toxic_frontier_title", "kind": "expedition", "implemented": true, "required_nest_level": 4, "prerequisite": "two_fronts", "first_victory_materials": 3},
+	{"id": "boundary_counterattack", "order": 8, "title_key": "boundary_counterattack_title", "kind": "expedition", "implemented": true, "required_nest_level": 4, "prerequisite": "toxic_frontier", "first_victory_materials": 3},
+	{"id": "stable_colony", "order": 9, "title_key": "stable_colony_title", "kind": "nest_challenge", "implemented": true, "required_nest_level": 4, "prerequisite": "boundary_counterattack", "first_victory_materials": 3},
 ]
 const TOTAL_MATERIAL_BUDGET := 27
 

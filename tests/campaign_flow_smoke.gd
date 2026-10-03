@@ -124,7 +124,7 @@ func _run() -> void:
 	game.campaign_ui.open = true
 	if not _check(_click(game, 1) and int(game.campaign["nest_level"]) == 2 and int(game.campaign["materials"]) == 0, "real panel upgrades the nest once using its three materials"):
 		return
-	if not _check(not game._campaign_upgrade() and _signature(game._capture_world_state()) == _signature(home), "maximum-level upgrade cannot spend DNA or home resources"):
+	if not _check(not game._campaign_upgrade() and _signature(game._capture_world_state()) == _signature(home), "locked and unfunded later nest upgrade cannot spend DNA or home resources"):
 		return
 	game.campaign_ui.open = false
 	if not _check(game._campaign_start_mission(), "completed supply mission can be replayed"):
