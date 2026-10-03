@@ -184,6 +184,9 @@ func _run() -> void:
 			await _finish(false, failure)
 			return
 
+	if not await _capture_remote_pantry():
+		await _finish(false, failure)
+		return
 	game.campaign_ui.reset_panel()
 	if not game._campaign_start_mission():
 		await _finish(false, "Retry mission start failed in isolated fixture")
@@ -212,6 +215,40 @@ func _run() -> void:
 		await _finish(false, failure)
 		return
 	await _finish(true, "")
+
+
+func _capture_remote_pantry() -> bool:
+	await _resize(Vector2i(640, 360))
+	for locale in Words.LOCALES:
+		game.settings_locale = locale
+		game.campaign_ui.show_panel()
+		if not await _capture("pantry_selection_640_" + locale, "two-mission-selector"):
+			return false
+	game.campaign_ui.reset_panel()
+	if not game._campaign_start_mission("remote_pantry"):
+		failure = "Remote pantry fixture departure failed"
+		return false
+	# Explicit display-only partial cargo; the economic route has a separate test.
+	game.lifetime_expedition_organic_returned = 12.345
+	game.lifetime_expedition_mineral_returned = 0.125
+	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
+		await _resize(size)
+		for locale in Words.LOCALES:
+			game.settings_locale = locale
+			game.campaign_ui.reset_panel()
+			if not await _capture("pantry_hud_%d_%s" % [size.x, locale], "transport-counter-display-fixture"):
+				return false
+			game.campaign_ui.show_panel()
+			if not await _capture("pantry_panel_%d_%s" % [size.x, locale], "transport-counter-display-fixture"):
+				return false
+	game.campaign_ui.reset_panel()
+	if not game._campaign_return("retreat"):
+		failure = "Remote pantry fixture retreat failed"
+		return false
+	if not await _finish_home_settlement():
+		return false
+	await _resize(Vector2i(1280, 720))
+	return true
 
 
 func _capture_developer_campaign() -> bool:

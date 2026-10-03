@@ -41,7 +41,7 @@ func _test_fresh_and_roundtrip() -> void:
 	_expect(Campaign.sanitize(null) == state and Campaign.sanitize({"chapter_complete": true, "goals_claimed": {"rival_colony": true}}) == state, "missing campaign does not translate old goal rewards")
 	_expect(Campaign.sanitize(JSON.parse_string(JSON.stringify(state))) == state, "fresh campaign survives JSON number conversion")
 	_expect(not Campaign.upgrade(state), "no free nest upgrade")
-	_expect(not Campaign.next_mission_preview(state)["unlocked"] and not Campaign.next_mission_preview(state)["implemented"], "unimplemented next task is not initially available")
+	_expect(not Campaign.next_mission_preview(state)["unlocked"] and Campaign.next_mission_preview(state)["implemented"], "implemented second task remains locked until first victory and nest upgrade")
 
 
 func _test_first_victory_and_replay() -> void:
@@ -86,7 +86,7 @@ func _test_retreat_failure_and_upgrade() -> void:
 	_expect(state["materials"] == 3, "retreat cannot erase already committed materials")
 	_expect(Campaign.upgrade(state) and state["materials"] == 0 and state["nest_level"] == 2, "upgrade spends exactly three materials")
 	_expect(not Campaign.upgrade(state), "nest does not advance past implemented level two")
-	_expect(Campaign.next_mission_preview(state)["unlocked"] and not Campaign.next_mission_preview(state)["implemented"], "level two only unlocks a preview, not unimplemented gameplay")
+	_expect(Campaign.next_mission_preview(state)["unlocked"] and Campaign.next_mission_preview(state)["implemented"], "level two unlocks the implemented remote-pantry mission")
 	_expect(Campaign.sanitize(JSON.parse_string(JSON.stringify(state))) == state, "completed/leveled campaign survives JSON roundtrip")
 
 
@@ -124,7 +124,7 @@ func _test_malformed_data() -> void:
 	malformed["nest_level"] = 900
 	malformed["materials"] = 900
 	clean = Campaign.sanitize(malformed)
-	_expect(clean["nest_level"] == 2 and clean["materials"] == 3, "finite counters stay within implemented boundaries")
+	_expect(clean["nest_level"] == 2 and clean["materials"] == Campaign.MAX_MATERIALS, "finite counters stay within nest and full-roster ledger boundaries")
 	_expect(clean["completed"][Campaign.MISSION_ID], "level-two repair prevents a missing completion flag from rewarding again")
 	malformed["materials"] = -8
 	_expect(Campaign.sanitize(malformed)["materials"] == 0, "negative material counter clamps to zero")

@@ -12593,8 +12593,8 @@ func _ensure_campaign_main_core() -> void:
 			return
 
 
-func _campaign_start_mission() -> bool:
-	return campaign_ui.start_mission()
+func _campaign_start_mission(mission_id: String = CampaignState.MISSION_ID) -> bool:
+	return campaign_ui.start_mission(mission_id)
 
 
 func _campaign_return(outcome: String) -> bool:
@@ -12610,9 +12610,9 @@ func _campaign_mission_ready() -> bool:
 
 
 func _campaign_goal_targets() -> Dictionary:
-	if is_instance_valid(active_world) and _world_scene_id() == CampaignState.MISSION_ID:
+	if _campaign_active() and is_instance_valid(active_world) and _world_scene_id() == String(campaign["active_mission"]["id"]):
 		return active_world.goal_targets()
-	return WorldSceneCatalog.targets(CampaignState.MISSION_ID)
+	return WorldSceneCatalog.targets(campaign_ui.mission_id())
 
 
 func _total_core_biomass() -> float:

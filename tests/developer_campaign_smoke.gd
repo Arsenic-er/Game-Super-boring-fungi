@@ -81,7 +81,7 @@ func _run() -> void:
 	game.queue_free()
 	await process_frame
 	await create_timer(0.25).timeout
-	print("DEVELOPER_CAMPAIGN_OK checks=%d isolation=normal+path bounds=1-2+0-3 rollback=edit+departure return=confirmed locales=7 viewports=2" % checks)
+	print("DEVELOPER_CAMPAIGN_OK checks=%d isolation=normal+path bounds=1-%d+0-%d rollback=edit+departure return=confirmed locales=7 viewports=2" % [checks, State.MAX_NEST_LEVEL, State.MAX_MATERIALS])
 	quit(0)
 
 func _limits_and_persistence(main_core: int) -> bool:
@@ -94,12 +94,12 @@ func _limits_and_persistence(main_core: int) -> bool:
 		return false
 	if not _check(game.campaign_ui.developer_apply_action("campaign_nest_down") and game.campaign.nest_level == 1 and bool(game.campaign.completed.get(State.MISSION_ID, false)), "downgrade preserves the unique-reward flag"):
 		return false
-	for value in range(1, 4):
+	for value in range(1, State.MAX_MATERIALS + 1):
 		if not _check(game.campaign_ui.developer_apply_action("campaign_material_up") and game.campaign.materials == value, "materials rise one step and autosave: %d" % value):
 			return false
 	if not _unchanged_rejection("campaign_material_up", "campaign_limit"):
 		return false
-	for value in [2, 1, 0]:
+	for value in range(State.MAX_MATERIALS - 1, -1, -1):
 		if not _check(game.campaign_ui.developer_apply_action("campaign_material_down") and game.campaign.materials == value, "materials fall one step and autosave: %d" % value):
 			return false
 	if not _unchanged_rejection("campaign_material_down", "campaign_limit"):

@@ -4,6 +4,7 @@ extends RefCounted
 const PATHS := {
 	"home_nest": "res://scenes/worlds/HomeNest.tscn",
 	"first_supply": "res://scenes/missions/FirstSupply.tscn",
+	"remote_pantry": "res://scenes/missions/RemotePantry.tscn",
 }
 const REVISION := 1
 static var _target_cache: Dictionary = {}
