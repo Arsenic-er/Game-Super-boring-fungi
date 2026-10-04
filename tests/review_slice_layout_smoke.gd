@@ -66,6 +66,9 @@ func _run() -> void:
 					if not _check(root.get_texture().get_image().save_png(path) == OK, "capture stored"):
 						return
 					captures += 1
+				if id == "first_supply":
+					if not await _exercise_first_supply(game, bounds, locale, output):
+						return
 				game.queue_free()
 				await process_frame
 	if not output.is_empty():
@@ -73,6 +76,71 @@ func _run() -> void:
 		file.store_string(JSON.stringify({"checks": checks, "captures": captures, "scenes": 9, "locales": 7, "sizes": ["1280x720", "640x360"], "human_visual_review": false}))
 	print("REVIEW_SLICE_LAYOUT_OK checks=%d scenes=9 locales=7 sizes=2 captures=%d human_visual_review=false" % [checks, captures])
 	quit(0)
+
+func _exercise_first_supply(game, bounds: Rect2, locale: String, output: String) -> bool:
+	# Exercise the displayed controls, not only the unstarted review lobby.
+	if not _check(game.review_body.text.begins_with(game._review_text("progress")), "goals precede audit metadata " + locale):
+		return false
+	game.review_buttons["new"].pressed.emit()
+	if game.review_reset_confirm:
+		game.review_buttons["new"].pressed.emit()
+	if not _check(game._campaign_active() and game.review_started, "new button opens mission " + locale):
+		return false
+	game.review_buttons["play"].pressed.emit()
+	await process_frame
+	var guide: Rect2 = game._chapter_guidance_rect()
+	if not _check(not game.review_open and not game.main_menu_active and bounds.encloses(guide), "live goals inside viewport " + locale):
+		return false
+	var lines: Array = game.campaign_ui.progress_hud_lines(guide)
+	var goal_count := 0
+	for line in lines:
+		if line["role"] == "progress":
+			goal_count += 1
+		var width: float = game.fallback_font.get_string_size(line["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, line["size"]).x
+		if not _check(width <= guide.size.x - 20.0 + 1.0 and float(line["position"].y) <= guide.size.y, "objective line fits " + locale):
+			return false
+	if not _check(goal_count == 3 and game.lifetime_organic_absorbed == 0.0 and game.lifetime_mineral_absorbed == 0.0, "three real subtasks, initial stock not progress"):
+		return false
+	if not await _capture_state(game, locale, output, "playing"):
+		return false
+	var key := InputEventKey.new()
+	key.pressed = true
+	key.keycode = KEY_J
+	game._unhandled_input(key)
+	if not _check(game.campaign_ui.open, "J opens actual mission objectives"):
+		return false
+	if not await _capture_state(game, locale, output, "objectives"):
+		return false
+	var retreat := InputEventMouseButton.new()
+	retreat.button_index = MOUSE_BUTTON_LEFT
+	retreat.pressed = false
+	retreat.position = game.campaign_ui.button_rect(bounds.size, 1).get_center()
+	game._unhandled_input(retreat)
+	if not _check(game.campaign_ui.confirm_retreat, "return home asks confirmation"):
+		return false
+	retreat.position = game.campaign_ui.button_rect(bounds.size, 0).get_center()
+	game._unhandled_input(retreat)
+	await process_frame
+	if not _check(game._world_scene_id() == "home_nest" and not game.main_menu_active and not game.review_open and not game.campaign_ui.open, "return reaches playable isolated home"):
+		return false
+	if not await _capture_state(game, locale, output, "home"):
+		return false
+	return true
+
+
+func _capture_state(game, locale: String, output: String, state: String) -> bool:
+	game.queue_redraw()
+	await process_frame
+	await process_frame
+	if output.is_empty():
+		return true
+	await RenderingServer.frame_post_draw
+	var path := output.path_join("first_supply_%s_%dx%d_%s.png" % [locale, root.size.x, root.size.y, state])
+	if not _check(root.get_texture().get_image().save_png(path) == OK, "gameplay capture " + state):
+		return false
+	captures += 1
+	return true
+
 
 
 func _check(condition: bool, message: String) -> bool:

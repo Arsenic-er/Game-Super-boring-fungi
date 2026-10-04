@@ -53,10 +53,10 @@ import json, sys
 from pathlib import Path
 summary = Path(sys.argv[1])
 data = json.loads(summary.read_text())
-assert data["captures"] == 126 and data["scenes"] == 9 and data["locales"] == 7
-assert len(list(summary.parent.glob("*.png"))) == 126
+assert data["captures"] == 168 and data["scenes"] == 9 and data["locales"] == 7
+assert len(list(summary.parent.glob("*.png"))) == 168
 assert data["human_visual_review"] is False
-print("REVIEW_SERVER_RENDER_OK captures=126 human_visual_review=false")
+print("REVIEW_SERVER_RENDER_OK captures=168 human_visual_review=false")
 PY
 fi
 printf 'LOGS: %s\n' "$run_dir"

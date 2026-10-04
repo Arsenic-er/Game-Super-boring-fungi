@@ -4,6 +4,8 @@ extends "res://scripts/main.gd"
 # It reuses the live game simulation and campaign scene transitions, but owns
 # every persistence path and never opens normal/developer profiles.
 const ReviewWords = preload("res://scripts/review_slice_localization.gd")
+const ReviewCampaignController = preload("res://scripts/review_campaign_controller.gd")
+const ReviewObjectives = preload("res://scripts/review_objectives.gd")
 const REVIEW_SCHEMA := 1
 const REVIEW_ROOT := "user://review-v1"
 const REVIEW_HOME_SEED := 0xF00D47
@@ -37,8 +39,12 @@ var review_badge: Label
 var review_scroll: ScrollContainer
 var review_layer: CanvasLayer
 var review_refresh_clock := 0.0
-var review_finishing := false
+var review_home_restored := false
 var review_last_outcome := ""
+
+
+func _chapter_guidance_rect() -> Rect2:
+	return ReviewObjectives.hud_rect(self, super._chapter_guidance_rect())
 
 
 func _is_review_entry() -> bool:
@@ -52,6 +58,8 @@ func _ready() -> void:
 	autosave_enabled = false
 	developer_mode_enabled = false
 	super._ready()
+	campaign_ui = ReviewCampaignController.new(self)
+	campaign_ui._sync_selection()
 	developer_mode_enabled = false
 	developer_previous_save_path = ""
 	splash_active = false
@@ -238,6 +246,9 @@ func _review_refresh_panel() -> void:
 	if not review_valid:
 		paragraphs.append(_review_text("error") + "\n" + review_error_detail)
 	else:
+		var briefing := ReviewObjectives.briefing(self)
+		if not briefing.is_empty():
+			paragraphs.append(briefing)
 		paragraphs.append(_review_text("intro"))
 		paragraphs.append(_review_text("fixture"))
 		paragraphs.append(_review_text("controls"))
@@ -250,9 +261,7 @@ func _review_refresh_panel() -> void:
 			paragraphs.append(_review_text("initial") + ": " + review_initial_hash)
 			paragraphs.append(_review_text("resources") + ": organic %.3f · mineral %.3f · DNA %d" % [organic, mineral, dna])
 			paragraphs.append(_review_text("time") + ": %.3f / %.3f / %s" % [sim_time, review_wall_seconds, JSON.stringify(review_speeds_used)])
-			if _campaign_active():
-				paragraphs.append(_review_text("progress") + ":\n" + campaign_ui.progress_text(false))
-			else:
+			if not _campaign_active():
 				paragraphs.append(_review_text("finished"))
 			paragraphs.append(_review_text("result") + ": " + _review_text("status_" + String(review_result.get("outcome", "unsettled"))))
 		else:
@@ -268,7 +277,7 @@ func _review_refresh_panel() -> void:
 			button.text = _review_text("yes" if key == "new" and review_reset_confirm else key)
 		button.disabled = not review_valid and key != "quit"
 	review_buttons["continue"].disabled = not review_valid or not _has_recoverable_save()
-	review_buttons["play"].disabled = not review_started or not _campaign_active()
+	review_buttons["play"].disabled = not review_started
 	review_buttons["save"].disabled = not review_started
 	review_buttons["report"].disabled = not review_started
 	review_buttons["cancel"].visible = review_reset_confirm
@@ -299,6 +308,7 @@ func review_start_new() -> bool:
 	review_reset_confirm = false
 	review_notice = ""
 	review_result = {}
+	review_home_restored = false
 	review_origin_build = review_build.duplicate(true)
 	review_loaded_build = review_build.duplicate(true)
 	review_last_outcome = ""
@@ -398,7 +408,7 @@ func review_fingerprint(snapshot: Dictionary) -> String:
 
 
 func review_return_to_play() -> bool:
-	if not review_valid or not review_started or not _campaign_active():
+	if not review_valid or not review_started:
 		return false
 	review_reset_confirm = false
 	review_open = false
@@ -430,10 +440,7 @@ func review_continue() -> bool:
 		_review_refresh_panel()
 		return false
 	review_started = true
-	game_started = true
-	main_menu_active = false
-	pause_menu_open = false
-	splash_active = false
+	_review_clear_modals()
 	autosave_enabled = true
 	review_open = true
 	review_reset_confirm = false
@@ -455,7 +462,7 @@ func review_set_speed(speed: float) -> bool:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F8:
-		if review_open and review_started and _campaign_active():
+		if review_open and review_started:
 			review_return_to_play()
 		else:
 			review_open = true
@@ -478,10 +485,7 @@ func _process(delta: float) -> void:
 			pixel_audio.update_context(false, true, game_over, camera_zoom)
 		queue_redraw()
 		return
-	if not _campaign_active():
-		_review_detect_settlement()
-		return
-	if not pause_menu_open and not campaign_ui.open and not upgrade_open and not goals_open and not chapter_report_open and not offline_report_open and not game_over:
+	if _campaign_active() and not pause_menu_open and not campaign_ui.open and not upgrade_open and not goals_open and not chapter_report_open and not offline_report_open and not game_over:
 		review_wall_seconds += maxf(0.0, delta)
 	super._process(delta)
 	if _campaign_active() and not bool(review_result.get("settled", false)):
@@ -501,25 +505,45 @@ func _process(delta: float) -> void:
 
 
 func _review_detect_settlement() -> void:
-	if not review_started or _campaign_active() or review_finishing:
+	if not review_started or _campaign_active() or review_home_restored or _world_scene_id() != "home_nest":
 		return
 	var last: Dictionary = campaign.get("last_result", {})
 	if String(last.get("mission_id", "")) != review_mission_id:
 		return
-	review_finishing = true
-	var outcome := String(last.get("outcome", "unsettled"))
-	if not bool(review_result.get("settled", false)):
-		# Preserve the pre-return statistics gathered by the commit override.
-		review_result["outcome"] = outcome
-		review_result["settled"] = true
-		review_result["campaign_result"] = last.duplicate(true)
-	campaign_ui.open = false
-	pause_menu_open = false
-	main_menu_active = false
-	review_open = true
-	_save_game()
+	# The transaction already saved the mission result with the restored home.
+	# Release its UI once; later frames must neither re-save nor close home menus.
+	review_home_restored = true
+	_review_clear_modals()
+	review_reset_confirm = false
+	review_notice = ""
+	review_open = false
+	sim_speed = review_speed
 	_review_refresh_panel()
-	review_finishing = false
+
+
+func _review_clear_modals() -> void:
+	game_started = true
+	splash_active = false
+	first_locale_prompt = false
+	pause_menu_open = false
+	pause_menu_page = "main"
+	pause_menu_notice = ""
+	main_menu_active = false
+	chapter_report_open = false
+	offline_report_open = false
+	_reset_offline_settlement_state()
+	upgrade_open = false
+	goals_open = false
+	show_status = false
+	_close_barracks_production_menu()
+	campaign_ui.reset_panel()
+	campaign_ui.failure_presented = false
+	campaign_ui._sync_selection()
+	mode = "normal"
+	dragging = false
+	left_selecting = false
+	defense_zone_drawing = false
+	developer_placement_action = ""
 
 
 func _review_result_snapshot(outcome: String, settled: bool) -> Dictionary:
@@ -643,6 +667,7 @@ func _load_game(_defer_offline: bool = false) -> bool:
 	review_speeds_used = metadata["speeds_used"].duplicate()
 	review_speed = float(metadata["speed"])
 	review_result = metadata["result"].duplicate(true)
+	review_home_restored = not _campaign_active() and _world_scene_id() == "home_nest"
 	var origin = metadata.get("source_build_origin", metadata.get("source_build", {}))
 	review_origin_build = origin.duplicate(true) if origin is Dictionary else {}
 	var loaded = metadata.get("source_build", {})
