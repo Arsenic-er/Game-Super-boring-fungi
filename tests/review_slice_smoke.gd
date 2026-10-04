@@ -4,6 +4,7 @@ extends SceneTree
 # Synthetic victories below test lifecycle isolation, not mission playability.
 const ReviewScene = preload("res://scenes/ReviewSlice.tscn")
 const ReviewScript = preload("res://scripts/review_slice.gd")
+const MainScript = preload("res://scripts/main.gd")
 const Words = preload("res://scripts/review_slice_localization.gd")
 const Catalog = preload("res://scripts/campaign_mission_catalog.gd")
 const Store = preload("res://scripts/save_store.gd")
@@ -27,11 +28,20 @@ func _run() -> void:
 			sentinel.store_string("REVIEW_PROTECTED_SENTINEL " + path)
 			sentinel.close()
 		protected[path] = FileAccess.get_sha256(path)
+	var router := MainScript.new()
+	if not _check(not router._is_review_entry() and not router._review_launch_requested([]) and not router._review_launch_requested(["--unrelated=1"]), "normal startup stays on campaign entry"):
+		return
+	for arguments in [["--review-mission=first_supply"], ["--review-mission=bad"], ["--review-lang=en"], ["--review-unknown=1"]]:
+		if not _check(router._review_launch_requested(arguments), "all review options route before campaign initialization"):
+			return
+	router.free()
 	for locale in Words.TEXTS:
 		for key in Words.TEXTS["en"]:
 			if not _check(Words.TEXTS[locale].has(key) and not String(Words.TEXTS[locale][key]).is_empty(), "review copy complete " + locale + "/" + key):
 				return
 	var invalid := ReviewScript.new()
+	if not _check(invalid._is_review_entry(), "review superclass initialization cannot recurse into routing"):
+		return
 	for args in [[], ["--review-mission=../save"], ["--review-mission=not_real"], ["--review-mission=first_supply", "--review-mission=remote_pantry"], ["--review-mission=first_supply", "--review-lang=xx"], ["--review-mission=first_supply", "--review-profile=free"], ["--review-mission=first_supply", "--review-unknown=1"]]:
 		if not _check(not invalid.review_configure(args) and not invalid._has_recoverable_save() and not invalid._commit_world_and_campaign({}), "invalid options never reach persistence"):
 			return

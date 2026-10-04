@@ -17,10 +17,14 @@ MISSIONS = (
     ("toxic_frontier", "ToxicFrontier"), ("boundary_counterattack", "BoundaryCounterattack"),
     ("stable_colony", "StableColony"),
 )
+TITLES = ("第一条补给线", "远端粮仓", "第一次接触", "培养基争夺", "失联网络",
+          "双线压力", "污染前缘", "边界反攻", "稳定菌落")
+LAUNCHERS = {f"{index:02d} {title}.cmd": mission[0]
+             for index, (mission, title) in enumerate(zip(MISSIONS, TITLES), 1)}
 ROOT_FILES = {
     "FungiMicroculture.exe", "FungiMicroculture.pck", "README-FIRST.txt", "START-HERE.txt",
-    "Create-Review-Shortcuts.ps1", "Create-Shortcuts.cmd", "build-info.json",
-}
+    "build-info.json",
+} | set(LAUNCHERS)
 IDENTITY_FIELDS = ("build_id", "build_utc", "source_commit", "source_dirty", "source_sha256",
                    "mission_ids", "missions", "profile", "save_root")
 
@@ -135,6 +139,14 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
             require(type(info["source_dirty"]) is bool, "dirty status must be explicit boolean")
             require(info["mission_ids"] == [row[0] for row in MISSIONS], "manifest must have nine exact ordered mission IDs")
             require([row["id"] for row in info["missions"]] == info["mission_ids"], "mission detail list mismatch")
+            require([row["title_zh"] for row in info["missions"]] == list(TITLES), "Chinese mission titles mismatch")
+            require([row["scene"] for row in info["missions"]] == ["res://scenes/missions/" + row[1] + ".tscn" for row in MISSIONS], "mission scene paths mismatch")
+            for filename, mission_id in LAUNCHERS.items():
+                launcher = archive.read(filename)
+                expected = ('@echo off\r\nstart "" "%~dp0FungiMicroculture.exe" -- --review-mission='
+                            + mission_id + ' --review-lang=zh_CN\r\n').encode("ascii")
+                require(launcher == expected, "launcher must contain exact ASCII command, relative EXE and unique mission: " + filename)
+                require(not launcher.startswith(b"\xef\xbb\xbf") and all(byte < 128 for byte in launcher), "launcher must be ASCII without BOM")
             require(info["profile"] == "paid-baseline", "unexpected review profile")
             expected_files = set(names) - {"build-info.json", "review-update-info.json"}
             if update:
@@ -167,7 +179,7 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
             require(all(embedded[key] == info[key] for key in IDENTITY_FIELDS), "embedded/source build identity mismatch")
             return {"build_id": info["build_id"], "source_commit": info["source_commit"],
                     "source_dirty": info["source_dirty"], "zip_entries": len(names), "pck_entries": len(entries),
-                    "archive_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(), "update": update}
+                    "archive_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(), "update": update, "ascii_launchers": len(LAUNCHERS)}
     except BundleValidationError:
         raise
     except (OSError, ValueError, KeyError, TypeError, struct.error, zipfile.BadZipFile, UnicodeError) as error:

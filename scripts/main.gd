@@ -856,7 +856,37 @@ var campaign: Dictionary = CampaignState.fresh()
 var campaign_ui: RefCounted
 
 
+func _is_review_entry() -> bool:
+	return false
+
+
+func _review_launch_requested(arguments: Array) -> bool:
+	for argument in arguments:
+		if String(argument).begins_with("--review-"):
+			return true
+	return false
+
+
+func _route_review_entry() -> void:
+	# Runtime scene routing is supported by release export templates, unlike
+	# the editor-only --scene path override. Do not preload the subclass here.
+	var tree := get_tree()
+	var result := tree.change_scene_to_file("res://scenes/ReviewSlice.tscn")
+	if result != OK:
+		push_error("REVIEW_SLICE_ROUTE_FAILED " + str(result))
+		tree.quit(2)
+
+
 func _ready() -> void:
+	# Route even malformed review options before normal settings/save discovery.
+	# ReviewSlice overrides the marker, so its super._ready never recurses.
+	if not _is_review_entry() and _review_launch_requested(Array(OS.get_cmdline_user_args())):
+		hide()
+		set_process(false)
+		set_process_input(false)
+		set_process_unhandled_input(false)
+		call_deferred("_route_review_entry")
+		return
 	campaign_ui = CampaignController.new(self)
 	_activate_world_scene(_prepare_world_scene("home_nest"))
 	var settings_file_existed := FileAccess.file_exists(SETTINGS_PATH)

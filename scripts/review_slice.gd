@@ -41,6 +41,10 @@ var review_finishing := false
 var review_last_outcome := ""
 
 
+func _is_review_entry() -> bool:
+	return true
+
+
 func _ready() -> void:
 	var arguments: Array = review_arguments if not review_arguments.is_empty() else Array(OS.get_cmdline_user_args())
 	review_configure(arguments)

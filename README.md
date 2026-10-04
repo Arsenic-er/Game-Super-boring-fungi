@@ -6,7 +6,7 @@
 
 Development update — 2026-10-04: Chapter 1 now contains six independent expeditions and three home-nest challenges. Press J to choose missions, spend first-win materials on four nest levels and three construction branches, and follow the culture-record story. Home challenges restore the pre-battle nest and return only the first-win material reward; expeditions use separate supplies and pause offline. The older cultivation milestones described below are home guidance, not completion of the nine-mission campaign. Human playtime, visual and audio testing remains pending.
 
-An offline review pack provides nine direct mission shortcuts sharing one EXE/PCK, isolated per-mission saves, and an F8 audit panel with reset, reports and paid 1/5/20× play. Review access flags and minimal home fixtures are disclosed, not treated as earned campaign progress. See the [mission audit cards](docs/review-slices/README.md).
+An offline review pack provides nine direct CMD mission launchers sharing one EXE/PCK, isolated per-mission saves, and an F8 audit panel with reset, reports and paid 1/5/20× play. Review access flags and minimal home fixtures are disclosed, not treated as earned campaign progress. See the [mission audit cards](docs/review-slices/README.md).
 
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
