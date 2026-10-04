@@ -6,6 +6,8 @@
 
 Development update — 2026-10-04: Chapter 1 now contains six independent expeditions and three home-nest challenges. Press J to choose missions, spend first-win materials on four nest levels and three construction branches, and follow the culture-record story. Home challenges restore the pre-battle nest and return only the first-win material reward; expeditions use separate supplies and pause offline. The older cultivation milestones described below are home guidance, not completion of the nine-mission campaign. Human playtime, visual and audio testing remains pending.
 
+An offline review pack provides nine direct mission shortcuts sharing one EXE/PCK, isolated per-mission saves, and an F8 audit panel with reset, reports and paid 1/5/20× play. Review access flags and minimal home fixtures are disclosed, not treated as earned campaign progress. See the [mission audit cards](docs/review-slices/README.md).
+
 An idle evolution and expansion game about growing from a microscopic spore into a force capable of reshaping ecosystems, societies, nations, and eventually the planet.
 
 The project is currently an early Windows prototype. Version `0.49.0` focuses on Chapter 1: a top-down laboratory microculture where the player controls only the fungus, grows a mycelial network, collects nutrients, evolves new abilities, and commands mobile expedition spores.
@@ -116,6 +118,8 @@ The source code, visual assets, game design, text, and other repository contents
 # 《超级无聊真菌游戏》
 
 开发更新 — 2026-10-04：第一章现包含六个独立探索任务与三次主巢挑战。按 J 选择任务，以首次胜利材料升级四级主巢和三条建设分支，逐步解锁培养记录剧情。主巢挑战结束恢复战前状态，仅首次胜利材料回流；外出任务使用独立补给，离线暂停。下文旧培养目标是主巢引导，不代表九关剧情战役通关。真人时长、画面与音效试玩仍待验收。
+
+新增本地离线审查包：九个关卡入口共用一份 EXE/PCK，每关隔离存档；F8 面板提供重开、报告和正常扣费的 1／5／20 倍试玩。跳过前置与基础家园夹具均明确披露，不冒充正式战役通关。详见[逐关审查卡](docs/review-slices/README.md)。
 
 [English](docs/i18n/README.en.md) | [**简体中文**](docs/i18n/README.zh-Hans.md) | [繁體中文](docs/i18n/README.zh-Hant.md) | [日本語](docs/i18n/README.ja.md) | [Español](docs/i18n/README.es.md) | [Deutsch](docs/i18n/README.de.md) | [Русский](docs/i18n/README.ru.md)
 

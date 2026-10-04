@@ -1,5 +1,13 @@
 # Server Verification Index / 服务器测试记录索引
 
+## Latest: 2026-10-04 Offline review entries / 最新离线审查入口验证
+
+- **97/97** smoke tests, import and main startup PASS; **586 seconds**. Summary: `/home/ubuntu/fungi/test-logs/20261004T070712Z-354659/summary.txt`.
+- Review isolation/lifecycle: **567 checks PASS**, with final test-only audio cleanup rerun free of warnings/errors. Log: `/home/ubuntu/fungi/test-logs/review-slice-core-20261004/review_slice_smoke.log`.
+- Real OpenGL review UI: **2,269 checks / 126 captures**, nine entries, seven locales, 1280×720 and 640×360. Evidence: `/home/ubuntu/fungi/test-logs/review-layout-20261004T070723Z-354863/`.
+- These are server results; finished archive and Windows executable startup gates are recorded separately after export. Manual gameplay/audio approval is not implied.
+- The older section below describes the campaign build preceding review-entry support.
+
 ## Latest: 2026-10-04 Chapter 1 / 最新第一章验证
 
 - Full suite: **95/95 PASS**, resource import PASS, main-scene startup PASS, **497 s**. Run started at 2026-10-03 21:32:58 UTC against the chapter working tree based on `fdd1ba1ccfd2`; summary: `/home/ubuntu/fungi/test-logs/20261003T213258Z-271124/summary.txt`.
