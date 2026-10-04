@@ -1,5 +1,14 @@
 # Server Verification Index / 服务器测试记录索引
 
+## Latest: 2026-10-04 Review goals and home return / 切片目标与返巢回归
+
+- Clean candidate `69d09a59f12bb0bc300615add403101b14eb0dc1`, build `chapter1-review-20261004T155304Z-7527feeb7031`. Package/source hash matched; the installed update reused the existing EXE and replaced only PCK, docs and launchers.
+- Focused review **1,193 checks PASS**: nine missions × victory/retreat/failure, playable home, paid actions, F8/J/Esc, save/reload, preserved report, failed-write rollback and explicit-reset replay. Standard campaign hint **213 PASS**, paid flow **121 PASS**. Logs and source-match evidence: `/home/ubuntu/fungi/test-logs/review-home-fix-20261004-final/`. The full 97-test suite was not rerun for this review-only change.
+- Real-render input probe: **2,479 assertions / 168 captures**, seven languages × two sizes, including first-mission New/Play/J/confirmed mouse retreat/home beyond startup-only coverage. Evidence: `/home/ubuntu/fungi/test-logs/review-layout-20261004T154536Z-406492/`.
+- Final Windows artifacts: all nine headless starts and first-mission Intel OpenGL startup PASS; all 34 installed manifest hashes verified. **Seven normal/review save/settings hashes unchanged.** Existing two-audio-object exit warning remains, with no startup error. Logs: `/home/ubuntu/fungi/test-logs/review-home-fix-20261004-final/windows/`.
+- Export: 35 ZIP entries, nine native launchers, 148 PCK digests and new helper remaps PASS. Update is 6,240,563 bytes, SHA-256 `b9d25f0c5d3e272bb7eb8ad76e509a5bae476990bc33eeb551688e7bb5d0f4fa`; full ZIP SHA-256 `4a996e61b7421cdfad9930740bb6796f080f3e78422994cd8e62f0c0e2c80f2c`. Logs: `/home/ubuntu/fungi/test-logs/review-package-20261004T155304Z-415054/`.
+- Existing local staging/QA paths were reused; no second engine or local development environment. Previously blocked cleanup was not retried or bypassed. Automated checks do not imply human visual/audio or playtime acceptance.
+
 ## Latest: 2026-10-04 Windows review delivery / 本机离线审查包交付
 
 - Candidate: clean source `bfbf58e21df45670c30f8a88bc17cb6269ae5524`, build `chapter1-review-20261004T073700Z-797c37a1d547`. Nine CMD entries use release-supported user arguments and internal routing, without PowerShell/COM or scene/path overrides.
