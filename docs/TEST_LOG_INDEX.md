@@ -1,5 +1,16 @@
 # Server Verification Index / 服务器测试记录索引
 
+## Latest: 2026-10-04 Windows review delivery / 本机离线审查包交付
+
+- Candidate: clean source `bfbf58e21df45670c30f8a88bc17cb6269ae5524`, build `chapter1-review-20261004T073700Z-797c37a1d547`. Nine CMD entries use release-supported user arguments and internal routing, without PowerShell/COM or scene/path overrides.
+- Actual Windows executable: all **9 headless review starts PASS**, invalid mission rejected with exit 2, normal no-argument startup PASS. FirstSupply also started successfully using the actual Intel Iris Xe OpenGL renderer and exited 0. This proves startup, not human gameplay or audio acceptance.
+- Windows exit diagnostics retain one AudioStreamWAV and one AudioStreamPlaybackWAV reference warning. No startup error/crash was observed. Normal review Quit has no distinct audio teardown, so this is not claimed to affect only forced quit.
+- Five pre-existing normal/developer save/settings SHA-256 values remained unchanged. All 34 manifest file hashes matched the installed one-EXE/one-PCK package; nine Chinese CMD files are present. Runtime evidence (including the superseded --scene failure) is on the server: `/home/ubuntu/fungi/test-logs/review-windows-runtime-20261004/`.
+- Full final-source suite: import and main startup PASS, **96/97 tests PASS**, **625 s**. Only performance_smoke failed: 64 purge hunters against 420 bacteria measured 3588.6 ms. Preserve this failure rather than replacing it with an earlier green run. Summary: `/home/ubuntu/fungi/test-logs/20261004T073703Z-368877/summary.txt`. Review-specific assertions: **573 PASS**.
+- Full archive: 44,196,117 bytes, SHA-256 `4c18b3b74d978f02279db1c8a8b19d5dad52682552392d3350cf1693cc881c51`. Engine-reuse update: 6,233,473 bytes, SHA-256 `08a82f20163b9329df39affad13f35efa290d52a17a6621fd00358397e69b1da`. Both exact 35-entry layouts and all 144 PCK digests passed. Logs: `/home/ubuntu/fungi/test-logs/review-package-20261004T073700Z-368767/`.
+- Only requested final test artifacts were transferred to the existing local fungi-test folder; source/build/dependencies remained on the server. Cleanup of two owned QA directories and the staging ZIP was blocked by execution policy. No alternate deletion method was attempted; 6.33 MiB remains locally, with no running game/test process.
+- The unchanged performance test subsequently passed **3/3 isolated reruns**, each with a fresh profile: purge-hunter timings **2385.1 / 2453.2 / 2442.0 ms**, below the original **3000 ms** limit. Test/Main/Review source hashes matched; no thresholds or product code changed. This supports a non-reproduced timing fluctuation, not proof of its external cause, and does not turn the recorded full run into 97/97. Logs and hashes: `/home/ubuntu/fungi/test-logs/performance-focused-20261004/`.
+
 ## Latest: 2026-10-04 Offline review entries / 最新离线审查入口验证
 
 - **97/97** smoke tests, import and main startup PASS; **586 seconds**. Summary: `/home/ubuntu/fungi/test-logs/20261004T070712Z-354659/summary.txt`.
