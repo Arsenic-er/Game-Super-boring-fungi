@@ -92,6 +92,10 @@ func audit_configure(arguments: Array) -> bool:
 func _ready() -> void:
 	var arguments: Array = audit_arguments if not audit_arguments.is_empty() else Array(OS.get_cmdline_user_args())
 	if not audit_configure(arguments):
+		hide()
+		set_process(false)
+		set_process_input(false)
+		set_process_unhandled_input(false)
 		push_error("CAMPAIGN_AUDIT_INVALID " + audit_error)
 		get_tree().quit(2)
 		return
@@ -461,6 +465,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not audit_valid or audit_open or not audit_started:
 		return
 	super._unhandled_input(event)
+
+
+func _draw() -> void:
+	# A rejected exported entry never ran base initialization or loaded fonts.
+	if audit_valid and fallback_font != null:
+		super._draw()
 
 
 func _process(delta: float) -> void:
