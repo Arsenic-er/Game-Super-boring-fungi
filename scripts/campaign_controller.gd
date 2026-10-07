@@ -4,6 +4,7 @@ const State = preload("res://scripts/campaign_state.gd")
 const Words = preload("res://scripts/campaign_localization.gd")
 const ChapterWords = preload("res://scripts/campaign_chapter_localization.gd")
 const StoryWords = preload("res://scripts/campaign_story_localization.gd")
+const BranchWords = preload("res://scripts/campaign_branch_localization.gd")
 const Catalog = preload("res://scripts/campaign_mission_catalog.gd")
 const DEVELOPER_ACTIONS := [
 	"campaign_nest_down", "campaign_nest_up", "campaign_material_down",
@@ -19,6 +20,7 @@ var notice := ""
 var failure_presented := false
 var selected_mission_id := State.MISSION_ID
 var selection_start := 0
+var selection_initialized := false
 
 
 func _init(game) -> void:
@@ -30,6 +32,8 @@ func text(key: String, values: Dictionary = {}) -> String:
 
 
 func chapter_text(key: String, values: Dictionary = {}) -> String:
+	if BranchWords.KEYS.has(key):
+		return BranchWords.text(g.settings_locale, key, values)
 	return ChapterWords.text(g.settings_locale, key, values) if ChapterWords.KEYS.has(key) else StoryWords.text(g.settings_locale, key, values)
 
 
@@ -47,21 +51,78 @@ func mission_description() -> String:
 	return text("mission_desc", mission_values()) if mission_id() == State.MISSION_ID else chapter_text(mission_id() + "_desc", mission_values())
 
 
+func _board_groups() -> Array[Dictionary]:
+	var choices := _mission_choices()
+	if choices.size() == 1:
+		return [{"stage": 0, "missions": choices.duplicate(), "story": ""}]
+	var groups: Array[Dictionary] = []
+	var authored := [
+		{"stage": 0, "missions": ["first_supply"], "story": ""},
+		{"stage": 1, "missions": ["remote_pantry", "lost_network", "substrate_race"], "story": "first_contact"},
+		{"stage": 2, "missions": ["toxic_frontier", "boundary_counterattack"], "story": "two_fronts"},
+		{"stage": 3, "missions": ["stable_colony"], "story": ""}
+	]
+	for source in authored:
+		var cards: Array[String] = []
+		for id in source["missions"]:
+			if choices.has(id):
+				cards.append(id)
+		var story := String(source["story"]) if choices.has(source["story"]) else ""
+		if not cards.is_empty() or not story.is_empty():
+			groups.append({"stage": source["stage"], "missions": cards, "story": story})
+	return groups
+
+
+func board_group() -> Dictionary:
+	var groups := _board_groups()
+	if groups.is_empty():
+		return {"stage": 0, "missions": [], "story": ""}
+	return groups[clampi(selection_start, 0, groups.size() - 1)]
+
+
+func board_missions() -> Array[String]:
+	var result: Array[String] = []
+	result.assign(board_group()["missions"])
+	return result
+
+
+func board_layout(viewport: Vector2) -> Dictionary:
+	var compact := panel_rect(viewport).size.y < 500.0
+	return {"compact": compact, "tabs_y": 50.0 if compact else 62.0,
+		"tabs_h": 22.0 if compact else 28.0, "rule_y": 86.0 if compact else 108.0,
+		"cards_y": 92.0 if compact else 116.0, "cards_h": 62.0 if compact else 96.0,
+		"story_y": 160.0 if compact else 220.0, "story_h": 30.0 if compact else 40.0,
+		"branches_y": 196.0 if compact else 270.0, "branches_h": 36.0 if compact else 44.0,
+		"detail_y": 249.0 if compact else 336.0}
+
+
+func stage_rect(viewport: Vector2, index: int) -> Rect2:
+	var panel := panel_rect(viewport)
+	var layout := board_layout(viewport)
+	var count := maxi(1, _board_groups().size())
+	var width := (panel.size.x - 40.0 - (count - 1) * 6.0) / count
+	return Rect2(panel.position + Vector2(20 + index * (width + 6), layout["tabs_y"]), Vector2(width, layout["tabs_h"]))
+
+
 func selection_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := panel_rect(viewport)
-	var width := (panel.size.x - 112.0) * 0.5
-	return Rect2(panel.position + Vector2(52 + index * (width + 8), 82), Vector2(width, 30))
+	var layout := board_layout(viewport)
+	var count := maxi(1, board_missions().size())
+	var width := (panel.size.x - 40.0 - (count - 1) * 8.0) / count
+	return Rect2(panel.position + Vector2(20 + index * (width + 8), layout["cards_y"]), Vector2(width, layout["cards_h"]))
 
 
-func page_rect(viewport: Vector2, direction: int) -> Rect2:
+func story_rect(viewport: Vector2) -> Rect2:
 	var panel := panel_rect(viewport)
-	return Rect2(panel.position + Vector2(20 if direction < 0 else panel.size.x - 44, 82), Vector2(24, 30))
+	var layout := board_layout(viewport)
+	return Rect2(panel.position + Vector2(20, layout["story_y"]), Vector2(panel.size.x - 40, layout["story_h"]))
 
 
 func branch_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := panel_rect(viewport)
+	var layout := board_layout(viewport)
 	var width := (panel.size.x - 56.0) / 3.0
-	return Rect2(panel.position + Vector2(20 + index * (width + 8), 116), Vector2(width, 30))
+	return Rect2(panel.position + Vector2(20 + index * (width + 8), layout["branches_y"]), Vector2(width, layout["branches_h"]))
 
 
 func phase_action_rect(viewport: Vector2) -> Rect2:
@@ -70,18 +131,49 @@ func phase_action_rect(viewport: Vector2) -> Rect2:
 
 
 func _sync_selection() -> void:
-	var choices := _mission_choices()
-	var index := choices.find(selected_mission_id)
-	selection_start = maxi(0, index / 2) * 2
+	var groups := _board_groups()
+	for index in groups.size():
+		if groups[index]["missions"].has(selected_mission_id) or groups[index]["story"] == selected_mission_id:
+			selection_start = index
+			return
+	selection_start = 0
 
 
-func _page_selection(direction: int) -> void:
-	var choices := _mission_choices()
-	selection_start = clampi(selection_start + direction * 2, 0, ((choices.size() - 1) / 2) * 2)
-	selected_mission_id = choices[selection_start]
+func _select_mission(id: String) -> void:
+	if not _mission_choices().has(id):
+		return
+	selection_initialized = true
+	selected_mission_id = id
 	scroll = 0
 	g._play_sound("ui_confirm")
 	g.queue_redraw()
+
+
+func _select_stage(index: int) -> void:
+	var groups := _board_groups()
+	if index < 0 or index >= groups.size():
+		return
+	selection_initialized = true
+	selection_start = index
+	var group: Dictionary = groups[index]
+	if not group["missions"].has(selected_mission_id) and group["story"] != selected_mission_id:
+		var ids: Array = group["missions"].duplicate()
+		if not String(group["story"]).is_empty():
+			ids.append(group["story"])
+		var chosen := String(ids[0])
+		for id in ids:
+			if Catalog.is_unlocked(g.campaign, id) and not bool(g.campaign.get("completed", {}).get(id, false)):
+				chosen = id
+				break
+		_select_mission(chosen)
+	else:
+		scroll = 0
+		g.queue_redraw()
+
+
+func _page_selection(direction: int) -> void:
+	_select_stage(clampi(selection_start + direction, 0, maxi(0, _board_groups().size() - 1)))
+
 
 func _mission_choices() -> Array[String]:
 	var choices: Array[String] = []
@@ -89,6 +181,12 @@ func _mission_choices() -> Array[String]:
 		if bool(entry["implemented"]):
 			choices.append(String(entry["id"]))
 	return choices
+
+func reset_campaign_selection() -> void:
+	selection_initialized = false
+	selected_mission_id = State.MISSION_ID
+	selection_start = 0
+
 
 func reset_panel() -> void:
 	open = false
@@ -111,7 +209,9 @@ func show_panel() -> void:
 	g.defense_zone_drawing = false
 	g.developer_placement_action = ""
 	if not g._campaign_active():
-		selected_mission_id = State.recommended_mission_id(g.campaign)
+		if not selection_initialized or not _mission_choices().has(selected_mission_id):
+			selected_mission_id = State.recommended_mission_id(g.campaign)
+			selection_initialized = true
 		_sync_selection()
 	open = true
 	confirm_retreat = false
@@ -125,12 +225,15 @@ func hud_rect() -> Rect2:
 
 
 func panel_rect(viewport: Vector2) -> Rect2:
-	var size := Vector2(minf(860.0, viewport.x - 32.0), minf(600.0, viewport.y - 32.0))
+	var size := Vector2(minf(1000.0, viewport.x - 32.0), minf(740.0, viewport.y - 32.0))
 	return Rect2((viewport - size) * 0.5, size)
 
 
 func button_rect(viewport: Vector2, index: int) -> Rect2:
 	var panel := panel_rect(viewport)
+	if panel.size.y < 500.0:
+		var width := (panel.size.x - 56.0) / 3.0
+		return Rect2(panel.position + Vector2(20 + index * (width + 8), panel.size.y - 46), Vector2(width, 30))
 	return Rect2(panel.position + Vector2(20, panel.size.y - 126.0 + index * 36.0), Vector2(panel.size.x - 40.0, 30))
 
 
@@ -155,12 +258,14 @@ func handle_input(event: InputEvent) -> bool:
 			for index in range(3):
 				if branch_rect(viewport, index).has_point(event.position):
 					hovered = "campaign_branch_%d" % index
-			for direction in [-1, 1]:
-				if page_rect(viewport, direction).has_point(event.position):
-					hovered = "campaign_page_%d" % direction
-			for index in range(mini(2, _mission_choices().size() - selection_start)):
+			for index in _board_groups().size():
+				if stage_rect(viewport, index).has_point(event.position):
+					hovered = "campaign_stage_%d" % index
+			for index in board_missions().size():
 				if selection_rect(viewport, index).has_point(event.position):
-					hovered = "campaign_choice_%d" % (selection_start + index)
+					hovered = "campaign_choice_" + board_missions()[index]
+			if not String(board_group()["story"]).is_empty() and story_rect(viewport).has_point(event.position):
+				hovered = "campaign_story"
 		elif not confirm_retreat and not _phase_action_key().is_empty() and phase_action_rect(viewport).has_point(event.position):
 			hovered = "campaign_phase"
 		if g.audio_hover_target != hovered:
@@ -174,21 +279,21 @@ func handle_input(event: InputEvent) -> bool:
 		elif not event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 			var viewport: Vector2 = g.get_viewport_rect().size
 			if not g._campaign_active():
-				for direction in [-1, 1]:
-					if page_rect(viewport, direction).has_point(event.position):
-						_page_selection(direction)
+				for index in _board_groups().size():
+					if stage_rect(viewport, index).has_point(event.position):
+						_select_stage(index)
 						return true
-				var choices := _mission_choices()
-				for choice_index in range(mini(2, choices.size() - selection_start)):
-					if selection_rect(viewport, choice_index).has_point(event.position):
-						selected_mission_id = choices[selection_start + choice_index]
-						scroll = 0
-						g._play_sound("ui_confirm")
-						g.queue_redraw()
+				var choices := board_missions()
+				for index in choices.size():
+					if selection_rect(viewport, index).has_point(event.position):
+						_select_mission(choices[index])
 						return true
+				if not String(board_group()["story"]).is_empty() and story_rect(viewport).has_point(event.position):
+					_select_mission(board_group()["story"])
+					return true
 				for index in range(3):
 					if branch_rect(viewport, index).has_point(event.position):
-						purchase_branch(["transport", "resilience", "defense"][index])
+						purchase_branch(State.BRANCH_IDS[index])
 						return true
 			elif not confirm_retreat and not _phase_action_key().is_empty() and phase_action_rect(viewport).has_point(event.position):
 				advance_mission()
@@ -205,6 +310,12 @@ func handle_input(event: InputEvent) -> bool:
 			g._play_sound("ui_cancel")
 		elif event.keycode in [KEY_LEFT, KEY_RIGHT] and not g._campaign_active():
 			_page_selection(-1 if event.keycode == KEY_LEFT else 1)
+		elif event.keycode in [KEY_1, KEY_2, KEY_3] and not g._campaign_active():
+			var index: int = event.keycode - KEY_1
+			if index < board_missions().size():
+				_select_mission(board_missions()[index])
+		elif event.keycode == KEY_T and not g._campaign_active() and not String(board_group()["story"]).is_empty():
+			_select_mission(board_group()["story"])
 		elif event.keycode in [KEY_DOWN, KEY_PAGEDOWN]:
 			scroll += 2
 		elif event.keycode in [KEY_UP, KEY_PAGEUP]:
@@ -216,6 +327,7 @@ func handle_input(event: InputEvent) -> bool:
 				notice = ""
 	g.queue_redraw()
 	return true
+
 
 func other_modal_active() -> bool:
 	return g.main_menu_active or g.pause_menu_open or g.offline_settlement_active or g.offline_report_open or g.chapter_report_open or g.upgrade_open or g.goals_open or g.barracks_production_open
@@ -336,6 +448,7 @@ func return_home(outcome: String) -> bool:
 		g._save_game()
 	busy = false
 	selected_mission_id = State.recommended_mission_id(g.campaign)
+	selection_initialized = true
 	_sync_selection()
 	open = true
 	confirm_retreat = false
@@ -358,6 +471,7 @@ func upgrade_nest() -> bool:
 		notice = ""
 	scroll = 0
 	selected_mission_id = State.recommended_mission_id(g.campaign)
+	selection_initialized = true
 	_sync_selection()
 	g._play_sound("upgrade")
 	g.queue_redraw()
@@ -671,6 +785,74 @@ func draw_progress(rect: Rect2) -> void:
 		g.draw_string(g.fallback_font, rect.position + line["position"], line["text"], HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 20, line["size"], color)
 
 
+func _title_for(id: String) -> String:
+	return text("mission_title") if id == State.MISSION_ID else chapter_text(id + "_title")
+
+
+func reward_text(id: String, actual: Dictionary = {}) -> String:
+	var reward := actual if not actual.is_empty() else {"materials": Catalog.first_victory_materials(id), "tissues": Catalog.first_victory_tissues(id)}
+	var parts: Array[String] = [chapter_text("common_reward", {"amount": int(reward.get("materials", 0))})]
+	var tissues: Dictionary = reward.get("tissues", {})
+	for branch_id in State.BRANCH_IDS:
+		if int(tissues.get(branch_id, 0)) > 0:
+			parts.append(chapter_text("tissue_" + branch_id) + " " + str(int(tissues[branch_id])))
+	return " · ".join(parts)
+
+
+func card_reward_text(id: String) -> String:
+	if bool(g.campaign.get("completed", {}).get(id, false)):
+		return chapter_text("reward_claimed")
+	return chapter_text("first_win_reward", {"reward": reward_text(id)})
+
+
+func mission_status_text(id: String) -> String:
+	if bool(g.campaign.get("completed", {}).get(id, false)):
+		return chapter_text("branch_replay")
+	if not Catalog.is_unlocked(g.campaign, id):
+		return chapter_text("locked")
+	var story := "first_contact" if id in ["remote_pantry", "lost_network", "substrate_race"] else ("two_fronts" if id in ["toxic_frontier", "boundary_counterattack"] else "")
+	if not story.is_empty() and Catalog.is_unlocked(g.campaign, story):
+		return chapter_text("branch_optional")
+	return chapter_text("mission_ready")
+
+
+func mission_requirement_text(id: String) -> String:
+	var progress := Catalog.unlock_progress(g.campaign, id)
+	if bool(progress.get("unlocked", false)):
+		return chapter_text("legacy_access") if bool(progress.get("legacy", false)) else mission_status_text(id)
+	var parts: Array[String] = []
+	if int(progress.get("current_nest_level", 1)) < int(progress.get("required_nest_level", 1)):
+		parts.append(chapter_text("gate_nest", {"level": progress["required_nest_level"]}))
+	var missing := String(progress.get("missing_prerequisite", ""))
+	if not missing.is_empty():
+		parts.append(chapter_text("gate_mission", {"mission": _title_for(missing)}))
+	if int(progress.get("required", 0)) > 0:
+		parts.append(chapter_text("branch_progress", {"done": int(progress.get("completed", 0)), "need": int(progress["required"]), "total": progress.get("choices", []).size()}))
+	return " · ".join(parts) if not parts.is_empty() else chapter_text("locked")
+
+
+func board_rule_text() -> String:
+	if _mission_choices().size() == 1:
+		return chapter_text("isolated_review")
+	var group := board_group()
+	var result := chapter_text("stage_rule_%d" % int(group["stage"]))
+	if not String(group["story"]).is_empty():
+		var progress := Catalog.unlock_progress(g.campaign, group["story"])
+		result += " · " + chapter_text("branch_progress", {"done": int(progress.get("completed", 0)), "need": int(progress.get("required", 0)), "total": progress.get("choices", []).size()})
+	return result
+
+
+func branch_button_lines(branch_id: String) -> Array[String]:
+	var status := State.branch_purchase_status(g.campaign, branch_id)
+	var first := chapter_text("branch_stock", {"branch": chapter_text("tissue_" + branch_id), "level": State.branch_level(g.campaign, branch_id), "balance": State.tissue_balance(g.campaign, branch_id)})
+	var second := chapter_text("benefit_" + branch_id)
+	match String(status.get("reason", "")):
+		"max_level": first += " · " + chapter_text("branch_max")
+		"nest_level": second = chapter_text("gate_nest", {"level": status.get("required_nest_level", 3)})
+		_: first += " · -" + str(State.BRANCH_MATERIAL_COST)
+	return [first, second]
+
+
 func paragraphs() -> Array[String]:
 	var result: Array[String] = []
 	if notice != "":
@@ -694,31 +876,21 @@ func paragraphs() -> Array[String]:
 		var last: Dictionary = g.campaign.get("last_result", {})
 		if not last.is_empty():
 			var outcome := String(last.get("outcome", ""))
-			var reward_value = last.get("reward", {})
-			var reward: int = int(reward_value.get("materials", 0)) if reward_value is Dictionary else int(reward_value)
-			result.append(text("victory", {"reward": reward}) if outcome == "victory" else (chapter_text("mission_failed") if outcome == "failure" else text("retreated")))
-		if State.chapter_completed(g.campaign):
-			result.append(chapter_text("chapter_end"))
-		else:
-			result.append(chapter_text("story_%d" % int(g.campaign.nest_level)))
+			if outcome == "victory":
+				var reward: Dictionary = last.get("reward", {})
+				result.append(chapter_text("settlement_rewards", {"reward": reward_text(String(last.get("mission_id", mission_id())), reward)}) if int(reward.get("materials", 0)) > 0 else chapter_text("replay_no_reward"))
+			else:
+				result.append(chapter_text("mission_failed") if outcome == "failure" else text("retreated"))
 		if g._founder_spore_active():
 			result.append(text("settle_first"))
-		result.append(mission_title())
+		result.append(mission_title() + " · " + mission_requirement_text(mission_id()))
 		result.append(mission_description())
-		if not Catalog.is_unlocked(g.campaign, mission_id()):
-			var entry := Catalog.mission(mission_id())
-			result.append(chapter_text("mission_locked_generic", {
-				"level": entry.get("required_nest_level", 1),
-				"mission": chapter_text(String(entry.get("prerequisite", State.MISSION_ID)) + "_title")
-			}))
-		result.append(chapter_text("nest_benefits"))
+		result.append(chapter_text("chapter_end") if State.chapter_completed(g.campaign) else chapter_text("story_%d" % int(g.campaign.nest_level)))
+		result.append(chapter_text("currency_rules"))
 		result.append(chapter_text("branch_info"))
-		result.append(chapter_text("branch_reserve", {"reserve": State.required_material_reserve(g.campaign)}))
-		result.append(chapter_text("chapter_roster"))
-		for entry in Catalog.entries():
-			var id: String = String(entry["id"])
-			var status_key := "mission_done" if bool(g.campaign.get("completed", {}).get(id, false)) else ("mission_ready" if Catalog.is_unlocked(g.campaign, id) else "locked")
-			result.append(chapter_text(id + "_title") + " · " + chapter_text(status_key))
+		result.append(chapter_text("nest_benefits"))
+		result.append(chapter_text("optional_hint"))
+		result.append(chapter_text("hub_help"))
 	if _is_trial(mission_id()):
 		result.append(chapter_text("trial_rules"))
 	else:
@@ -729,22 +901,71 @@ func paragraphs() -> Array[String]:
 
 
 func panel_body_layout(viewport: Vector2) -> Dictionary:
-	# Shared geometry for rendering and the server-only layout probe.
+	# This is also used by layout tests: drawing and hit targets share one source.
 	var panel := panel_rect(viewport)
 	var width := panel.size.x - 40.0
 	var lines: Array[String] = []
-	var font_size := 12 if panel.size.y >= 440.0 else 10
+	var font_size := 12 if panel.size.y >= 500.0 else 10
 	var has_phase: bool = g._campaign_active() and not confirm_retreat and not _phase_action_key().is_empty()
-	var selection_height := 76.0 if not g._campaign_active() else (38.0 if has_phase else 0.0)
+	var first_baseline: float = board_layout(viewport)["detail_y"] if not g._campaign_active() else (135.0 if has_phase else 97.0)
 	for paragraph in paragraphs():
 		lines.append_array(g._wrap_guide_text(paragraph, width - 12, font_size))
 		lines.append("")
 	var line_height := font_size + 6
-	var visible := maxi(1, int((panel.size.y - 220.0 - selection_height) / line_height))
+	var last_baseline := button_rect(viewport, 0).position.y - panel.position.y - 12.0
+	var visible := maxi(1, 1 + int((last_baseline - first_baseline) / line_height))
 	return {"lines": lines, "font_size": font_size, "line_height": line_height,
-		"visible": visible, "first_baseline": 97.0 + selection_height,
-		"selection_height": selection_height, "has_phase": has_phase,
+		"visible": visible, "first_baseline": first_baseline,
+		"selection_height": first_baseline - 97.0, "has_phase": has_phase,
 		"max_scroll": maxi(0, lines.size() - visible), "width": width - 12.0}
+
+
+func _draw_text_line(rect: Rect2, value: String, baseline: float, color: Color, preferred: int = 12) -> void:
+	g.draw_string(g.fallback_font, rect.position + Vector2(8, baseline), value, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x - 16, g._fit_font_size(value, rect.size.x - 16, preferred, 7), color)
+
+
+func _draw_home_board(viewport: Vector2) -> void:
+	var panel := panel_rect(viewport)
+	var layout := board_layout(viewport)
+	var compact: bool = layout["compact"]
+	var groups := _board_groups()
+	for index in groups.size():
+		var rect := stage_rect(viewport, index)
+		var accent := Color("f2d797") if index == selection_start else Color("88a8aa")
+		g.draw_style_box(g._rounded_style(Color("163a3c") if index == selection_start else Color("0c2630"), accent, 5, 1), rect)
+		var label := chapter_text("isolated_review") if groups.size() == 1 else chapter_text("stage_%d" % int(groups[index]["stage"]))
+		_draw_text_line(rect, label, rect.size.y * 0.5 + 4.0, accent, 11)
+	var rule := board_rule_text()
+	g.draw_string(g.fallback_font, panel.position + Vector2(20, layout["rule_y"]), rule, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 40, g._fit_font_size(rule, panel.size.x - 40, 11, 7), Color("cbe5db"))
+	var choices := board_missions()
+	for index in choices.size():
+		var id := choices[index]
+		var rect := selection_rect(viewport, index)
+		var selected := id == mission_id()
+		var accent := Color("f2d797") if selected else (Color("bad7c1") if Catalog.is_unlocked(g.campaign, id) else Color("61777e"))
+		g.draw_style_box(g._rounded_style(Color("163a3c") if selected else Color("0c2630"), accent, 7, 2 if selected else 1), rect)
+		_draw_text_line(rect, _title_for(id), 15 if compact else 21, accent, 12 if compact else 14)
+		_draw_text_line(rect, chapter_text(id + "_role"), 29 if compact else 43, Color("cbe5db"), 9 if compact else 11)
+		_draw_text_line(rect, card_reward_text(id), 43 if compact else 64, Color("d7c697"), 8 if compact else 10)
+		_draw_text_line(rect, mission_status_text(id), 57 if compact else 84, accent, 8 if compact else 10)
+	var story := String(board_group()["story"])
+	var story_box := story_rect(viewport)
+	if not story.is_empty():
+		var accent := Color("f2d797") if mission_id() == story else Color("b9a4d7")
+		g.draw_style_box(g._rounded_style(Color("24323d") if mission_id() == story else Color("111f2d"), accent, 6, 2 if mission_id() == story else 1), story_box)
+		_draw_text_line(story_box, chapter_text("story_challenge", {"mission": _title_for(story)}) + " · " + mission_status_text(story), 13 if compact else 17, accent, 10 if compact else 12)
+		_draw_text_line(story_box, mission_requirement_text(story) if not Catalog.is_unlocked(g.campaign, story) else card_reward_text(story), 26 if compact else 34, Color("cbe5db"), 8 if compact else 10)
+	else:
+		_draw_text_line(story_box, chapter_text("optional_hint") if _mission_choices().size() > 1 else chapter_text("isolated_note"), story_box.size.y * 0.5 + 4, Color("88a8aa"), 10)
+	for index in range(3):
+		var branch_id: String = State.BRANCH_IDS[index]
+		var rect := branch_rect(viewport, index)
+		var enabled: bool = State.can_purchase_branch(g.campaign, branch_id) and not g.game_over
+		var accent := Color("bad7c1") if enabled else Color("829995")
+		g.draw_style_box(g._rounded_style(Color("163a3c") if enabled and rect.has_point(g.last_mouse) else Color("0c2630"), accent, 6, 1), rect)
+		var labels := branch_button_lines(branch_id)
+		_draw_text_line(rect, labels[0], 14 if compact else 18, accent, 9 if compact else 11)
+		_draw_text_line(rect, labels[1], 29 if compact else 36, Color("cbe5db"), 8 if compact else 10)
 
 
 func draw_panel(viewport: Vector2) -> void:
@@ -752,47 +973,27 @@ func draw_panel(viewport: Vector2) -> void:
 	var panel := panel_rect(viewport)
 	g.draw_style_box(g._rounded_style(Color("081c26"), Color("a7c9b8"), 12, 2), panel)
 	var width := panel.size.x - 40.0
+	var compact := panel.size.y < 500.0
 	var title := text("title")
-	g.draw_string(g.fallback_font, panel.position + Vector2(20, 28), title, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(title, width, 18, 12), Color("f2d797"))
+	g.draw_string(g.fallback_font, panel.position + Vector2(20, 21 if compact else 28), title, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(title, width, 14 if compact else 18, 12), Color("f2d797"))
 	var nest := text("nest", {"level": g.campaign.nest_level, "materials": g.campaign.materials})
-	g.draw_string(g.fallback_font, panel.position + Vector2(20, 52), nest, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(nest, width, 12, 9), Color("cbe5db"))
-	var done := 0
-	for entry in Catalog.entries():
-		if bool(g.campaign.get("completed", {}).get(entry["id"], false)):
-			done += 1
-	var subtitle := chapter_text("chapter_progress", {"done": done})
-	g.draw_string(g.fallback_font, panel.position + Vector2(20, 73), subtitle, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(subtitle, width, 10, 8), Color("88a8aa"))
+	g.draw_string(g.fallback_font, panel.position + Vector2(20, 42 if compact else 52), nest, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(nest, width, 11 if compact else 12, 9), Color("cbe5db"))
+	if g._campaign_active():
+		var subtitle := mission_title()
+		g.draw_string(g.fallback_font, panel.position + Vector2(20, 73), subtitle, HORIZONTAL_ALIGNMENT_LEFT, width, g._fit_font_size(subtitle, width, 10, 8), Color("88a8aa"))
 	var body := panel_body_layout(viewport)
 	var lines: Array[String] = body["lines"]
 	var font_size: int = body["font_size"]
 	var has_phase: bool = body["has_phase"]
-	var selection_height: float = body["selection_height"]
 	var line_height: int = body["line_height"]
 	var visible: int = body["visible"]
 	scroll = clampi(scroll, 0, int(body["max_scroll"]))
 	for index in range(mini(visible, lines.size() - scroll)):
 		g.draw_string(g.fallback_font, panel.position + Vector2(20, float(body["first_baseline"]) + index * line_height), lines[index + scroll], HORIZONTAL_ALIGNMENT_LEFT, width - 12, font_size, Color("cbe5db"))
 	if lines.size() > visible:
-		g.draw_string(g.fallback_font, panel.position + Vector2(panel.size.x - 30, 100 + selection_height), "↑", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("f2d797"))
-		g.draw_string(g.fallback_font, panel.position + Vector2(panel.size.x - 30, panel.size.y - 142), "↓", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("f2d797"))
+		g.draw_string(g.fallback_font, panel.position + Vector2(panel.size.x - 30, float(body["first_baseline"])), "↕", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("f2d797"))
 	if not g._campaign_active():
-		var choices := _mission_choices()
-		selection_start = clampi(selection_start, 0, ((choices.size() - 1) / 2) * 2)
-		for direction in [-1, 1]:
-			var enabled := selection_start > 0 if direction < 0 else selection_start + 2 < choices.size()
-			_draw_button(page_rect(viewport, direction), "‹" if direction < 0 else "›", enabled)
-		for choice_index in range(mini(2, choices.size() - selection_start)):
-			var id := choices[selection_start + choice_index]
-			var choice := selection_rect(viewport, choice_index)
-			var selected := id == mission_id()
-			var accent := Color("f2d797") if selected else Color("88a8aa")
-			g.draw_style_box(g._rounded_style(Color("163a3c") if selected else Color("0c2630"), accent, 6, 1), choice)
-			var label := chapter_text(id + "_title")
-			g.draw_string(g.fallback_font, choice.position + Vector2(8, 21), label, HORIZONTAL_ALIGNMENT_CENTER, choice.size.x - 16, g._fit_font_size(label, choice.size.x - 16, 12, 8), accent)
-		for index in range(3):
-			var branch_id: String = ["transport", "resilience", "defense"][index]
-			var label := chapter_text("branch_buy", {"branch": chapter_text("branch_" + branch_id), "level": State.branch_level(g.campaign, branch_id), "cost": State.BRANCH_MATERIAL_COST})
-			_draw_button(branch_rect(viewport, index), label, State.can_purchase_branch(g.campaign, branch_id) and not g.game_over)
+		_draw_home_board(viewport)
 	elif has_phase:
 		_draw_button(phase_action_rect(viewport), chapter_text(_phase_action_key()), not g.game_over)
 	var labels := action_labels()

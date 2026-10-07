@@ -47,7 +47,7 @@ const TEXTS := {
 		"save_failed": "保存失败，操作未完成，请重试。",
 		"mission_active": "出征中 · 主巢已保存",
 		"prototype": "剧情闭环测试版 · 非完整第一章",
-		"retry": "再次挑战（无首次材料）",
+		"retry": "再次挑战",
 		"mission_paused": "任务离线暂停，回到游戏后继续。",
 		"main_nest": "主巢"
 	},
@@ -86,7 +86,7 @@ const TEXTS := {
 		"save_failed": "儲存失敗，操作未完成，請重試。",
 		"mission_active": "出征中 · 主巢已儲存",
 		"prototype": "劇情閉環測試版 · 非完整第一章",
-		"retry": "再次挑戰（無首次材料）",
+		"retry": "再次挑戰",
 		"mission_paused": "任務離線暫停，回到遊戲後繼續。",
 		"main_nest": "主巢"
 	},
@@ -125,7 +125,7 @@ const TEXTS := {
 		"save_failed": "Save failed. The action was not completed; please retry.",
 		"mission_active": "On expedition · Home nest saved",
 		"prototype": "Story-loop prototype · Not the full first chapter",
-		"retry": "Retry (no first-win materials)",
+		"retry": "Replay mission",
 		"mission_paused": "Missions pause while offline. Return to the game to continue.",
 		"main_nest": "Home nest"
 	},
@@ -164,7 +164,7 @@ const TEXTS := {
 		"save_failed": "保存に失敗しました。操作は未完了です。再試行してください。",
 		"mission_active": "遠征中 · 母巣は保存済み",
 		"prototype": "物語ループの試作版 · 第1章の完成版ではありません",
-		"retry": "再挑戦（初勝利の素材なし）",
+		"retry": "再挑戦",
 		"mission_paused": "ミッションはオフライン中は一時停止。ゲームに戻ると再開する。",
 		"main_nest": "母巣"
 	},
@@ -203,7 +203,7 @@ const TEXTS := {
 		"save_failed": "No se pudo guardar. La acción no se completó; inténtalo de nuevo.",
 		"mission_active": "En expedición · Nido principal guardado",
 		"prototype": "Prototipo del ciclo narrativo · No es el primer capítulo completo",
-		"retry": "Reintentar (sin material de primera victoria)",
+		"retry": "Repetir misión",
 		"mission_paused": "La misión se pausa mientras estás fuera del juego. Vuelve para continuar.",
 		"main_nest": "Nido principal"
 	},
@@ -242,7 +242,7 @@ const TEXTS := {
 		"save_failed": "Speichern fehlgeschlagen. Die Aktion wurde nicht abgeschlossen. Bitte erneut versuchen.",
 		"mission_active": "Auf Expedition · Hauptnest gespeichert",
 		"prototype": "Prototyp des Handlungsablaufs · Kein vollständiges erstes Kapitel",
-		"retry": "Erneut spielen (ohne Erstsiegmaterial)",
+		"retry": "Erneut spielen",
 		"mission_paused": "Die Mission pausiert offline. Kehre ins Spiel zurück, um fortzufahren.",
 		"main_nest": "Hauptnest"
 	},
@@ -281,7 +281,7 @@ const TEXTS := {
 		"save_failed": "Не удалось сохранить. Действие не выполнено; попробуйте ещё раз.",
 		"mission_active": "В экспедиции · Главное гнездо сохранено",
 		"prototype": "Прототип сюжетного цикла · Не полная первая глава",
-		"retry": "Повторить (без награды за первую победу)",
+		"retry": "Повторить миссию",
 		"mission_paused": "Пока игра закрыта, задание приостановлено. Вернитесь в игру, чтобы продолжить.",
 		"main_nest": "Главное гнездо"
 	}

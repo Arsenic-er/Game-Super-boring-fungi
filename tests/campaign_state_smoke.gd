@@ -37,7 +37,7 @@ func _home() -> Dictionary:
 
 func _test_fresh_and_roundtrip() -> void:
 	var state := Campaign.fresh()
-	_expect(state["version"] == 1 and state["nest_level"] == 1 and state["materials"] == 0 and state["main_core_id"] == -1, "fresh campaign has no retroactive rewards")
+	_expect(state["version"] == Campaign.VERSION and state["nest_level"] == 1 and state["materials"] == 0 and state["main_core_id"] == -1, "fresh campaign has no retroactive rewards")
 	_expect(Campaign.sanitize(null) == state and Campaign.sanitize({"chapter_complete": true, "goals_claimed": {"rival_colony": true}}) == state, "missing campaign does not translate old goal rewards")
 	_expect(Campaign.sanitize(JSON.parse_string(JSON.stringify(state))) == state, "fresh campaign survives JSON number conversion")
 	_expect(not Campaign.upgrade(state), "no free nest upgrade")
@@ -111,7 +111,7 @@ func _test_snapshot_integrity() -> void:
 
 
 func _test_malformed_data() -> void:
-	for value in [null, true, "1", [], {"version": 2}]:
+	for value in [null, true, "1", [], {"version": 3}]:
 		_expect(Campaign.sanitize(value) == Campaign.fresh(), "reject unsupported campaign root/version")
 	var malformed := Campaign.fresh()
 	malformed["nest_level"] = "2"

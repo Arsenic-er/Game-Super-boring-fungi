@@ -140,7 +140,7 @@ func _run() -> void:
 			return
 		if not _check(Words.text(locale, "nest_benefits").count("10%") == 3 and Words.text(locale, "branch_info").contains("15%"), "%s preserves all three nest bonuses and branch magnitude" % locale):
 			return
-		if not _check(Words.text(locale, "chapter_progress", VALUES).contains("7/9") and Words.text(locale, "branch_buy", VALUES).contains("3/2"), "%s formats caller progress rather than silently clamping it" % locale):
+		if not _check(Words.text(locale, "chapter_progress", VALUES).contains("7") and not Words.text(locale, "chapter_progress", VALUES).contains("/9") and Words.text(locale, "branch_buy", VALUES).contains("3/2"), "%s formats caller progress without implying nine mandatory missions" % locale):
 			return
 		if not _check(Words.text(locale, "mission_goal_row", {"name": "Zero", "current": 0, "target": 1}).contains("0/1") and Words.text(locale, "upgrade_cost", {"level": 4, "cost": 0}).contains("0"), "%s represents zero values accurately" % locale):
 			return

@@ -85,10 +85,27 @@ for mission in new_missions:
                 assert all(c["world_scene_id"] == mission for c in group), prefix
                 if phase == "initial" and mission in ("first_contact", "two_fronts", "stable_colony"):
                     assert all(c["phase_action"] == "trial_start_wave" for c in group), prefix
-for prefix in ("chapter_branches", "chapter_complete") + tuple("chapter_home_page%d" % page for page in range(1, 6)):
+for prefix in ("chapter_branches", "chapter_complete") + tuple("chapter_home_page%d" % page for page in range(1, 5)):
     for width in (640, 1280):
         group = [c for c in captures if c["label"].startswith("%s_%d_" % (prefix, width))]
         assert {c["locale"] for c in group} == locales, (prefix, width)
+stage_cards = (
+    ["first_supply"],
+    ["remote_pantry", "lost_network", "substrate_race"],
+    ["toxic_frontier", "boundary_counterattack"],
+    ["stable_colony"],
+)
+stage_stories = ("", "first_contact", "two_fronts", "")
+board_captures = [c for c in captures if c["label"].startswith("chapter_home_page")]
+assert len(board_captures) == 4 * 2 * 7, "Expected four stages at both sizes in seven locales"
+assert len(captures) == 631, "Four-stage board removes 14 captures from the prior 645-capture probe"
+for capture in board_captures:
+    stage = capture["selection_start"]
+    assert stage in range(4), capture["label"]
+    assert capture["label"].startswith("chapter_home_page%d_" % (stage + 1)), capture["label"]
+    assert capture["board_missions"] == stage_cards[stage], capture["label"]
+    assert capture["board_story"] == stage_stories[stage], capture["label"]
+    assert capture["selected_mission_id"] == (stage_stories[stage] or stage_cards[stage][-1]), capture["label"]
 for capture in captures:
     assert capture["layout"]["ok"], capture["label"]
     if manifest["mode"] == "validate-only":

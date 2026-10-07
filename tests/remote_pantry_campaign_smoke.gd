@@ -32,8 +32,8 @@ func _run() -> void:
 		return
 	for locale_id in LOCALES:
 		game.settings_locale = locale_id
-		var expected_lock: String = game.campaign_ui.chapter_text("mission_locked_generic", {"level": 2, "mission": game.campaign_ui.chapter_text("first_supply_title")})
-		if not _check(game.campaign_ui.paragraphs().has(expected_lock), locale_id + " explains the required level two and completed first mission"):
+		var lock_copy: String = " ".join(game.campaign_ui.paragraphs())
+		if not _check(lock_copy.contains(game.campaign_ui.chapter_text("gate_nest", {"level": 2})) and lock_copy.contains(game.campaign_ui.chapter_text("gate_mission", {"mission": game.campaign_ui.text("mission_title")})), locale_id + " explains the required level two and completed tutorial"):
 			return
 		for viewport in [Vector2(1280, 720), Vector2(960, 540), Vector2(640, 360)]:
 			var panel: Rect2 = game.campaign_ui.panel_rect(viewport)
@@ -88,7 +88,7 @@ func _run() -> void:
 		return
 	_unblock()
 	game.campaign_ui.show_panel()
-	if not _check(_select(game, 0) and game.campaign_ui.mission_id() == "first_supply" and _select(game, 1) and game.campaign_ui.selected_mission_id == MISSION and game.campaign_ui.action_enabled(0), "real two-card input switches between first and second missions"):
+	if not _check(_select(game, 0) and game.campaign_ui.mission_id() == "first_supply" and _select(game, 1) and game.campaign_ui.selected_mission_id == MISSION and game.campaign_ui.action_enabled(0), "real stage tabs and cards switch from tutorial to the independent transport route"):
 		return
 	if not _check(_action(game, 0) and game._campaign_active() and game.campaign.active_mission.id == MISSION and game._world_scene_id() == MISSION and game.active_world.scene_file_path == "res://scenes/missions/RemotePantry.tscn", "selected second mission launches its actual independent PackedScene"):
 		return
@@ -232,7 +232,8 @@ func _close_modals(game: Node) -> void:
 
 
 func _select(game: Node, index: int) -> bool:
-	return _click(game, game.campaign_ui.selection_rect(game.get_viewport_rect().size, index).get_center())
+	var viewport: Vector2 = game.get_viewport_rect().size
+	return _click(game, game.campaign_ui.stage_rect(viewport, index).get_center()) and _click(game, game.campaign_ui.selection_rect(viewport, 0).get_center())
 
 
 func _action(game: Node, index: int) -> bool:

@@ -3,14 +3,15 @@ extends RefCounted
 
 
 const Catalog = preload("res://scripts/campaign_mission_catalog.gd")
-const VERSION := 1
+const VERSION := 2
 const MISSION_ID := "first_supply"
 const FIRST_VICTORY_MATERIALS := 3
 const MAX_MATERIALS := Catalog.TOTAL_MATERIAL_BUDGET
 const MAX_NEST_LEVEL := 4
 const BRANCH_IDS: Array[String] = ["transport", "resilience", "defense"]
 const MAX_BRANCH_LEVEL := 2
-const BRANCH_MATERIAL_COST := 2
+const BRANCH_MATERIAL_COST := 1
+const LEGACY_BRANCH_MATERIAL_COST := 2
 const NEST_UPGRADE_COSTS := {1: 3, 2: 6, 3: 6}
 const NEST_UPGRADE_PREREQUISITES := {1: "first_supply", 2: "first_contact", 3: "two_fronts"}
 const MAX_SERIAL := 2147483647
@@ -28,14 +29,21 @@ static func fresh() -> Dictionary:
 		"version": VERSION, "nest_level": 1, "materials": 0,
 		"main_core_id": -1, "serial": 0, "completed": {},
 		"active_mission": {}, "home_world": {}, "last_result": {},
-		"branches": {"transport": 0, "resilience": 0, "defense": 0}
+		"branches": {"transport": 0, "resilience": 0, "defense": 0},
+		"tissues": {"transport": 0, "resilience": 0, "defense": 0},
+		"legacy_unlocked_missions": {}
 	}
+
+
+static func supports_version(raw_version: Variant) -> bool:
+	return (typeof(raw_version) == TYPE_INT or typeof(raw_version) == TYPE_FLOAT) and is_finite(float(raw_version)) and float(raw_version) in [1.0, float(VERSION)]
 
 
 static func sanitize(raw: Variant) -> Dictionary:
 	var clean := fresh()
-	if not raw is Dictionary or _integer(raw.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+	if not raw is Dictionary or not supports_version(raw.get("version", null)):
 		return clean
+	var migrating := int(raw["version"]) == 1
 	clean["nest_level"] = _integer(raw.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL)
 	clean["materials"] = _integer(raw.get("materials", 0), 0, 0, MAX_MATERIALS)
 	clean["main_core_id"] = _integer(raw.get("main_core_id", -1), -1, -1, MAX_CORE_ID)
@@ -55,6 +63,17 @@ static func sanitize(raw: Variant) -> Dictionary:
 	clean["last_result"] = _sanitize_result(raw.get("last_result", {}))
 	if clean["last_result"].get("outcome", "") == "victory":
 		clean["completed"][String(clean["last_result"]["mission_id"])] = true
+	if migrating:
+		_migrate_legacy_progress(clean)
+	else:
+		for branch_id in BRANCH_IDS:
+			clean["tissues"][branch_id] = tissue_balance(raw, branch_id)
+		var legacy: Variant = raw.get("legacy_unlocked_missions", {})
+		if legacy is Dictionary:
+			for entry in Catalog.entries():
+				var mission_id := String(entry["id"])
+				if typeof(legacy.get(mission_id, null)) == TYPE_BOOL and legacy[mission_id]:
+					clean["legacy_unlocked_missions"][mission_id] = true
 	var last_attempt := int(clean["last_result"].get("attempt_id", 0))
 	clean["serial"] = maxi(int(clean["serial"]), last_attempt)
 	var active: Variant = raw.get("active_mission", {})
@@ -110,6 +129,7 @@ static func settle(state: Dictionary, outcome: Variant) -> Dictionary:
 	var attempt_id := int(clean["active_mission"]["attempt_id"])
 	var mission_id := String(clean["active_mission"]["id"])
 	var material_reward := 0
+	var tissue_reward := {}
 	if outcome == "victory" and not bool(clean["completed"].get(mission_id, false)):
 		# Rewards belong to a stable mission ID, never to the displayed scene.
 		# Reserve enough ledger capacity for the approved roster, while only
@@ -117,14 +137,18 @@ static func settle(state: Dictionary, outcome: Variant) -> Dictionary:
 		material_reward = mini(Catalog.first_victory_materials(mission_id), MAX_MATERIALS - int(clean["materials"]))
 		clean["materials"] = int(clean["materials"]) + material_reward
 		clean["completed"][mission_id] = true
+		for branch_id in Catalog.first_victory_tissues(mission_id):
+			var amount := mini(int(Catalog.first_victory_tissues(mission_id)[branch_id]), int(Catalog.TISSUE_BUDGETS[branch_id]) - tissue_balance(clean, branch_id))
+			clean["tissues"][branch_id] = tissue_balance(clean, branch_id) + amount
+			tissue_reward[branch_id] = amount
 	var result := {
 		"ok": true, "mission_id": mission_id, "attempt_id": attempt_id,
-		"outcome": outcome, "reward": {"materials": material_reward},
+		"outcome": outcome, "reward": {"materials": material_reward, "tissues": tissue_reward.duplicate()},
 		"home_world": clean["home_world"]
 	}
 	clean["last_result"] = {
 		"mission_id": mission_id, "attempt_id": attempt_id,
-		"outcome": outcome, "reward": {"materials": material_reward}
+		"outcome": outcome, "reward": {"materials": material_reward, "tissues": tissue_reward.duplicate()}
 	}
 	clean["active_mission"] = {}
 	clean["home_world"] = {}
@@ -166,9 +190,8 @@ static func can_upgrade(state: Dictionary) -> bool:
 
 
 static func required_material_reserve(state: Dictionary) -> int:
-	# Optional construction may never consume any still-unpaid main-path cost.
-	# Reserving all future upgrades also prevents an early purchase from creating
-	# a later soft lock when only first victories award materials.
+	# Retained query for future nest costs; independent tissue purchases no
+	# longer consume or reserve this common-material balance.
 	var level := _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL)
 	var reserve := 0
 	for source_level in range(level, MAX_NEST_LEVEL):
@@ -177,7 +200,7 @@ static func required_material_reserve(state: Dictionary) -> int:
 
 
 static func branch_level(state: Dictionary, branch_id: String) -> int:
-	if not BRANCH_IDS.has(branch_id) or _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+	if not BRANCH_IDS.has(branch_id) or not supports_version(state.get("version", null)):
 		return 0
 	var branches: Variant = state.get("branches", {})
 	if not branches is Dictionary:
@@ -185,10 +208,38 @@ static func branch_level(state: Dictionary, branch_id: String) -> int:
 	return _integer(branches.get(branch_id, 0), 0, 0, MAX_BRANCH_LEVEL)
 
 
+static func tissue_balance(state: Dictionary, branch_id: String) -> int:
+	if not BRANCH_IDS.has(branch_id) or _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION:
+		return 0
+	var tissues: Variant = state.get("tissues", {})
+	if not tissues is Dictionary:
+		return 0
+	return _integer(tissues.get(branch_id, 0), 0, 0, int(Catalog.TISSUE_BUDGETS[branch_id]))
+
+
+static func branch_purchase_status(state: Dictionary, branch_id: String) -> Dictionary:
+	var level := branch_level(state, branch_id)
+	var result := {"allowed": false, "reason": "invalid_state", "level": level, "max_level": MAX_BRANCH_LEVEL, "cost": BRANCH_MATERIAL_COST, "balance": tissue_balance(state, branch_id), "required_nest_level": 3 if level >= 1 else 2}
+	if not BRANCH_IDS.has(branch_id):
+		result["reason"] = "invalid_branch"
+	elif _integer(state.get("version", null), -1, -1, MAX_SERIAL) != VERSION or not state.get("active_mission", null) is Dictionary:
+		result["reason"] = "invalid_state"
+	elif not state["active_mission"].is_empty():
+		result["reason"] = "away"
+	elif level >= MAX_BRANCH_LEVEL:
+		result["reason"] = "max_level"
+	elif _integer(state.get("nest_level", 1), 1, 1, MAX_NEST_LEVEL) < int(result["required_nest_level"]):
+		result["reason"] = "nest_level"
+	elif int(result["balance"]) < BRANCH_MATERIAL_COST:
+		result["reason"] = "tissues"
+	else:
+		result["reason"] = "ready"
+		result["allowed"] = true
+	return result
+
+
 static func can_purchase_branch(state: Dictionary, branch_id: String) -> bool:
-	if not _home_edit_allowed(state) or not BRANCH_IDS.has(branch_id) or branch_level(state, branch_id) >= MAX_BRANCH_LEVEL:
-		return false
-	return _integer(state.get("materials", 0), 0, 0, MAX_MATERIALS) >= required_material_reserve(state) + BRANCH_MATERIAL_COST
+	return bool(branch_purchase_status(state, branch_id)["allowed"])
 
 
 static func purchase_branch(state: Dictionary, branch_id: String) -> bool:
@@ -197,7 +248,7 @@ static func purchase_branch(state: Dictionary, branch_id: String) -> bool:
 	var clean := sanitize(state)
 	if not can_purchase_branch(clean, branch_id):
 		return false
-	clean["materials"] = int(clean["materials"]) - BRANCH_MATERIAL_COST
+	clean["tissues"][branch_id] = tissue_balance(clean, branch_id) - BRANCH_MATERIAL_COST
 	clean["branches"][branch_id] = branch_level(clean, branch_id) + 1
 	_replace(state, clean)
 	return true
@@ -218,10 +269,13 @@ static func _home_edit_allowed(state: Dictionary) -> bool:
 
 static func next_mission_preview(state: Dictionary) -> Dictionary:
 	var clean := sanitize(state)
-	var entries := Catalog.entries()
-	for index in range(1, entries.size()):
-		var entry: Dictionary = entries[index]
-		if not bool(clean["completed"].get(entry["id"], false)):
+	var recommended := recommended_mission_id(clean)
+	if recommended != MISSION_ID and not bool(clean["completed"].get(recommended, false)):
+		var playable := Catalog.mission(recommended)
+		playable["unlocked"] = true
+		return playable
+	for entry in Catalog.entries():
+		if entry["id"] != MISSION_ID and not bool(clean["completed"].get(entry["id"], false)):
 			entry["unlocked"] = Catalog.is_unlocked(clean, entry["id"])
 			return entry
 	return {}
@@ -229,6 +283,12 @@ static func next_mission_preview(state: Dictionary) -> Dictionary:
 
 static func recommended_mission_id(state: Dictionary) -> String:
 	var clean := sanitize(state)
+	# Highlight the newly opened story trial without making optional branches
+	# look mandatory. The board still exposes every available expedition.
+	for entry in Catalog.entries():
+		var mission_id := String(entry["id"])
+		if entry["kind"] == "nest_challenge" and Catalog.is_unlocked(clean, mission_id) and not bool(clean["completed"].get(mission_id, false)):
+			return mission_id
 	var latest_playable := ""
 	for entry in Catalog.entries():
 		var mission_id := String(entry["id"])
@@ -240,6 +300,26 @@ static func recommended_mission_id(state: Dictionary) -> String:
 	return latest_playable
 
 
+static func _migrate_legacy_progress(clean: Dictionary) -> void:
+	# Version changes once; sanitizing the v2 result cannot pay a refund again.
+	var refund := 0
+	var earned := {"transport": 0, "resilience": 0, "defense": 0}
+	for entry in Catalog.entries():
+		var mission_id := String(entry["id"])
+		if Catalog.legacy_is_unlocked(clean, mission_id):
+			clean["legacy_unlocked_missions"][mission_id] = true
+		if bool(clean["completed"].get(mission_id, false)):
+			for branch_id in Catalog.first_victory_tissues(mission_id):
+				earned[branch_id] += int(Catalog.first_victory_tissues(mission_id)[branch_id])
+	for branch_id in BRANCH_IDS:
+		var level := int(clean["branches"][branch_id])
+		refund += level * LEGACY_BRANCH_MATERIAL_COST
+		# Retain old purchased levels even when the new corresponding tissue
+		# was not earned in the old linear campaign; no victories are invented.
+		clean["tissues"][branch_id] = clampi(int(earned[branch_id]) - level, 0, int(Catalog.TISSUE_BUDGETS[branch_id]))
+	clean["materials"] = mini(MAX_MATERIALS, int(clean["materials"]) + refund)
+
+
 static func _replace(target: Dictionary, source: Dictionary) -> void:
 	target.clear()
 	for key in source:
@@ -247,7 +327,7 @@ static func _replace(target: Dictionary, source: Dictionary) -> void:
 
 
 static func _rejected(reason: String) -> Dictionary:
-	return {"ok": false, "reason": reason, "reward": {"materials": 0}, "home_world": {}}
+	return {"ok": false, "reason": reason, "reward": {"materials": 0, "tissues": {}}, "home_world": {}}
 
 
 static func _integer(value: Variant, fallback: int, minimum: int, maximum: int) -> int:
@@ -293,7 +373,16 @@ static func _sanitize_result(raw: Variant) -> Dictionary:
 	var materials := 0
 	if outcome == "victory" and reward is Dictionary:
 		materials = _integer(reward.get("materials", 0), 0, 0, Catalog.first_victory_materials(mission_id))
-	return {"mission_id": String(mission_id), "attempt_id": attempt_id, "outcome": outcome, "reward": {"materials": materials}}
+	var clean_reward := {"materials": materials}
+	# Do not rewrite v1 receipts to pretend tissue was awarded in that attempt.
+	if reward is Dictionary and reward.has("tissues"):
+		var tissues := {}
+		if outcome == "victory" and reward["tissues"] is Dictionary:
+			for branch_id in Catalog.first_victory_tissues(mission_id):
+				if reward["tissues"].has(branch_id):
+					tissues[branch_id] = _integer(reward["tissues"][branch_id], 0, 0, int(Catalog.first_victory_tissues(mission_id)[branch_id]))
+		clean_reward["tissues"] = tissues
+	return {"mission_id": String(mission_id), "attempt_id": attempt_id, "outcome": outcome, "reward": clean_reward}
 
 
 static func _copy_home(raw: Variant) -> Dictionary:

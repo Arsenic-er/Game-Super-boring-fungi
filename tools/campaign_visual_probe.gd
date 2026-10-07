@@ -225,7 +225,8 @@ func _capture_remote_pantry() -> bool:
 	for locale in Words.LOCALES:
 		game.settings_locale = locale
 		game.campaign_ui.show_panel()
-		if not await _capture("pantry_selection_640_" + locale, "two-mission-selector"):
+		_click(game.campaign_ui.stage_rect(game.get_viewport_rect().size, 1).get_center())
+		if not await _capture("pantry_selection_640_" + locale, "three-parallel-early-branches"):
 			return false
 	game.campaign_ui.reset_panel()
 	if not game._campaign_start_mission("remote_pantry"):
@@ -267,6 +268,7 @@ func _capture_chapter_roster() -> bool:
 	game.game_started = true
 	game.campaign["nest_level"] = 4
 	game.campaign["materials"] = 9
+	game.campaign["tissues"] = {"transport": 1, "resilience": 1, "defense": 1}
 	for entry in game.campaign_ui.Catalog.entries():
 		if entry["id"] != "stable_colony":
 			game.campaign["completed"][entry["id"]] = true
@@ -275,11 +277,12 @@ func _capture_chapter_roster() -> bool:
 	# Exercise actual branch hit targets and transactions on the isolated slot.
 	game.campaign_ui.show_panel()
 	var viewport: Vector2 = game.get_viewport_rect().size
+	var material_balance := int(game.campaign["materials"])
 	for index in range(3):
 		var id: String = ["transport", "resilience", "defense"][index]
 		_click(game.campaign_ui.branch_rect(viewport, index).get_center())
-		if int(game.campaign["branches"][id]) != 1:
-			failure = "A home construction branch is not reachable by its displayed control: " + id
+		if int(game.campaign["branches"][id]) != 1 or int(game.campaign["tissues"][id]) != 0 or int(game.campaign["materials"]) != material_balance:
+			failure = "A displayed specialty must spend exactly its own tissue, never common materials: " + id
 			return false
 	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
 		await _resize(size)
@@ -335,34 +338,45 @@ func _capture_chapter_roster() -> bool:
 
 
 func _capture_home_pages() -> bool:
+	var expected_cards := [["first_supply"], ["remote_pantry", "lost_network", "substrate_race"], ["toxic_frontier", "boundary_counterattack"], ["stable_colony"]]
+	var expected_stories := ["", "first_contact", "two_fronts", ""]
 	for size in [Vector2i(1280, 720), Vector2i(640, 360)]:
 		await _resize(size)
 		for locale in Words.LOCALES:
 			game.settings_locale = locale
 			game.campaign_ui.show_panel()
-			# Navigate using actual hit targets, including backwards from the
-			# recommended final mission to the first page.
+			# The four stages, each parallel card, and both story challenges must
+			# be reachable through their actual displayed mouse hit targets.
 			var viewport: Vector2 = game.get_viewport_rect().size
-			for _step in range(5):
-				_click(game.campaign_ui.page_rect(viewport, -1).get_center())
 			var reached: Array[String] = []
 			var choices: Array[String] = game.campaign_ui._mission_choices()
-			for page in range(5):
-				if game.campaign_ui.selection_start != page * 2:
-					failure = "Roster page navigation failed"
+			if game.campaign_ui._board_groups().size() != 4:
+				failure = "The full home board must expose exactly four stages"
+				return false
+			for stage in range(4):
+				_click(game.campaign_ui.stage_rect(viewport, stage).get_center())
+				var cards: Array[String] = game.campaign_ui.board_missions()
+				var story := String(game.campaign_ui.board_group()["story"])
+				if game.campaign_ui.selection_start != stage or cards != expected_cards[stage] or story != expected_stories[stage]:
+					failure = "Stage click did not expose its authored parallel cards and story"
 					return false
-				for index in range(mini(2, choices.size() - page * 2)):
-					var expected: String = choices[page * 2 + index]
+				for index in range(cards.size()):
+					var expected: String = cards[index]
 					_click(game.campaign_ui.selection_rect(viewport, index).get_center())
 					if game.campaign_ui.selected_mission_id != expected:
-						failure = "Roster mission not reachable by displayed selection: " + expected
+						failure = "Parallel mission not reachable by its displayed card: " + expected
 						return false
 					reached.append(expected)
-				if not await _capture("chapter_home_page%d_%d_%s" % [page + 1, size.x, locale], "nine-mission-real-click-selector"):
+				if not story.is_empty():
+					_click(game.campaign_ui.story_rect(viewport).get_center())
+					if game.campaign_ui.selected_mission_id != story:
+						failure = "Story challenge not reachable by its displayed control: " + story
+						return false
+					reached.append(story)
+				if not await _capture("chapter_home_page%d_%d_%s" % [stage + 1, size.x, locale], "four-stage-nine-mission-real-click-board"):
 					return false
-				_click(game.campaign_ui.page_rect(viewport, 1).get_center())
-			if reached != choices or game.campaign_ui.selection_start != 8:
-				failure = "Not all nine missions are reachable, or final page exceeds bounds"
+			if reached != choices or reached.size() != 9 or game.campaign_ui.selection_start != 3:
+				failure = "The four-stage board did not expose all nine mission IDs exactly once"
 				return false
 	return true
 
@@ -466,24 +480,49 @@ func _validate_campaign_layout(viewport: Vector2) -> Dictionary:
 				return {"ok": false, "error": "Panel header text overflows: " + label[0]}
 			labels_checked += 1
 		if not game._campaign_active():
-			for direction in [-1, 1]:
-				controls.append(ui.page_rect(viewport, direction))
-			var choices: Array[String] = ui._mission_choices()
-			for index in range(mini(2, choices.size() - ui.selection_start)):
+			var groups: Array[Dictionary] = ui._board_groups()
+			var compact: bool = ui.board_layout(viewport)["compact"]
+			for index in range(groups.size()):
+				var rect: Rect2 = ui.stage_rect(viewport, index)
+				controls.append(rect)
+				var label: String = ui.chapter_text("isolated_review") if groups.size() == 1 else ui.chapter_text("stage_%d" % int(groups[index]["stage"]))
+				if not _label_fits(label, rect.size.x - 16, 11, 7):
+					return {"ok": false, "error": "Board stage text overflows: " + label}
+				labels_checked += 1
+			if not _label_fits(ui.board_rule_text(), width, 11, 7):
+				return {"ok": false, "error": "Board branch rule text overflows"}
+			labels_checked += 1
+			var choices: Array[String] = ui.board_missions()
+			for index in range(choices.size()):
 				var rect: Rect2 = ui.selection_rect(viewport, index)
 				controls.append(rect)
-				var label: String = ui.chapter_text(choices[ui.selection_start + index] + "_title")
-				if not _label_fits(label, rect.size.x - 16, 12, 8):
-					return {"ok": false, "error": "Mission selection text overflows: " + label}
+				var id: String = choices[index]
+				for label in [[ui._title_for(id), 12 if compact else 14], [ui.chapter_text(id + "_role"), 9 if compact else 11], [ui.reward_text(id), 8 if compact else 10], [ui.mission_status_text(id), 8 if compact else 10]]:
+					if not _label_fits(label[0], rect.size.x - 16, label[1], 7):
+						return {"ok": false, "error": "Parallel mission card text overflows: " + String(label[0])}
+					labels_checked += 1
+			var story: String = ui.board_group()["story"]
+			var story_box: Rect2 = ui.story_rect(viewport)
+			controls.append(story_box)
+			var story_labels := []
+			if not story.is_empty():
+				story_labels = [[ui.chapter_text("story_challenge", {"mission": ui._title_for(story)}) + " · " + ui.mission_status_text(story), 10 if compact else 12], [ui.mission_requirement_text(story) if not ui.Catalog.is_unlocked(game.campaign, story) else ui.reward_text(story), 8 if compact else 10]]
+			else:
+				story_labels = [[ui.chapter_text("optional_hint") if ui._mission_choices().size() > 1 else ui.chapter_text("isolated_note"), 10]]
+			for label in story_labels:
+				if not _label_fits(label[0], story_box.size.x - 16, label[1], 7):
+					return {"ok": false, "error": "Story row text overflows: " + String(label[0])}
 				labels_checked += 1
 			for index in range(3):
 				var rect: Rect2 = ui.branch_rect(viewport, index)
 				controls.append(rect)
 				var id: String = ["transport", "resilience", "defense"][index]
-				var label: String = ui.chapter_text("branch_buy", {"branch": ui.chapter_text("branch_" + id), "level": game.campaign["branches"][id], "cost": 2})
-				if not _label_fits(label, rect.size.x - 16, 12, 7):
-					return {"ok": false, "error": "Construction branch text overflows: " + label}
-				labels_checked += 1
+				var lines: Array[String] = ui.branch_button_lines(id)
+				for line in range(lines.size()):
+					var preferred := (9 if compact else 11) if line == 0 else (8 if compact else 10)
+					if not _label_fits(lines[line], rect.size.x - 16, preferred, 7):
+						return {"ok": false, "error": "Specialty tissue control text overflows: " + lines[line]}
+					labels_checked += 1
 		elif not ui.confirm_retreat and not ui._phase_action_key().is_empty():
 			var rect: Rect2 = ui.phase_action_rect(viewport)
 			controls.append(rect)
@@ -629,6 +668,9 @@ func _capture(label: String, fixture: String) -> bool:
 		"nest_level": game.campaign.nest_level,
 		"world_scene_id": game._world_scene_id(), "layout": layout,
 		"selection_start": game.campaign_ui.selection_start,
+		"board_missions": game.campaign_ui.board_missions(),
+		"board_story": game.campaign_ui.board_group()["story"],
+		"selected_mission_id": game.campaign_ui.selected_mission_id,
 		"phase_action": game.campaign_ui._phase_action_key(),
 		"labels": game.campaign_ui.action_labels(),
 		"enabled": [game.campaign_ui.action_enabled(0), game.campaign_ui.action_enabled(1), game.campaign_ui.action_enabled(2)]

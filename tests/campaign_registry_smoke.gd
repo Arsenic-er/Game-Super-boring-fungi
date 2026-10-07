@@ -40,7 +40,7 @@ func _ready_for_second() -> Dictionary:
 
 func _test_catalog() -> void:
 	var entries := Catalog.entries()
-	var ids := ["first_supply", "remote_pantry", "first_contact", "substrate_race", "lost_network", "two_fronts", "toxic_frontier", "boundary_counterattack", "stable_colony"]
+	var ids := ["first_supply", "remote_pantry", "lost_network", "substrate_race", "first_contact", "toxic_frontier", "boundary_counterattack", "two_fronts", "stable_colony"]
 	_expect(entries.size() == 9, "approved roster includes six expeditions and three challenges")
 	var rewards := 0
 	var expeditions := 0
@@ -50,7 +50,7 @@ func _test_catalog() -> void:
 		_expect(entry["id"] == ids[index] and entry["order"] == index + 1, "stable mission ID and order")
 		_expect(entry["implemented"] == true, "every approved mission is now implemented")
 		_expect(entry["title_key"] == String(entry["id"]) + "_title", "catalog resolves the actual localized title key")
-		_expect(entry["required_nest_level"] == [1, 2, 2, 3, 3, 3, 4, 4, 4][index], "each act requires its nest upgrade")
+		_expect(entry["required_nest_level"] == [1, 2, 2, 2, 2, 3, 3, 3, 4][index], "each act requires its nest upgrade")
 		rewards += int(entry["first_victory_materials"])
 		expeditions += 1 if entry["kind"] == "expedition" else 0
 		challenges += 1 if entry["kind"] == "nest_challenge" else 0
@@ -76,11 +76,12 @@ func _test_unlocks_and_legacy_migration() -> void:
 	Campaign.upgrade(state)
 	_expect(Campaign.can_begin(state, "remote_pantry") and Campaign.recommended_mission_id(state) == "remote_pantry", "level two plus first victory unlocks the second mission")
 	var legacy := Campaign.fresh()
+	legacy["version"] = 1
 	legacy["nest_level"] = 2
 	legacy["materials"] = 0
 	legacy["serial"] = 1
 	var loaded := Campaign.sanitize(JSON.parse_string(JSON.stringify(legacy)))
-	_expect(loaded["version"] == 1 and loaded["completed"].get("first_supply", false) and not loaded["completed"].get("remote_pantry", false), "old level-two save repairs only its historical first victory")
+	_expect(loaded["version"] == Campaign.VERSION and loaded["completed"].get("first_supply", false) and not loaded["completed"].get("remote_pantry", false), "old level-two save repairs only its historical first victory")
 	_expect(loaded["materials"] == 0 and Campaign.can_begin(loaded, "remote_pantry"), "legacy migration invents no materials and enables the new mission")
 	var dishonest := Campaign.fresh()
 	dishonest["nest_level"] = 2
@@ -96,9 +97,9 @@ func _test_isolated_rewards_and_replays() -> void:
 	_expect(state["completed"].get("first_supply", false) and state["completed"].get("remote_pantry", false), "both completion entries survive")
 	_expect(state["last_result"]["mission_id"] == "remote_pantry", "result history retains second mission identity")
 	var preview := Campaign.next_mission_preview(state)
-	_expect(preview["id"] == "first_contact" and preview["implemented"] and preview["unlocked"], "completed transport task unlocks the implemented first nest challenge")
-	_expect(Campaign.can_begin(state, "first_contact"), "first challenge becomes playable only after its prerequisites")
-	_expect(Campaign.recommended_mission_id(state) == "first_contact", "next uncompleted playable task is recommended")
+	_expect(preview["id"] == "lost_network" and preview["implemented"] and preview["unlocked"], "after one route the next parallel branch is offered")
+	_expect(not Campaign.can_begin(state, "first_contact"), "one distinct branch is insufficient for the first trial")
+	_expect(Campaign.recommended_mission_id(state) == "lost_network", "another branch is recommended before quota completion")
 	var paid := state.duplicate(true)
 	_expect(not Campaign.settle(state, "victory")["ok"] and state == paid, "double settlement leaves the ledger untouched")
 	for mission_id in ["first_supply", "remote_pantry"]:
@@ -154,7 +155,7 @@ func _test_result_repair_and_versions() -> void:
 		state["last_result"]["mission_id"] = mission_id
 		clean = Campaign.sanitize(state)
 		_expect(clean["last_result"].is_empty() and clean["completed"].is_empty(), "unknown result cannot fabricate completion")
-	for version in [2, 0, "1", true]:
+	for version in [3, 0, "1", true]:
 		state = _ready_for_second()
 		state["version"] = version
 		var before := state.duplicate(true)

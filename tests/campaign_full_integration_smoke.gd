@@ -6,7 +6,7 @@ const Campaign = preload("res://scripts/campaign_state.gd")
 const Catalog = preload("res://scripts/campaign_mission_catalog.gd")
 const SaveStore = preload("res://scripts/save_store.gd")
 const SLOT := "user://campaign_full_integration_smoke.json"
-const IDS := ["first_supply", "remote_pantry", "first_contact", "substrate_race", "lost_network", "two_fronts", "toxic_frontier", "boundary_counterattack", "stable_colony"]
+const IDS := ["first_supply", "remote_pantry", "lost_network", "substrate_race", "first_contact", "toxic_frontier", "boundary_counterattack", "two_fronts", "stable_colony"]
 const TRIALS := ["first_contact", "two_fronts", "stable_colony"]
 var game: Node
 var checks := 0
@@ -25,7 +25,7 @@ func _run() -> void:
 	for index in range(IDS.size()):
 		if not await _mission_roundtrip(IDS[index]):
 			return
-		if index in [0, 2, 5]:
+		if index in [0, 4, 7]:
 			_clear_modals()
 			var before: int = game.campaign["materials"]
 			var old_level: int = game.campaign["nest_level"]
@@ -41,7 +41,7 @@ func _run() -> void:
 		for level in range(1, 3):
 			if not _check(game.campaign_ui.purchase_branch(branch_id) and Campaign.branch_level(game.campaign, branch_id) == level, "real UI transaction purchases " + branch_id + " level " + str(level)):
 				return
-	if not _check(game.campaign["materials"] == 0 and game._save_game(), "all six optional purchases spend exactly 12 and save"):
+	if not _check(game.campaign["materials"] == 12 and game.campaign["tissues"] == {"transport": 1, "resilience": 2, "defense": 1} and game._save_game(), "six specializations consume only their own tissue and preserve 12 common materials"):
 		return
 	var final_home: Dictionary = game._capture_world_state()
 	var final_campaign: Dictionary = game.campaign.duplicate(true)
@@ -52,6 +52,8 @@ func _run() -> void:
 	if not await _buff_scope_and_trial_rollback():
 		return
 	if not _mission_failure_ui():
+		return
+	if not _v1_active_migration():
 		return
 	print("CAMPAIGN_FULL_INTEGRATION_OK checks=%d scenes=9 fresh-runner-loads=9 first-rewards=27 nest=4 branches=3x2 trial-clone=true ownerless-save=true rollback=true trial-offline-double-credit=false fixtures-not-economic-routes=true" % checks)
 	SaveStore.remove_slot(SLOT)
@@ -206,6 +208,10 @@ func _mission_roundtrip(mission_id: String) -> bool:
 	_clear_modals()
 	if not _check(not game._campaign_return("victory") and game.campaign == settled_campaign, "duplicate return cannot duplicate first-win materials"):
 		return false
+	for branch_id in Campaign.BRANCH_IDS:
+		var reward: int = int(Catalog.mission(mission_id)["first_victory_tissues"].get(branch_id, 0))
+		if not _check(Campaign.tissue_balance(game.campaign, branch_id) == Campaign.tissue_balance(old_campaign, branch_id) + reward, "first victory commits exactly the route-specific tissue: " + mission_id + " " + branch_id):
+			return false
 	if not _check(game._load_game(true) and not game.offline_settlement_active and not game.offline_report_open and _signature(game._capture_world_state()) == _signature(settled_world) and _same(game.campaign, settled_campaign), "immediate reload cannot add a second offline settlement or reward"):
 		return false
 	return true
@@ -282,9 +288,9 @@ func _buff_scope_and_trial_rollback() -> bool:
 	if not _check(game._campaign_start_mission("first_supply"), "completed first expedition remains replayable"):
 		return false
 	for branch_id in Campaign.BRANCH_IDS:
-		if not _check(Campaign.branch_level(game.campaign, branch_id) == 2 and game._campaign_nest_multiplier(branch_id) == 1.0, "persistent branch ledger exists but grants no expedition effect"):
+		if not _check(Campaign.branch_level(game.campaign, branch_id) == 2 and is_equal_approx(game._campaign_nest_multiplier(branch_id), 1.3), "both purchased specialization levels travel into the expedition"):
 			return false
-	if not _check(game._expedition_cargo_capacity({"unit_type": "carrier"}) == 9.0 and is_equal_approx(game._passive_recovery_rate(), game.CORE_PASSIVE_RECOVERY_RATE), "expedition actual hooks exclude home reinforcement and branch levels"):
+	if not _check(is_equal_approx(game._expedition_cargo_capacity({"unit_type": "carrier"}), 9.0 * 1.3) and is_equal_approx(game._passive_recovery_rate(), game.CORE_PASSIVE_RECOVERY_RATE * 1.3), "expedition hooks inherit specializations, not nest-tier or home physiological upgrades"):
 		return false
 	game.campaign["home_world"]["saved_at"] = Time.get_unix_time_from_system()
 	if not _check(game._campaign_return("retreat") and _signature(game._capture_world_state()) == _signature(home), "expedition retreat restores the buffed home without importing expedition stock"):
@@ -325,6 +331,45 @@ func _buff_scope_and_trial_rollback() -> bool:
 				return false
 			if not _check(game.campaign["materials"] == ledger["materials"] and game.campaign["branches"] == ledger["branches"] and Campaign.chapter_completed(game.campaign), "trial " + outcome + " changes neither earned materials nor permanent branches/completion"):
 				return false
+	return true
+
+
+func _v1_active_migration() -> bool:
+	_clear_modals()
+	if not _check(game._save_game(), "checkpoint v2 home before legacy migration fixture"):
+		return false
+	var saved := _read_json()
+	if not _check(game._campaign_start_mission("first_contact"), "start actual challenge scene for legacy save fixture"):
+		return false
+	var payload := _read_json()
+	var old: Dictionary = payload["campaign"]
+	old["version"] = 1
+	old["nest_level"] = 2
+	old["materials"] = 3
+	old["completed"] = {"first_supply": true, "remote_pantry": true}
+	old["branches"] = {"transport": 0, "resilience": 0, "defense": 0}
+	old["last_result"] = {}
+	old.erase("tissues")
+	old.erase("legacy_unlocked_missions")
+	var old_home: Dictionary = old["home_world"].duplicate(true)
+	var mission: Dictionary = game._capture_world_state()
+	if not _check(_write_json(payload) and game._load_game(false), "production parser loads v1 active first_contact before the new two-branch gate"):
+		return false
+	if not _check(game._world_scene_id() == "first_contact" and game._campaign_active() and game.campaign["version"] == 2, "v1 migration preserves the active mission and emits v2"):
+		return false
+	if not _check(game.campaign["completed"] == old["completed"] and game.campaign["materials"] == 3 and game.campaign["tissues"] == {"transport": 1, "resilience": 0, "defense": 0}, "legacy access does not invent victories or duplicate materials"):
+		return false
+	if not _check(_signature(game._capture_world_state()) == _signature(mission) and _signature(game.campaign["home_world"]) == _signature(old_home), "migration preserves both actual mission and archived home"):
+		return false
+	var migrated: Dictionary = game.campaign.duplicate(true)
+	if not _check(game._save_game() and game._load_game(false) and _same(game.campaign, migrated), "migrated v2 save reload is idempotent including tissue balances"):
+		return false
+	_clear_modals()
+	game.campaign["home_world"]["saved_at"] = Time.get_unix_time_from_system()
+	if not _check(game._campaign_return("retreat") and Catalog.is_unlocked(game.campaign, "first_contact"), "retreat preserves legitimately unlocked legacy challenge"):
+		return false
+	if not _check(_write_json(saved) and game._load_game(false), "restore completed v2 integration fixture without touching user slots"):
+		return false
 	return true
 
 

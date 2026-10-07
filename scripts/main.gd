@@ -7570,6 +7570,7 @@ func _start_new_culture(scene_id: String = "home_nest", retain_previous: bool = 
 	campaign = CampaignState.fresh()
 	if campaign_ui != null:
 		campaign_ui.reset_panel()
+		campaign_ui.reset_campaign_selection()
 		campaign_ui.failure_presented = false
 	_reset_offline_settlement_state()
 	rng.seed = 0xF00D47
@@ -11537,7 +11538,7 @@ func _parse_save_payload(payload: String) -> Dictionary:
 	var expected_scene := "home_nest"
 	if parsed.has("campaign"):
 		var raw = parsed["campaign"]
-		if not raw is Dictionary or not _finite_save_number(raw.get("version", null)) or float(raw.get("version", 0)) != CampaignState.VERSION or not raw.get("active_mission", null) is Dictionary or not raw.get("home_world", null) is Dictionary:
+		if not raw is Dictionary or not CampaignState.supports_version(raw.get("version", null)) or not raw.get("active_mission", null) is Dictionary or not raw.get("home_world", null) is Dictionary:
 			return {}
 		var cleaned := CampaignState.sanitize(raw)
 		if not raw["active_mission"].is_empty():
@@ -11956,6 +11957,7 @@ func _restore_world_state(parsed: Dictionary, prepared_world: Node2D = null) -> 
 	offline_report.clear()
 	if campaign_ui != null:
 		campaign_ui.reset_panel()
+		campaign_ui.reset_campaign_selection()
 		campaign_ui.failure_presented = false
 	rng.seed = 0xF00D47
 	_generate_world()
@@ -12710,11 +12712,14 @@ func _campaign_goal_targets() -> Dictionary:
 
 
 func _campaign_nest_multiplier(branch_id: String) -> float:
+	# Purchased nest specializations travel with expeditions. Nest-level passive
+	# bonuses remain home/trial-only; mission stocks, units and local tech reset.
+	var specialization_bonus := CampaignState.branch_level(campaign, branch_id) * 0.15
 	if _campaign_active() and CampaignState.Catalog.mission(String(campaign["active_mission"]["id"])).get("kind", "") != "nest_challenge":
-		return 1.0
+		return 1.0 + specialization_bonus
 	var level := int(campaign.get("nest_level", 1))
 	var tier_bonus := 0.10 if ((branch_id == "transport" and level >= 2) or (branch_id == "resilience" and level >= 3) or (branch_id == "defense" and level >= 4)) else 0.0
-	return 1.0 + tier_bonus + CampaignState.branch_level(campaign, branch_id) * 0.15
+	return 1.0 + tier_bonus + specialization_bonus
 
 
 func _total_core_biomass() -> float:

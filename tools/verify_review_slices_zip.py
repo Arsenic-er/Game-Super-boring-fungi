@@ -170,6 +170,7 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
             require_remapped(entries, "scripts/review_slice_localization.gd")
             require_remapped(entries, "scripts/review_objectives.gd")
             require_remapped(entries, "scripts/review_campaign_controller.gd")
+            require_remapped(entries, "scripts/campaign_branch_localization.gd")
             for mission_id, scene in MISSIONS:
                 require_remapped(entries, "scenes/missions/" + scene + ".tscn")
                 require(any(mission_id in name for name in markdown), "missing audit card for: " + mission_id)
