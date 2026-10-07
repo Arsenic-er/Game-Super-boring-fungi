@@ -1,3 +1,20 @@
+## 2026-10-08 — Direct-entry campaign audit delivery
+
+- Final production source: 7839f54adc572784b90fe6207a561cf84f8f3fd2; clean build chapter1-review-20261007T211921Z-0b73383b62cf.
+- Preset ledger/fixture/localization: /home/ubuntu/fungi/test-logs/campaign-audit-presets/presets-smoke.log — 903 checks PASS.
+- Initial full isolated suite: /home/ubuntu/fungi/test-logs/20261007T211133Z-697861/summary.txt — import and normal startup PASS; **98/100 tests, 754 seconds, overall FAIL**. The new audit smoke left sentinel normal/developer/settings files in the shared disposable profile; DamagedNetworkSave and DeveloperCampaign correctly rejected them. This was a test-harness cleanup fault, not a production save overwrite. Do not report this run as 100/100.
+- Corrected audit smoke restores original bytes/existence on success and failure, deleting only its exact hash-matching created sentinel when originally absent. A fresh shared-profile sequence passed Audit **436**, DamagedNetworkSave **93**, DeveloperCampaign **15,879** checks: /home/ubuntu/fungi/test-logs/audit-runtime-20261007T210540Z/shared-*.log. No second full-suite pass is claimed.
+- The initial full-suite scripts/scenes/tests snapshot matched the committed feature product (digest 81630f5708c942d949f10a39a2273e49a7e86d8810f553d27ad79ec595c368b3). Subsequent production change only prevents drawing an uninitialized rejected audit entry; it was covered by the final GL and exported routing gates below.
+- Final audit UI/software-OpenGL: /home/ubuntu/fungi/test-logs/campaign-audit-20261007T211901Z-714571/ — **449 checks, 14 captures**, seven languages/two viewports PASS. Render evidence is not human visual acceptance.
+- Existing nine review slices: /home/ubuntu/fungi/test-logs/review-layout-20261007T211224Z-700263/ — **2,479 checks, 168 captures** PASS.
+- Initial exported invalid-argument probe exposed queued splash drawing with an uninitialized font. Final release route matrix: /home/ubuntu/fungi/test-logs/audit-packed-20261007T211949Z/summary.json — **30/30** (eight checkpoints, nine existing slices, ordinary entry, twelve rejected argument cases); expected exit codes, no SCRIPT ERROR and no profile creation on rejected routes. This executes the actual exported PCK with server Linux Godot, not the Windows EXE.
+- Final archive verifier: /home/ubuntu/fungi/test-logs/review-package-20261007T211921Z-715796/ — 36 ZIP members, ten exact ASCII CMD launchers, eight checkpoint IDs, 158 checked PCK entries. Nine negative-archive mutations were rejected by the same verifier.
+- Full review archive SHA-256: 918210dd6d9548cf31406469e241b40e12add4e7bd25c14b1057b826e905448a.
+- Engine-reuse update: 6,325,747 bytes; SHA-256 54234902228662ee4ae6e41ce73fa92a995d1e4f7044efe7922258cb0bd997b1.
+- Ordinary three-file ZIP uses the same final EXE/PCK: SHA-256 1680b83d708154dd7284a83b0dcd5e81201cb545756cc9982e526f6aed55ea0c.
+- Local final-artifact update: C:\Users\jiang\Documents\战舰\fungi-test\00 主巢分支审查.cmd. All **35** manifest files verified; one EXE and one adjacent PCK; five existing save/settings JSON files stayed hash-identical. Engine reused with SHA-256 502b441aa251105d53741cd999fce0c52bcb9b21be9e4c17694bd2f5069c3227. No local game/test process was launched and no source/dependencies were downloaded.
+- Owned server scratch was removed after verification; retained logs remain on the server. Old policy-blocked local staging was not touched. No Git push or asset-repository mutation was requested/performed. Native Windows interaction and player pacing remain for user review.
+
 # Server Verification Index / 服务器测试记录索引
 
 ## Latest: 2026-10-04 Review goals and home return / 切片目标与返巢回归

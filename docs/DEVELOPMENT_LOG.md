@@ -7,6 +7,10 @@
 - Focused preset validation passed 903 checks. Runtime validation passed 435 checks; the software-OpenGL run passed 449 checks and saved 14 captures (seven locales, 1280x720 and 640x360). Controlled-outcome tests verify real reward settlement, specialization purchase, carry-over, replay reward suppression and protected profile hashes; those fixtures are not a normal player victory demonstration.
 - Added server-only rendering and actual-export routing verifiers; review packaging now validates the 00 launcher, eight checkpoint IDs, audit scenes/scripts and matching embedded build metadata. The Windows layout remains one EXE with an adjacent PCK. Full regression and final artifact delivery are recorded separately after completion.
 - 本轮目标是让用户不必从头重玩便可审查分支经营流程；没有新增后续章节，也没有以预设前置记录冒充实际通关。
+- Final exported-parameter testing found a rejected audit route drawing the uninitialized splash before shutdown. Production commit 7839f54 hides/disables that node and guards drawing; the final actual-PCK matrix passed all 30 cases, and the final seven-language renderer passed 449 checks/14 captures. The existing nine-slice renderer passed 2,479 checks/168 captures.
+- Initial full verification was 98/100 (754 seconds), not a clean pass: the new smoke's retained sentinel profiles interfered with two later smoke tests. Fixed test-only restoration and reran Audit → DamagedNetworkSave → DeveloperCampaign in one fresh shared profile: 436/93/15,879 checks PASS. Full and focused outcomes remain distinct in TEST_LOG_INDEX.md.
+- Delivered clean build chapter1-review-20261007T211921Z-0b73383b62cf by updating the existing local folder with a 6,325,747-byte artifact, reusing the engine. All 35 manifest files and unchanged hashes of five existing save/settings files were verified. New 00 launcher provides eight independent progress checkpoints; 01–09 remain available. No source/dependency download, local runtime launch, extra EXE/PCK copy, Git push or private-asset change occurred.
+
 
 # Development Log / 开发日志
 

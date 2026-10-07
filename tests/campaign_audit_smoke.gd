@@ -8,6 +8,7 @@ var checks := 0
 var failed := false
 var game: Node
 var protected: Dictionary = {}
+var protected_originals: Dictionary = {}
 
 
 class FailingAudit:
@@ -36,6 +37,11 @@ func _run() -> void:
 		for filename in ["save.json", "save.json.bak", "save.json.tmp", "settings.json"]:
 			protected_paths.append("user://review-v1/" + String(mission["id"]) + "/" + filename)
 	for path in protected_paths:
+		var existed := FileAccess.file_exists(path)
+		protected_originals[path] = {
+			"existed": existed,
+			"bytes": FileAccess.get_file_as_bytes(path) if existed else PackedByteArray()
+		}
 		DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 		var file := FileAccess.open(path, FileAccess.WRITE)
 		file.store_string("CAMPAIGN_AUDIT_PROTECTED " + path)
@@ -219,6 +225,8 @@ func _run() -> void:
 	for path in protected:
 		if not _check(FileAccess.get_sha256(path) == protected[path], "normal/developer/review profiles untouched " + path):
 			return
+	if not _check(_restore_protected_profiles(), "restore pre-test profiles for the shared suite"):
+		return
 	game.queue_free()
 	await process_frame
 	print("CAMPAIGN_AUDIT_OK checks=%d stages=8 normal_costs=true isolated=true" % checks)
@@ -255,6 +263,31 @@ func _layout_checks() -> bool:
 	return true
 
 
+func _restore_protected_profiles() -> bool:
+	var restored := true
+	for path in protected_originals:
+		var original: Dictionary = protected_originals[path]
+		if bool(original["existed"]):
+			var file := FileAccess.open(path, FileAccess.WRITE)
+			if file == null:
+				restored = false
+				push_warning("Cannot restore original audit-test profile: " + path)
+			else:
+				file.store_buffer(original["bytes"])
+				file.close()
+		elif FileAccess.file_exists(path):
+			# Remove only this test's exact sentinel, never unrelated data.
+			if FileAccess.get_sha256(path) == String(protected.get(path, "")):
+				if DirAccess.remove_absolute(path) != OK:
+					restored = false
+			else:
+				restored = false
+				push_warning("Keeping changed profile instead of deleting uncertain data: " + path)
+	if restored:
+		protected_originals.clear()
+	return restored
+
+
 func _check(condition: bool, description: String) -> bool:
 	checks += 1
 	if condition:
@@ -262,4 +295,5 @@ func _check(condition: bool, description: String) -> bool:
 	failed = true
 	push_error("CAMPAIGN_AUDIT_FAIL " + description)
 	quit(1)
+	_restore_protected_profiles()
 	return false
