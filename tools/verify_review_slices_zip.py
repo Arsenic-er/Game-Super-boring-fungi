@@ -22,11 +22,14 @@ TITLES = ("第一条补给线", "远端粮仓", "第一次接触", "培养基争
 LAUNCHERS = {f"{index:02d} {title}.cmd": mission[0]
              for index, (mission, title) in enumerate(zip(MISSIONS, TITLES), 1)}
 ROOT_FILES = {
+    "00 主巢分支审查.cmd",
     "FungiMicroculture.exe", "FungiMicroculture.pck", "README-FIRST.txt", "START-HERE.txt",
     "build-info.json",
 } | set(LAUNCHERS)
 IDENTITY_FIELDS = ("build_id", "build_utc", "source_commit", "source_dirty", "source_sha256",
-                   "mission_ids", "missions", "profile", "save_root")
+                   "mission_ids", "missions", "profile", "save_root", "campaign_audit")
+AUDIT_STAGES = ["early_choice", "early_one", "first_contact_ready", "nest_upgrade_ready",
+                "advanced_choice", "two_fronts_ready", "finale_ready", "chapter_complete"]
 
 class BundleValidationError(RuntimeError):
     pass
@@ -148,6 +151,9 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
                 require(launcher == expected, "launcher must contain exact ASCII command, relative EXE and unique mission: " + filename)
                 require(not launcher.startswith(b"\xef\xbb\xbf") and all(byte < 128 for byte in launcher), "launcher must be ASCII without BOM")
             require(info["profile"] == "paid-baseline", "unexpected review profile")
+            require(archive.read("00 主巢分支审查.cmd") == b'@echo off\r\nstart "" "%~dp0FungiMicroculture.exe" -- --audit-hub --audit-lang=zh_CN\r\n', "hub launcher must use isolated audit entry")
+            require(info["campaign_audit"] == {"stage_ids": AUDIT_STAGES, "save_root": "user://campaign-audit-v1/<stage>/",
+                                              "synthetic_fixture": True, "normal_costs": True}, "audit stage contract mismatch")
             expected_files = set(names) - {"build-info.json", "review-update-info.json"}
             if update:
                 expected_files.add("FungiMicroculture.exe")
@@ -171,6 +177,10 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
             require_remapped(entries, "scripts/review_objectives.gd")
             require_remapped(entries, "scripts/review_campaign_controller.gd")
             require_remapped(entries, "scripts/campaign_branch_localization.gd")
+            require_remapped(entries, "scenes/CampaignAudit.tscn")
+            require_remapped(entries, "scripts/campaign_audit.gd")
+            require_remapped(entries, "scripts/campaign_audit_presets.gd")
+            require_remapped(entries, "scripts/campaign_audit_localization.gd")
             for mission_id, scene in MISSIONS:
                 require_remapped(entries, "scenes/missions/" + scene + ".tscn")
                 require(any(mission_id in name for name in markdown), "missing audit card for: " + mission_id)
@@ -182,7 +192,7 @@ def validate_archive(path: str | Path, update: bool = False) -> dict:
             require(all(embedded[key] == info[key] for key in IDENTITY_FIELDS), "embedded/source build identity mismatch")
             return {"build_id": info["build_id"], "source_commit": info["source_commit"],
                     "source_dirty": info["source_dirty"], "zip_entries": len(names), "pck_entries": len(entries),
-                    "archive_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(), "update": update, "ascii_launchers": len(LAUNCHERS)}
+                    "archive_sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(), "update": update, "ascii_launchers": len(LAUNCHERS) + 1, "hub_stages": len(AUDIT_STAGES)}
     except BundleValidationError:
         raise
     except (OSError, ValueError, KeyError, TypeError, struct.error, zipfile.BadZipFile, UnicodeError) as error:

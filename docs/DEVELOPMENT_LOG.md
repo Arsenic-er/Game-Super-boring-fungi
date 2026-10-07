@@ -1,3 +1,13 @@
+## 2026-10-08 — Direct-entry home-nest audit checkpoints / 随时切入主巢流程审查
+
+- Added a separate CampaignAudit entry, directly extending the normal game and retaining the real campaign controller. The Chinese 00 launcher opens eight checkpoint choices; F8 pauses, resumes and permits switching without replaying prerequisites. Existing nine single-mission slices retain their original isolation.
+- Every checkpoint has an independent save/settings/report directory under campaign-audit-v1. Entry selection never automatically loads or overwrites progress; resetting an existing slot requires confirmation. Switches first save the current session. Failed reset/load restores the previous world and ledger; failed close keeps a visible paused error instead of silently losing progress.
+- Each checkpoint explicitly declares synthetic prerequisite victories and a prepared home (two cores including barracks, four mature branches, eight basic foragers, stocks 220/24/0). Checkpoint materials, tissue and gates are derived through real campaign operations. After preparation all construction, combat, progression and rewards use ordinary rules. No developer free mode or offline settlement is available; fixture records are not earned victories, timing evidence or normal paid-opening proof.
+- Added seven-language controls and starting-condition descriptions, stage-scoped reports with build identity, normal-save rejection of copied audit envelopes, approved 1/5/20x speeds, and speed preservation across departure/return. A code review found and corrected hidden close-save errors and misleading speed state.
+- Focused preset validation passed 903 checks. Runtime validation passed 435 checks; the software-OpenGL run passed 449 checks and saved 14 captures (seven locales, 1280x720 and 640x360). Controlled-outcome tests verify real reward settlement, specialization purchase, carry-over, replay reward suppression and protected profile hashes; those fixtures are not a normal player victory demonstration.
+- Added server-only rendering and actual-export routing verifiers; review packaging now validates the 00 launcher, eight checkpoint IDs, audit scenes/scripts and matching embedded build metadata. The Windows layout remains one EXE with an adjacent PCK. Full regression and final artifact delivery are recorded separately after completion.
+- 本轮目标是让用户不必从头重玩便可审查分支经营流程；没有新增后续章节，也没有以预设前置记录冒充实际通关。
+
 # Development Log / 开发日志
 
 This log preserves the major implementation milestones and the final server-archive state. It is a curated development record rather than a raw chat transcript or a copy of transient runtime logs.

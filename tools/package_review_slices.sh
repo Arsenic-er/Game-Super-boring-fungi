@@ -62,6 +62,8 @@ specs = [
  ("stable_colony", "稳定菌落", "StableColony", "nest_challenge"),
 ]
 info = {
+ "campaign_audit": {"stage_ids": ["early_choice", "early_one", "first_contact_ready", "nest_upgrade_ready", "advanced_choice", "two_fronts_ready", "finale_ready", "chapter_complete"],
+                    "save_root": "user://campaign-audit-v1/<stage>/", "synthetic_fixture": True, "normal_costs": True},
  "format_version": 1,
  "build_id": "chapter1-review-" + now.replace("-", "").replace(":", "") + "-" + source_hash[:12],
  "build_utc": now, "source_commit": commit, "source_dirty": dirty, "source_sha256": source_hash,
@@ -102,6 +104,8 @@ for number, mission in enumerate(identity["missions"], 1):
     command = '@echo off\r\nstart "" "%~dp0FungiMicroculture.exe" -- --review-mission=' + mission["id"] + ' --review-lang=zh_CN\r\n'
     # Chinese filename, ASCII-only command text: no code-page switch, COM, or PowerShell.
     (bundle / name).write_bytes(command.encode("ascii"))
+(bundle / "00 主巢分支审查.cmd").write_bytes(
+    b'@echo off\r\nstart "" "%~dp0FungiMicroculture.exe" -- --audit-hub --audit-lang=zh_CN\r\n')
 if {p.stem for p in cards} != {"README", *identity["mission_ids"]}:
     raise SystemExit("REVIEW_PACKAGE_FAIL: require exactly 9 named audit cards and README.md")
 target_docs = bundle / "review-docs"; target_docs.mkdir()
@@ -115,7 +119,7 @@ for card in cards:
     page += '<p><a href="index.html">返回审查卡目录</a></p><pre>' + html.escape(content) + '</pre>'
     (target_docs / (card.stem + ".html")).write_text(page, encoding="utf-8")
 links = ['<li><a href="' + key + '.html">' + html.escape(titles[key]) + '</a></li>' for key in ["README", *identity["mission_ids"]]]
-index = '<!doctype html><meta charset="utf-8"><title>第一章审查卡</title><h1>第一章独立游戏切片</h1><p>这些只是离线说明文档，不会在浏览器运行游戏。请双击各关中文名 CMD 入口启动游戏，无需安装或创建快捷方式。</p><ul>' + "".join(links) + "</ul>"
+index = '<!doctype html><meta charset="utf-8"><title>第一章审查卡</title><h1>第一章独立游戏切片</h1><p>这些只是离线说明，不在浏览器运行游戏。双击“00 主巢分支审查.cmd”可以直接进入任一进度节点，F8 随时切换；01–09 仍是各关的独立试玩。无需重打前置关卡。</p><ul>' + "".join(links) + "</ul>"
 (target_docs / "index.html").write_text(index, encoding="utf-8")
 info = json.loads((stage / "identity.json").read_text())
 info["layout"] = "one-exe-and-adjacent-pck"

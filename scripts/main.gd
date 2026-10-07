@@ -860,6 +860,25 @@ func _is_review_entry() -> bool:
 	return false
 
 
+func _settings_file_exists() -> bool:
+	return FileAccess.file_exists(SETTINGS_PATH)
+
+
+func _audit_launch_requested(arguments: Array) -> bool:
+	for argument in arguments:
+		if String(argument).begins_with("--audit-"):
+			return true
+	return false
+
+
+func _route_audit_entry() -> void:
+	var tree := get_tree()
+	var result := tree.change_scene_to_file("res://scenes/CampaignAudit.tscn")
+	if result != OK:
+		push_error("CAMPAIGN_AUDIT_ROUTE_FAILED " + str(result))
+		tree.quit(2)
+
+
 func _review_launch_requested(arguments: Array) -> bool:
 	for argument in arguments:
 		if String(argument).begins_with("--review-"):
@@ -878,18 +897,19 @@ func _route_review_entry() -> void:
 
 
 func _ready() -> void:
-	# Route even malformed review options before normal settings/save discovery.
-	# ReviewSlice overrides the marker, so its super._ready never recurses.
-	if not _is_review_entry() and _review_launch_requested(Array(OS.get_cmdline_user_args())):
+	# Isolated entries route malformed options before normal profile access.
+	# Their marker prevents recursive routing when they call super._ready.
+	var arguments := Array(OS.get_cmdline_user_args())
+	if not _is_review_entry() and (_audit_launch_requested(arguments) or _review_launch_requested(arguments)):
 		hide()
 		set_process(false)
 		set_process_input(false)
 		set_process_unhandled_input(false)
-		call_deferred("_route_review_entry")
+		call_deferred("_route_audit_entry" if _audit_launch_requested(arguments) else "_route_review_entry")
 		return
 	campaign_ui = CampaignController.new(self)
 	_activate_world_scene(_prepare_world_scene("home_nest"))
-	var settings_file_existed := FileAccess.file_exists(SETTINGS_PATH)
+	var settings_file_existed := _settings_file_exists()
 	fallback_font = ThemeDB.fallback_font
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var bundled_font = load(UI_FONT_PATH)
@@ -11533,6 +11553,10 @@ func _parse_save_payload(payload: String) -> Dictionary:
 	if json.parse(payload) != OK:
 		return {}
 	var parsed = json.data
+	# Audit fixtures are never ordinary campaign saves, even if copied there.
+	# Isolated subclasses validate their own metadata after this shared parser.
+	if parsed is Dictionary and not _is_review_entry() and (parsed.has("campaign_audit") or parsed.has("review_slice")):
+		return {}
 	if not _valid_saved_world(parsed):
 		return {}
 	var expected_scene := "home_nest"
