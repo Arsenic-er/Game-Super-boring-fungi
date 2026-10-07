@@ -112,3 +112,18 @@ The Windows release workflow now has two Linux artifact checks plus a Windows ru
 - `tools/windows_split_export_smoke.sh` 实际调用 Godot Windows 导出器，并要求生成非空的 EXE 与 PCK。
 - `tools/windows_portable_bundle_smoke.sh` 实际调用发行打包脚本，并要求 ZIP 根目录准确包含 EXE、PCK 与 `README-FIRST.txt`。
 - `tools/windows_portable_runtime_smoke.ps1` 会解压最终 ZIP，并启动使用同目录 PCK 的 EXE。门禁自身已于 2026-08-28 在 Windows 上使用临时测试程序通过；实际候选包的结果须在 Windows 测试后另行记录。
+
+## 2026-10-08 — Branch-challenge delivery
+
+- Product source: f0d97dca8c73aee68bbd825f14078e3b29964e93; clean build chapter1-review-20261007T203857Z-566d7e9ca37f.
+- Full suite: /home/ubuntu/fungi/test-logs/20261007T203527Z-621808/summary.txt — import, 98/98 tests and startup PASS, 735 seconds.
+- Focused real-save integration: /home/ubuntu/fungi/test-logs/branch-root-check-20261007T202834Z/ — integration 528, save 66, review 1,193 checks / 27 mission outcomes PASS.
+- Chapter renderer: /home/ubuntu/fungi/test-logs/campaign-visual-20261007T203537Z-622199/ — 631 rendered captures, nine scenes, seven languages, two viewport sizes.
+- Review renderer: /home/ubuntu/fungi/test-logs/review-layout-20261007T203735Z-622198/ — 2,479 checks / 168 captures.
+- Branch renderer: /home/ubuntu/fungi/test-logs/branch-hub-render-20261007T203933Z/ — 24,183 checks / 56 captures. No human visual acceptance is inferred.
+- Export verification: /home/ubuntu/fungi/test-logs/review-package-20261007T203857Z-632178/ — clean source, exact layout, 150 verified PCK entries.
+- Actual packed-resource startup: /home/ubuntu/fungi/test-logs/branch-packed-runtime-20261007T204708Z/ — nine review entries and normal entry PASS using server Linux Godot. Eight entries retain the known two-ObjectDB exit warning; no native Windows runtime claim.
+- Review ZIP SHA-256: e0b0ce5aa16cfc5aa7a65abbbc5c5f2fe57276ff8dcdb926e2cfaa8a19ba21a4.
+- Engine-reuse update SHA-256: 56a444aa6202a807df991127272d07cbb7d1687aab922ad6516bd513fcbf2259; 6,276,573 bytes.
+- Ordinary three-file ZIP SHA-256: a49c5e21e1f0b6a73a75b8b9c0f4e571f852e7d5ae40f15b6b78b84a2cb1b00f; shares the tested review archive's exact EXE/PCK.
+- Local final-artifact update: C:\Users\jiang\Documents\战舰\fungi-test\FungiMicroculture.exe; reused engine SHA-256 502b441aa251105d53741cd999fce0c52bcb9b21be9e4c17694bd2f5069c3227. All 34 manifest files verified, five pre-existing JSON save/settings files unchanged, no local runtime launched.
