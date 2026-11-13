@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest an improvement to Game-Super-boring-fungi.
+title: '[Feature]: '
+body:
+- type: dropdown
+  id: component
+  attributes:
+    label: Affected component
+    options:
+    - Fungal simulation or evolution
+    - Expedition or combat
+    - Nest upgrades or rewards
+    - Mission progression
+    - Save or load
+    - Interface
+    - Build or launch
+    - Other / unsure
+  validations:
+    required: true
+- type: textarea
+  id: problem
+  attributes:
+    label: Problem or use case
+    placeholder: 'Example: I cannot easily compare colony traits before choosing an
+      upgrade.'
+  validations:
+    required: true
+- type: textarea
+  id: proposal
+  attributes:
+    label: Proposed solution
+    placeholder: 'Example: Show before-and-after trait values in the nest upgrade
+      preview.'
+  validations:
+    required: true
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatives considered
+    description: Describe other approaches or current workarounds, if any.
+- type: textarea
+  id: acceptance
+  attributes:
+    label: Acceptance criteria
+    placeholder: 'The preview uses the same values as the applied upgrade.
+
+      Cancelling does not spend resources.
+
+      Existing saves and completed rewards remain compatible.'
+- type: textarea
+  id: context
+  attributes:
+    label: Additional context
+    description: Add related issues, small examples, design sketches, or references
+      if useful.

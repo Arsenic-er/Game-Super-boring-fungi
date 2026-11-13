@@ -1,0 +1,86 @@
+name: Bug report
+description: Report a simulation, expedition, combat, or progression problem.
+title: '[Bug]: '
+body:
+- type: dropdown
+  id: component
+  attributes:
+    label: Affected component
+    options:
+    - Fungal simulation or evolution
+    - Expedition or combat
+    - Nest upgrades or rewards
+    - Mission progression
+    - Save or load
+    - Interface
+    - Build or launch
+    - Other / unsure
+  validations:
+    required: true
+- type: input
+  id: version
+  attributes:
+    label: Version or commit SHA
+  validations:
+    required: true
+- type: textarea
+  id: summary
+  attributes:
+    label: What happened?
+    placeholder: 'Example: A completed home-nest challenge grants its first-win reward
+      again after loading a save.'
+  validations:
+    required: true
+- type: textarea
+  id: steps
+  attributes:
+    label: Steps to reproduce
+    placeholder: '1. Complete the affected home-nest challenge.
+
+      2. Record the reward and colony resources.
+
+      3. Save, reload, and revisit the challenge.'
+  validations:
+    required: true
+- type: textarea
+  id: expected
+  attributes:
+    label: Expected behavior
+    placeholder: First-win rewards should follow the documented progression rules
+      after reload.
+  validations:
+    required: true
+- type: textarea
+  id: context
+  attributes:
+    label: Expedition and colony state
+    placeholder: 'Chapter, expedition, or home-nest challenge:
+
+      Nest level and upgrades:
+
+      Relevant organism or colony state:
+
+      New game or existing save:
+
+      Reward or resource state:'
+- type: textarea
+  id: environment
+  attributes:
+    label: Environment
+    placeholder: 'Operating system:
+
+      Game build or release:
+
+      Relevant hardware:
+
+      Display resolution:
+
+      Observed frame rate (performance reports only):'
+  validations:
+    required: true
+- type: textarea
+  id: evidence
+  attributes:
+    label: Logs, screenshots, or a minimal example
+    description: Include the smallest example or log excerpt needed to reproduce the
+      problem.
